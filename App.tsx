@@ -8,16 +8,23 @@ import { HomeScreen } from './src/screens/HomeScreen';
 import { AuthNavigator } from './src/navigation/AuthNavigator';
 
 const AppContent: React.FC = () => {
-  const [isLoading, setIsLoading] = useState(true);
+  const [splashFinished, setSplashFinished] = useState(false);
   const { themeMode } = useTheme();
   const { user, loading: authLoading } = useAuth();
 
-  if (isLoading) {
-    return <AppSplashScreen onFinish={() => setIsLoading(false)} />;
-  }
+  // Show splash screen until both splash animation is done AND auth is initialized
+  const showSplash = !splashFinished || authLoading;
 
-  if (authLoading) {
-    return null; // Or a loading screen
+  console.log('App State:', {
+    splashFinished,
+    authLoading,
+    showSplash,
+    hasUser: !!user,
+    userEmail: user?.email
+  });
+
+  if (showSplash) {
+    return <AppSplashScreen onFinish={() => setSplashFinished(true)} />;
   }
 
   return (
