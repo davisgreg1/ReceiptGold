@@ -5,10 +5,12 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
+import PricingLanding from "./PricingLanding";
 
 export const HomeScreen: React.FC = () => {
   const { theme, themeMode, toggleTheme } = useTheme();
@@ -60,82 +62,18 @@ export const HomeScreen: React.FC = () => {
         </View>
       </View>
 
-      <View style={styles.content}>
-        <Text style={[styles.welcomeText, { color: theme.text.primary }]}>
-          Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}!
-        </Text>
-        <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
-          Your premium receipt management solution for LLCs
-        </Text>
-
-        <View style={styles.placeholder}>
-          <Text
-            style={[styles.placeholderText, { color: theme.text.tertiary }]}
-          >
-            🚧 Coming Soon 🚧
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.welcomeSection}>
+          <Text style={[styles.welcomeText, { color: theme.text.primary }]}>
+            Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}!
           </Text>
-          <Text
-            style={[styles.placeholderSubtext, { color: theme.text.tertiary }]}
-          >
-            • Receipt Generation
-          </Text>
-          <Text
-            style={[styles.placeholderSubtext, { color: theme.text.tertiary }]}
-          >
-            • OCR Scanning
-          </Text>
-          <Text
-            style={[styles.placeholderSubtext, { color: theme.text.tertiary }]}
-          >
-            • Expense Tracking
-          </Text>
-          <Text
-            style={[styles.placeholderSubtext, { color: theme.text.tertiary }]}
-          >
-            • Tax Compliance
+          <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
+            Choose the perfect plan for your business
           </Text>
         </View>
 
-        <View
-          style={[
-            styles.card,
-            {
-              backgroundColor: theme.background.secondary,
-              borderColor: theme.border.primary,
-            },
-          ]}
-        >
-          <Text style={[styles.cardTitle, { color: theme.text.primary }]}>
-            Quick Stats
-          </Text>
-          <View style={styles.statsRow}>
-            <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: theme.gold.primary }]}>
-                0
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
-                Receipts
-              </Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: theme.gold.primary }]}>
-                $0.00
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
-                Total
-              </Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={[styles.statNumber, { color: theme.gold.primary }]}>
-                0
-              </Text>
-              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
-                Categories
-              </Text>
-            </View>
-          </View>
-        </View>
-      </View>
+        <PricingLanding />
+      </ScrollView>
     </SafeAreaView>
   );
 };
@@ -184,8 +122,11 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
+  },
+  welcomeSection: {
     paddingHorizontal: 20,
     paddingTop: 20,
+    paddingBottom: 10,
   },
   welcomeText: {
     fontSize: 24,
@@ -194,7 +135,7 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
-    marginBottom: 40,
+    marginBottom: 20,
   },
   placeholder: {
     alignItems: "center",
