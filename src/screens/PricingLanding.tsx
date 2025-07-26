@@ -10,11 +10,12 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useTheme } from "../theme/ThemeProvider";
+import { useSubscription, SubscriptionTier } from "../context/SubscriptionContext";
 
 const { width, height } = Dimensions.get("window");
 
 interface PricingTier {
-  id: string;
+  id: SubscriptionTier;
   name: string;
   price: number;
   period: string;
@@ -35,7 +36,8 @@ interface PricingLandingProps {}
 
 const PricingLanding: React.FC<PricingLandingProps> = () => {
   const { theme } = useTheme();
-  const [selectedTier, setSelectedTier] = useState<string | null>(null);
+  const { subscription, upgradeTo, loading: subscriptionLoading } = useSubscription();
+  const [selectedTier, setSelectedTier] = useState<SubscriptionTier | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const scaleAnim = new Animated.Value(1);
 
@@ -119,15 +121,20 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       }),
     ]).start();
 
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-
-    console.log(`Selected tier: ${tier.name}`);
-    setIsSelecting(false);
+    try {
+      // Use the subscription context to upgrade
+      await upgradeTo(tier.id);
+      console.log(`Successfully upgraded to: ${tier.name}`);
+    } catch (error) {
+      console.error('Upgrade failed:', error);
+    } finally {
+      setIsSelecting(false);
+    }
   };
 
   const PricingCard: React.FC<PricingCardProps> = ({ tier, index }) => {
     const isSelected = selectedTier === tier.id;
+    const isCurrentTier = subscription.tier === tier.id;
     const cardScale = tier.popular ? 1.02 : 1;
 
     return (
@@ -149,16 +156,19 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
         <TouchableOpacity
           style={[
             styles.card,
-            isSelected && styles.selectedCard,
+            (isSelected || isCurrentTier) && styles.selectedCard,
             {
               backgroundColor: tier.popular
                 ? theme.gold.background
                 : theme.background.secondary,
-              borderColor: isSelected ? theme.gold.primary : theme.border.primary,
+              borderColor: isCurrentTier 
+                ? theme.status.success 
+                : (isSelected ? theme.gold.primary : theme.border.primary),
             },
           ]}
           onPress={() => handleTierSelect(tier)}
           activeOpacity={0.9}
+          disabled={isCurrentTier}
         >
           <View
             style={[
@@ -190,22 +200,31 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
             style={[
               styles.button,
               {
-                backgroundColor: isSelected ? "#10B981" : tier.gradientStart,
-                shadowColor: isSelected ? "#10B981" : tier.gradientStart,
+                backgroundColor: isCurrentTier 
+                  ? theme.status.success 
+                  : (isSelected ? "#10B981" : tier.gradientStart),
+                shadowColor: isCurrentTier 
+                  ? theme.status.success 
+                  : (isSelected ? "#10B981" : tier.gradientStart),
+                opacity: isCurrentTier ? 0.7 : 1,
               },
             ]}
-            disabled={isSelecting}
+            disabled={isSelecting || isCurrentTier}
             onPress={() => handleTierSelect(tier)}
           >
             {isSelecting && selectedTier === tier.id ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color="white" />
-                <Text style={styles.buttonText}>Selecting...</Text>
+                <Text style={styles.buttonText}>Upgrading...</Text>
               </View>
+            ) : isCurrentTier ? (
+              <Text style={styles.buttonText}>Current Plan ✓</Text>
             ) : isSelected ? (
               <Text style={styles.buttonText}>Selected ✓</Text>
             ) : (
-              <Text style={styles.buttonText}>Choose {tier.name}</Text>
+              <Text style={styles.buttonText}>
+                {subscription.tier === 'free' ? `Choose ${tier.name}` : `Upgrade to ${tier.name}`}
+              </Text>
             )}
           </TouchableOpacity>
         </TouchableOpacity>
