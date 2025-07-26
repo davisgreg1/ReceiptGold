@@ -18,7 +18,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    // Set initial loading state
+    setLoading(true);
+    
+    const unsubscribe = onAuthStateChanged(auth, (user: User | null) => {
+      console.log('Auth state changed:', user ? `User: ${user.email}` : 'No user');
       setUser(user);
       setLoading(false);
     });
