@@ -13,8 +13,8 @@ export const Logo: React.FC<LogoProps> = ({ size = 48, style }) => {
   // Use different logo based on theme
   const logoSource =
     themeMode === "dark"
-      ? require("../../assets/images/logo/logo-dark.png")
-      : require("../../assets/images/logo/logo-light.png");
+      ? require("../../assets/images/logo/logo-dark.svg")
+      : require("../../assets/images/logo/logo-light.svg");
 
   return (
     <Image
