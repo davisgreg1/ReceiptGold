@@ -40,7 +40,9 @@ interface PricingLandingProps {}
 const PricingLanding: React.FC<PricingLandingProps> = () => {
   const { theme } = useTheme();
   const { subscription, upgradeTo, loading: subscriptionLoading } = useSubscription();
+  console.log("🚀 ~ PricingLanding ~ subscription zzg:", subscription)
   const { user } = useAuth();
+  console.log("🚀 ~ PricingLanding ~ user xxc:", user)
   const { handleSubscription, formatPrice } = useStripePayments();
   
   const [selectedTier, setSelectedTier] = useState<SubscriptionTier | null>(null);
