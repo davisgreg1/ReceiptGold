@@ -8,9 +8,12 @@ import {
   Dimensions,
   Animated,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription, SubscriptionTier } from "../context/SubscriptionContext";
+import { useAuth } from "../context/AuthContext";
+import { useStripePayments } from "../hooks/useStripePayments";
 
 const { width, height } = Dimensions.get("window");
 
@@ -37,6 +40,9 @@ interface PricingLandingProps {}
 const PricingLanding: React.FC<PricingLandingProps> = () => {
   const { theme } = useTheme();
   const { subscription, upgradeTo, loading: subscriptionLoading } = useSubscription();
+  const { user } = useAuth();
+  const { handleSubscription, formatPrice } = useStripePayments();
+  
   const [selectedTier, setSelectedTier] = useState<SubscriptionTier | null>(null);
   const [isSelecting, setIsSelecting] = useState(false);
   const scaleAnim = new Animated.Value(1);
@@ -104,6 +110,16 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
   ];
 
   const handleTierSelect = async (tier: PricingTier): Promise<void> => {
+    if (!user) {
+      Alert.alert('Authentication Required', 'Please sign in to upgrade your subscription.');
+      return;
+    }
+
+    if (tier.id === 'free') {
+      Alert.alert('Free Plan', 'You are already on the free plan!');
+      return;
+    }
+
     setIsSelecting(true);
     setSelectedTier(tier.id);
 
@@ -122,11 +138,28 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
     ]).start();
 
     try {
-      // Use the subscription context to upgrade
-      await upgradeTo(tier.id);
-      console.log(`Successfully upgraded to: ${tier.name}`);
+      const customerEmail = user.email || '';
+      const customerName = user.displayName || 'Customer';
+      
+      // Use the Stripe service to handle subscription
+      const success = await handleSubscription(
+        tier.id as any, // Type conversion for now
+        customerEmail,
+        customerName
+      );
+
+      if (success) {
+        console.log(`Successfully initiated upgrade to: ${tier.name}`);
+        // Update local subscription state
+        await upgradeTo(tier.id);
+      }
     } catch (error) {
       console.error('Upgrade failed:', error);
+      Alert.alert(
+        'Upgrade Error',
+        'Failed to process subscription. Please try again.',
+        [{ text: 'OK' }]
+      );
     } finally {
       setIsSelecting(false);
     }

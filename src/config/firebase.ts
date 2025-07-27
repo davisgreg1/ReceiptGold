@@ -1,6 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from "firebase/analytics";
 import { getFirestore } from 'firebase/firestore';
+import { getFunctions } from 'firebase/functions';
 import * as firebaseAuth from 'firebase/auth';
 import { initializeAuth, getAuth } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -39,13 +40,29 @@ const { getReactNativePersistence } = firebaseAuth as any;
 // Initialize Firestore
 const db = getFirestore(app);
 
+// Initialize Functions
+const functions = getFunctions(app);
+
+// Configure emulators for development
+if (__DEV__ || process.env.NODE_ENV === 'development') {
+    try {
+        // Connect to Functions emulator
+        const { connectFunctionsEmulator } = require('firebase/functions');
+        connectFunctionsEmulator(functions, 'localhost', 5004);
+        
+        console.log('🔗 Connected to Functions emulator on localhost:5004');
+    } catch (error) {
+        console.log('⚠️ Functions emulator connection error (may already be connected):', error);
+    }
+}
+
 let analytics: ReturnType<typeof getAnalytics> | undefined;
 if (typeof window !== 'undefined') {
     analytics = getAnalytics(app);
 }
 
 // Initialize Auth with error handling for already-initialized case
-let auth;
+let auth: firebaseAuth.Auth;
 try {
     auth = initializeAuth(app, {
         persistence: getReactNativePersistence(AsyncStorage),
@@ -61,5 +78,16 @@ try {
     }
 }
 
-export { auth, analytics, db };
+// Configure Auth emulator for development
+// if (__DEV__ || process.env.NODE_ENV === 'development') {
+//     try {
+//         const { connectAuthEmulator } = require('firebase/auth');
+//         connectAuthEmulator(auth, 'http://localhost:9100');
+//         console.log('🔗 Connected to Auth emulator on localhost:9100');
+//     } catch (error) {
+//         console.log('⚠️ Auth emulator connection error (may already be connected):', error);
+//     }
+// }
+
+export { auth, analytics, db, functions };
 export default app;

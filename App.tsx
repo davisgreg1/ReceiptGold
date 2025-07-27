@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { SubscriptionProvider } from './src/context/SubscriptionContext';
+import { StripeWrapper } from './src/components/StripeWrapper';
 import { AppSplashScreen } from './src/screens/SplashScreen';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { AuthNavigator } from './src/navigation/AuthNavigator';
@@ -39,13 +40,15 @@ const AppContent: React.FC = () => {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <ThemeProvider>
-        <AuthProvider>
-          <SubscriptionProvider>
-            <AppContent />
-          </SubscriptionProvider>
-        </AuthProvider>
-      </ThemeProvider>
+      <StripeWrapper>
+        <ThemeProvider>
+          <AuthProvider>
+            <SubscriptionProvider>
+              <AppContent />
+            </SubscriptionProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </StripeWrapper>
     </SafeAreaProvider>
   );
 }

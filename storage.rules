@@ -1,0 +1,36 @@
+
+// Cloud Storage Security Rules
+rules_version = '2';
+service firebase.storage {
+    match /b/{bucket}/o {
+        // Receipt images - users can only access their own files
+        match /receipts/{userId}/{allPaths=**} {
+            allow read, write: if request.auth != null && 
+            request.auth.uid == userId;
+        }
+
+        // Report files - users can only access their own files
+        match /reports/{userId}/{allPaths=**} {
+            allow read, write: if request.auth != null && 
+            request.auth.uid == userId;
+        }
+
+        // Thumbnails - users can only access their own files
+        match /thumbnails/{userId}/{allPaths=**} {
+            allow read, write: if request.auth != null && 
+            request.auth.uid == userId;
+        }
+
+        // Profile images (optional)
+        match /profiles/{userId}/{allPaths=**} {
+            allow read, write: if request.auth != null && 
+            request.auth.uid == userId;
+        }
+
+        // Public files (like category icons)
+        match /public/{allPaths=**} {
+            allow read: if true;
+            allow write: if false; // Only via Cloud Functions or admin
+        }
+    }
+}
