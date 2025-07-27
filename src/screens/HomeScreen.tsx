@@ -68,7 +68,13 @@ export const HomeScreen: React.FC = () => {
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.welcomeSection}>
           <Text style={[styles.welcomeText, { color: theme.text.primary }]}>
-            Welcome back{user?.email ? `, ${user.email.split('@')[0]}` : ''}!
+            Welcome back
+            {user?.displayName
+              ? `, ${(user as any).displayName?.split(' ')[0] || user?.email?.split('@')[0] || ''}`
+              : user?.email
+                ? `, ${user.email?.split('@')[0] || ''}`
+                : ''}
+            !
           </Text>
           <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
             Manage your receipts and maximize your tax savings
