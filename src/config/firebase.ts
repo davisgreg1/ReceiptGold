@@ -4,6 +4,7 @@ import { getFirestore } from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 import * as firebaseAuth from 'firebase/auth';
 import { initializeAuth, getAuth } from 'firebase/auth';
+import { getStorage } from 'firebase/storage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Firebase config
@@ -65,9 +66,9 @@ let analytics: ReturnType<typeof getAnalytics> | undefined;
 if (typeof window !== 'undefined') {
     analytics = getAnalytics(app);
 }
-//         console.log('⚠️ Auth emulator connection error (may already be connected):', error);
-//     }
-// }
 
-export { auth, analytics, db, functions };
+// Initialize Storage
+const storage = getStorage(app);
+
+export { auth, analytics, db, functions, storage };
 export default app;
