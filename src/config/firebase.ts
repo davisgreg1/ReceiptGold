@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from "firebase/analytics";
 import { getFirestore } from 'firebase/firestore';
-import { getFunctions } from 'firebase/functions';
+import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 import * as firebaseAuth from 'firebase/auth';
 import { initializeAuth, getAuth } from 'firebase/auth';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -42,7 +42,8 @@ const db = getFirestore(app);
 
 // Initialize Firebase services
 const functions = getFunctions(app);
-
+// connectFunctionsEmulator(functions, "localhost", 5001); // Connect to local emulator
+ 
 // Initialize Auth with error handling for already-initialized case
 let auth: firebaseAuth.Auth;
 try {
