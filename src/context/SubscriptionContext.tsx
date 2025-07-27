@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { doc, onSnapshot, updateDoc } from 'firebase/firestore';
 import { useAuth } from './AuthContext';
+import { db } from '../config/firebase';
 
 export type SubscriptionTier = 'free' | 'starter' | 'growth' | 'professional';
 
@@ -97,25 +98,43 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   });
   const [loading, setLoading] = useState(true);
 
+  // Set up Firestore subscription
   useEffect(() => {
-    const loadSubscription = async () => {
-      if (user) {
-        try {
-          // TODO: Fetch user's actual subscription from your backend
-          // For now, simulate with AsyncStorage for demo
-          const savedTier = await AsyncStorage.getItem(`subscription_${user.uid}`) as SubscriptionTier;
-          const tier = savedTier || 'free';
-          const features = getFeaturesByTier(tier);
+    let unsubscribe: (() => void) | undefined;
+
+    if (!user) {
+      setSubscription({
+        tier: 'free',
+        features: getFeaturesByTier('free'),
+        isActive: false,
+        expiresAt: null,
+      });
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Set up real-time subscription to Firestore
+      const subscriptionRef = doc(db, 'subscriptions', user.uid);
+      
+      unsubscribe = onSnapshot(subscriptionRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const data = docSnapshot.data();
+          if (!data) return;
+          
+          const tier = (data.currentTier || 'free') as SubscriptionTier;
           
           setSubscription({
             tier,
-            features,
-            isActive: tier !== 'free',
-            expiresAt: tier !== 'free' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null, // 30 days from now
+            features: getFeaturesByTier(tier),
+            isActive: tier !== 'free' && data.status === 'active',
+            expiresAt: data.billing?.currentPeriodEnd ? 
+              (data.billing.currentPeriodEnd instanceof Date ? 
+                data.billing.currentPeriodEnd : 
+                data.billing.currentPeriodEnd.toDate()) : 
+              null,
           });
-        } catch (error) {
-          console.error('Failed to load subscription:', error);
-          // Fall back to free tier on error
+        } else {
           setSubscription({
             tier: 'free',
             features: getFeaturesByTier('free'),
@@ -123,85 +142,82 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
             expiresAt: null,
           });
         }
-      } else {
-        // Not authenticated = free tier
-        setSubscription({
-          tier: 'free',
-          features: getFeaturesByTier('free'),
-          isActive: false,
-          expiresAt: null,
-        });
-      }
+        setLoading(false);
+      });
+    } catch (error) {
+      console.error('Error setting up subscription listener:', error);
+      setSubscription({
+        tier: 'free',
+        features: getFeaturesByTier('free'),
+        isActive: false,
+        expiresAt: null,
+      });
       setLoading(false);
-    };
+    }
 
-    loadSubscription();
-  }, [user]);
+    // Cleanup function
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [user]); // Only re-run if user changes
 
   const canAccessFeature = (feature: keyof SubscriptionFeatures): boolean => {
-    return subscription.features[feature] as boolean;
+    return subscription.features[feature] === true;
   };
 
   const canAddReceipt = (currentReceiptCount: number): boolean => {
-    const maxReceipts = subscription.features.maxReceipts;
-    return maxReceipts === -1 || currentReceiptCount < maxReceipts;
+    return currentReceiptCount < subscription.features.maxReceipts;
   };
 
   const getRemainingReceipts = (currentReceiptCount: number): number => {
-    const maxReceipts = subscription.features.maxReceipts;
-    if (maxReceipts === -1) return -1; // unlimited
-    return Math.max(0, maxReceipts - currentReceiptCount);
+    return subscription.features.maxReceipts - currentReceiptCount;
   };
 
   const upgradeTo = async (tier: SubscriptionTier): Promise<void> => {
-    setLoading(true);
     try {
-      // TODO: Implement actual payment flow with Stripe/etc
-      console.log(`Upgrading to ${tier}`);
-      
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // For demo, save to AsyncStorage
-      if (user) {
-        await AsyncStorage.setItem(`subscription_${user.uid}`, tier);
+      if (!user) {
+        throw new Error('User must be logged in to upgrade subscription');
       }
-      
-      const features = getFeaturesByTier(tier);
-      setSubscription({
-        tier,
-        features,
-        isActive: tier !== 'free',
-        expiresAt: tier !== 'free' ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) : null,
+
+      // Update Firestore - this will trigger the onSnapshot listener
+      const subscriptionRef = doc(db, 'subscriptions', user.uid);
+      await updateDoc(subscriptionRef, {
+        currentTier: tier,
+        updatedAt: new Date(),
       });
+
     } catch (error) {
-      console.error('Upgrade failed:', error);
+      console.error('Error upgrading subscription:', error);
       throw error;
-    } finally {
-      setLoading(false);
     }
   };
 
+  const contextValue = {
+    subscription,
+    canAccessFeature,
+    canAddReceipt,
+    getRemainingReceipts,
+    upgradeTo,
+    loading,
+  };
+
   return (
-    <SubscriptionContext.Provider
-      value={{
-        subscription,
-        canAccessFeature,
-        canAddReceipt,
-        getRemainingReceipts,
-        upgradeTo,
-        loading,
-      }}
-    >
+    <SubscriptionContext.Provider value={contextValue}>
       {children}
     </SubscriptionContext.Provider>
   );
 };
 
-export const useSubscription = (): SubscriptionContextType => {
+// Hook to use subscription context
+export const useSubscription = () => {
   const context = useContext(SubscriptionContext);
   if (context === undefined) {
     throw new Error('useSubscription must be used within a SubscriptionProvider');
   }
   return context;
 };
+
+export default SubscriptionProvider;
+
