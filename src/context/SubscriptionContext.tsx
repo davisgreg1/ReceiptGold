@@ -168,11 +168,14 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   const canAddReceipt = (currentReceiptCount: number): boolean => {
-    return currentReceiptCount < subscription.features.maxReceipts;
+    const maxReceipts = subscription.features.maxReceipts;
+    return maxReceipts === -1 || currentReceiptCount < maxReceipts;
   };
 
   const getRemainingReceipts = (currentReceiptCount: number): number => {
-    return subscription.features.maxReceipts - currentReceiptCount;
+    const maxReceipts = subscription.features.maxReceipts;
+    if (maxReceipts === -1) return -1; // unlimited
+    return Math.max(0, maxReceipts - currentReceiptCount);
   };
 
   const upgradeTo = async (tier: SubscriptionTier): Promise<void> => {
