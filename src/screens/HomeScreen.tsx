@@ -47,14 +47,6 @@ export const HomeScreen: React.FC = () => {
         </Text>
         <View style={styles.headerButtons}>
           <TouchableOpacity
-            onPress={toggleTheme}
-            style={[styles.themeToggle, { borderColor: theme.border.accent }]}
-          >
-            <Text style={[styles.themeToggleText, { color: theme.text.primary }]}>
-              {themeMode === "dark" ? "☀️" : "🌙"}
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
             onPress={handleLogout}
             style={[styles.logoutButton, { backgroundColor: theme.status.error }]}
           >

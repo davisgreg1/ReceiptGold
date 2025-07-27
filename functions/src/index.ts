@@ -53,7 +53,7 @@ const getStripe = (): Stripe => {
 interface SubscriptionTier {
   name: string;
   limits: {
-    maxReceipts: number;
+    maxReceipts: number; // 50 for starter, 150 for growth, -1 for professional
     maxBusinesses: number;
     storageLimit: number;
     apiCallsPerMonth: number;
@@ -70,6 +70,28 @@ interface SubscriptionTier {
     dedicatedManager: boolean;
   };
 }
+
+// Subscription tier limits - used in subscription management
+export const TIER_LIMITS = {
+  starter: {
+    maxReceipts: 50,
+    maxBusinesses: 1,
+    storageLimit: 500, // MB
+    apiCallsPerMonth: 1000,
+  },
+  growth: {
+    maxReceipts: 150,
+    maxBusinesses: 3,
+    storageLimit: 1000, // MB
+    apiCallsPerMonth: 5000,
+  },
+  professional: {
+    maxReceipts: -1, // unlimited
+    maxBusinesses: -1, // unlimited
+    storageLimit: 5000, // MB
+    apiCallsPerMonth: -1, // unlimited
+    }
+} as const;
 
 interface UserProfile {
   userId: string;
@@ -209,7 +231,7 @@ const subscriptionTiers: Record<string, SubscriptionTier> = {
   starter: {
     name: "Starter",
     limits: {
-      maxReceipts: -1, // unlimited
+      maxReceipts: 50, // 50 receipts per month
       maxBusinesses: 1,
       storageLimit: -1, // unlimited
       apiCallsPerMonth: 0,
@@ -273,9 +295,9 @@ function getTierFromPriceId(priceId: string): string {
   // Map your Stripe price IDs to tiers
   const priceToTierMap: Record<string, string> = {
     // TODO: Update these with your actual Stripe Price IDs from the dashboard
-    'price_1RpGJwAZ9H3S1Eo7K8IKCqcz': "starter",
-    'price_1RpGJ2AZ9H3S1Eo7nfD3eAZt': "growth",
-    'price_1RpGKVAZ9H3S1Eo7HA1yuvqW': "professional",
+    'price_1RpYbuAZ9H3S1Eo7Qd3qk3IV': "starter",
+    'price_1RpYbeAZ9H3S1Eo75oTj2nHe': "growth",
+    'price_1RpYbJAZ9H3S1Eo78dUvxerL': "professional",
 
     // Example format - replace with your actual price IDs:
     // 'price_1234567890abcdef': "starter",
@@ -414,6 +436,10 @@ export const onReceiptCreate = functionsV1.firestore
       }
 
       const subscription = subscriptionDoc.data() as SubscriptionDocument;
+      
+      // Ensure limits are correctly set based on current tier
+      const currentTier = subscription.currentTier;
+      subscription.limits = subscriptionTiers[currentTier].limits;
 
       // Get current usage
       const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);

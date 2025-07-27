@@ -18,8 +18,15 @@ export interface SubscriptionFeatures {
 }
 
 export interface SubscriptionState {
-  tier: SubscriptionTier;
+  currentTier: string;
   features: SubscriptionFeatures;
+  limits: {
+    maxReceipts: number;
+    maxBusinesses: number;
+    storageLimit: number;
+    apiCallsPerMonth: number;
+    maxReports?: number;
+  };
   isActive: boolean;
   expiresAt: Date | null;
 }
@@ -51,7 +58,7 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
       };
     case 'starter':
       return {
-        maxReceipts: -1, // unlimited
+        maxReceipts: 50, // 50 receipts per month
         advancedReporting: false,
         taxPreparation: false,
         accountingIntegrations: false,
@@ -63,7 +70,7 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
       };
     case 'growth':
       return {
-        maxReceipts: -1, // unlimited
+        maxReceipts: 150, // 150 receipts per month
         advancedReporting: true,
         taxPreparation: true,
         accountingIntegrations: true,
@@ -91,8 +98,15 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
 export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
   const [subscription, setSubscription] = useState<SubscriptionState>({
-    tier: 'free',
+    currentTier: 'free',
     features: getFeaturesByTier('free'),
+    limits: {
+      maxReceipts: 10,
+      maxBusinesses: 1,
+      storageLimit: 100,
+      apiCallsPerMonth: 0,
+      maxReports: 3
+    },
     isActive: false,
     expiresAt: null,
   });
@@ -104,8 +118,15 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     if (!user) {
       setSubscription({
-        tier: 'free',
+        currentTier: 'free',
         features: getFeaturesByTier('free'),
+        limits: {
+          maxReceipts: 10,
+          maxBusinesses: 1,
+          storageLimit: 100,
+          apiCallsPerMonth: 0,
+          maxReports: 3
+        },
         isActive: false,
         expiresAt: null,
       });
@@ -122,12 +143,33 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
           const data = docSnapshot.data();
           if (!data) return;
           
-          const tier = (data.currentTier || 'free') as SubscriptionTier;
+          const currentTier = (data.currentTier || 'free') as SubscriptionTier;
+          console.log('Subscription updated:', { currentTier, status: data.status });
           
+          // Always compute the limits based on the current tier
+          const limits = {
+            maxReceipts: currentTier === 'professional' ? -1 :
+                        currentTier === 'growth' ? 150 :
+                        currentTier === 'starter' ? 50 : 10,
+            maxBusinesses: currentTier === 'professional' ? -1 :
+                         currentTier === 'growth' ? 3 :
+                         currentTier === 'starter' ? 1 : 1,
+            storageLimit: currentTier === 'professional' ? -1 :
+                        currentTier === 'growth' ? 1000 :
+                        currentTier === 'starter' ? 500 : 100,
+            apiCallsPerMonth: currentTier === 'professional' ? -1 :
+                            currentTier === 'growth' ? 1000 :
+                            currentTier === 'starter' ? 0 : 0,
+            maxReports: currentTier === 'professional' ? -1 :
+                       currentTier === 'growth' ? 50 :
+                       currentTier === 'starter' ? 10 : 3
+          };
+
           setSubscription({
-            tier,
-            features: getFeaturesByTier(tier),
-            isActive: tier !== 'free' && data.status === 'active',
+            currentTier,
+            features: getFeaturesByTier(currentTier),
+            limits,
+            isActive: currentTier !== 'free' && data.status === 'active',
             expiresAt: data.billing?.currentPeriodEnd ? 
               (data.billing.currentPeriodEnd instanceof Date ? 
                 data.billing.currentPeriodEnd : 
@@ -136,8 +178,15 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
           });
         } else {
           setSubscription({
-            tier: 'free',
+            currentTier: 'free',
             features: getFeaturesByTier('free'),
+            limits: {
+              maxReceipts: 10,
+              maxBusinesses: 1,
+              storageLimit: 100,
+              apiCallsPerMonth: 0,
+              maxReports: 3
+            },
             isActive: false,
             expiresAt: null,
           });
@@ -147,8 +196,15 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
     } catch (error) {
       console.error('Error setting up subscription listener:', error);
       setSubscription({
-        tier: 'free',
+        currentTier: 'free',
         features: getFeaturesByTier('free'),
+        limits: {
+          maxReceipts: 10,
+          maxBusinesses: 1,
+          storageLimit: 100,
+          apiCallsPerMonth: 0,
+          maxReports: 3
+        },
         isActive: false,
         expiresAt: null,
       });
@@ -168,12 +224,12 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   const canAddReceipt = (currentReceiptCount: number): boolean => {
-    const maxReceipts = subscription.features.maxReceipts;
+    const maxReceipts = subscription.limits.maxReceipts;
     return maxReceipts === -1 || currentReceiptCount < maxReceipts;
   };
 
   const getRemainingReceipts = (currentReceiptCount: number): number => {
-    const maxReceipts = subscription.features.maxReceipts;
+    const maxReceipts = subscription.limits.maxReceipts;
     if (maxReceipts === -1) return -1; // unlimited
     return Math.max(0, maxReceipts - currentReceiptCount);
   };
@@ -188,7 +244,26 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const subscriptionRef = doc(db, 'subscriptions', user.uid);
       await updateDoc(subscriptionRef, {
         currentTier: tier,
+        status: 'active',
         updatedAt: new Date(),
+        limits: {
+          maxReceipts: tier === 'free' ? 10 : 
+                      tier === 'starter' ? 50 :
+                      tier === 'growth' ? 150 : -1,
+          maxBusinesses: tier === 'free' ? 1 :
+                        tier === 'starter' ? 1 :
+                        tier === 'growth' ? 3 : -1,
+          storageLimit: tier === 'free' ? 100 :
+                      tier === 'starter' ? 500 :
+                      tier === 'growth' ? 1000 : 5000,
+          apiCallsPerMonth: tier === 'free' ? 0 :
+                          tier === 'starter' ? 0 :
+                          tier === 'growth' ? 1000 : -1,
+          maxReports: tier === 'free' ? 3 :
+                     tier === 'starter' ? 10 :
+                     tier === 'growth' ? 50 : -1
+        },
+        features: getFeaturesByTier(tier)
       });
 
     } catch (error) {

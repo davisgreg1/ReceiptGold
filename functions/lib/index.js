@@ -152,9 +152,9 @@ function getTierFromPriceId(priceId) {
     // Map your Stripe price IDs to tiers
     const priceToTierMap = {
         // TODO: Update these with your actual Stripe Price IDs from the dashboard
-        'price_1RpGJwAZ9H3S1Eo7K8IKCqcz': "starter",
-        'price_1RpGJ2AZ9H3S1Eo7nfD3eAZt': "growth",
-        'price_1RpGKVAZ9H3S1Eo7HA1yuvqW': "professional",
+        'price_1RpYbuAZ9H3S1Eo7Qd3qk3IV': "starter",
+        'price_1RpYbeAZ9H3S1Eo75oTj2nHe': "growth",
+        'price_1RpYbJAZ9H3S1Eo78dUvxerL': "professional",
         // Example format - replace with your actual price IDs:
         // 'price_1234567890abcdef': "starter",
         // 'price_0987654321fedcba': "growth",

@@ -45,9 +45,9 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
     id: 'starter',
     name: 'Starter',
     price: 9.99,
-    priceId: 'price_1RpGJwAZ9H3S1Eo7K8IKCqcz', // Starter tier price ID
+    priceId: 'price_1RpYbuAZ9H3S1Eo7Qd3qk3IV', // Starter tier price ID
     features: [
-      'Unlimited receipts',
+      '50 receipts per month',
       'Basic reporting',
       'Email support',
       '1 Business profile'
@@ -57,9 +57,9 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
     id: 'growth',
     name: 'Growth',
     price: 19.99,
-    priceId: 'price_1RpGJ2AZ9H3S1Eo7nfD3eAZt', // Growth tier price ID
+    priceId: 'price_1RpYbeAZ9H3S1Eo75oTj2nHe', // Growth tier price ID
     features: [
-      'Everything in Starter',
+      '150 receipts per month',
       'Advanced reporting',
       'OCR scanning',
       '3 Business profiles',
@@ -71,7 +71,7 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
     id: 'professional',
     name: 'Professional',
     price: 39.99,
-    priceId: 'price_1RpGKVAZ9H3S1Eo7HA1yuvqW', // Professional tier price ID
+    priceId: 'price_1RpYbJAZ9H3S1Eo78dUvxerL', // Professional tier price ID
     features: [
       'Everything in Growth',
       'White-label reports',
