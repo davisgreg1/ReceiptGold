@@ -16,9 +16,11 @@ import { useAuth } from '../context/AuthContext';
 import { ReceiptLimitGate } from '../components/PremiumGate';
 import { db } from '../config/firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { useReceiptsNavigation } from '../navigation/navigationHelpers';
 
 export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
+  const navigation = useReceiptsNavigation();
   const { subscription, getRemainingReceipts } = useSubscription();
   const { handleSubscription } = useStripePayments();
   const { user } = useAuth();
@@ -178,8 +180,9 @@ export const ReceiptsListScreen: React.FC = () => {
         <ReceiptLimitGate currentReceiptCount={currentReceiptCount}>
           <TouchableOpacity
             style={[styles.addButton, { backgroundColor: theme.gold.primary }]}
+            onPress={() => navigation.navigate('ScanReceipt')}
           >
-            <Text style={styles.addButtonText}>📄 Add New Receipt</Text>
+            <Text style={styles.addButtonText}>� Scan New Receipt</Text>
           </TouchableOpacity>
         </ReceiptLimitGate>
 

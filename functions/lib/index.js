@@ -28,7 +28,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initializeTestUser = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.testWebhookConfig = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = void 0;
+exports.initializeTestUser = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.testWebhookConfig = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -64,6 +64,27 @@ const getStripe = () => {
     }
     return stripeInstance;
 };
+// Subscription tier limits - used in subscription management
+exports.TIER_LIMITS = {
+    starter: {
+        maxReceipts: 50,
+        maxBusinesses: 1,
+        storageLimit: 500,
+        apiCallsPerMonth: 1000,
+    },
+    growth: {
+        maxReceipts: 150,
+        maxBusinesses: 3,
+        storageLimit: 1000,
+        apiCallsPerMonth: 5000,
+    },
+    professional: {
+        maxReceipts: -1,
+        maxBusinesses: -1,
+        storageLimit: 5000,
+        apiCallsPerMonth: -1, // unlimited
+    }
+};
 // Subscription tier configurations (keeping your existing setup)
 const subscriptionTiers = {
     free: {
@@ -89,7 +110,7 @@ const subscriptionTiers = {
     starter: {
         name: "Starter",
         limits: {
-            maxReceipts: -1,
+            maxReceipts: 50,
             maxBusinesses: 1,
             storageLimit: -1,
             apiCallsPerMonth: 0,
@@ -275,6 +296,9 @@ exports.onReceiptCreate = functionsV1.firestore
             throw new Error(`Subscription not found for user ${userId}`);
         }
         const subscription = subscriptionDoc.data();
+        // Ensure limits are correctly set based on current tier
+        const currentTier = subscription.currentTier;
+        subscription.limits = subscriptionTiers[currentTier].limits;
         // Get current usage
         const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
         const usageDoc = await usageRef.get();
