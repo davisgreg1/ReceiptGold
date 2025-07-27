@@ -1,6 +1,8 @@
 // Hook for using Stripe in components
 import { useStripe } from '@stripe/stripe-react-native';
 import { Alert } from 'react-native';
+import { doc, updateDoc, getFirestore } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { stripeService, SubscriptionTierKey, SUBSCRIPTION_TIERS } from '../services/stripe';
 
 export const useStripePayments = () => {
@@ -51,11 +53,30 @@ export const useStripePayments = () => {
 
       console.log('Starting payment for subscription:', subscriptionResult.subscriptionId);
 
-      // The payment sheet presentation is already handled in stripeService.startSubscription
-      // If we got here, it means the payment was successful
-      console.log('✅ Subscription activated successfully');
-      Alert.alert('Success', 'Your subscription has been activated!');
-      return true;
+      // Update Firestore with the new subscription
+      try {
+        const db = getFirestore();
+        const auth = getAuth();
+        if (!auth.currentUser) throw new Error('User not authenticated');
+        
+        await updateDoc(doc(db, 'subscriptions', auth.currentUser.uid), {
+          currentTier: tierId,
+          status: 'active',
+          subscriptionId: subscriptionResult.subscriptionId,
+          updatedAt: new Date(),
+          billing: {
+            currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+          }
+        });
+
+        console.log('✅ Subscription activated and Firestore updated successfully');
+        Alert.alert('Success', 'Your subscription has been activated!');
+        return true;
+      } catch (error) {
+        console.error('Failed to update Firestore with new subscription:', error);
+        Alert.alert('Warning', 'Payment processed but failed to update subscription status. Please contact support.');
+        return false;
+      }
 
     } catch (error) {
       console.error('Subscription error:', error);

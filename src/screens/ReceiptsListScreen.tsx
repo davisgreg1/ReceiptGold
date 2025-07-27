@@ -1,23 +1,59 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../context/SubscriptionContext';
+import { useStripePayments } from '../hooks/useStripePayments';
+import { useAuth } from '../context/AuthContext';
 import { ReceiptLimitGate } from '../components/PremiumGate';
 
 export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
   const { subscription, getRemainingReceipts } = useSubscription();
+  const { handleSubscription } = useStripePayments();
+  const { user } = useAuth();
+  const [isUpgrading, setIsUpgrading] = useState(false);
   
   // Mock receipt count for demo
   const currentReceiptCount = 8; // Simulate having 8 receipts
   const remainingReceipts = getRemainingReceipts(currentReceiptCount);
+
+  const handleUpgrade = async () => {
+    if (!user?.email) {
+      Alert.alert('Error', 'You must be logged in to upgrade');
+      return;
+    }
+
+    setIsUpgrading(true);
+    try {
+      // Start the Stripe payment flow
+      const success = await handleSubscription(
+        'starter',
+        user.email,
+        user.displayName || 'User'
+      );
+
+      if (!success) {
+        Alert.alert('Error', 'Failed to process payment. Please try again.');
+      }
+    } catch (error) {
+      console.error('Failed to upgrade subscription:', error);
+      Alert.alert(
+        'Error',
+        'Failed to process payment. Please check your payment details and try again.'
+      );
+    } finally {
+      setIsUpgrading(false);
+    }
+  };
 
   const mockReceipts = Array.from({ length: currentReceiptCount }, (_, i) => ({
     id: i + 1,
@@ -35,21 +71,24 @@ export const ReceiptsListScreen: React.FC = () => {
           <Text style={[styles.title, { color: theme.text.primary }]}>
             My Receipts
           </Text>
-          {subscription.tier === 'free' && (
-            <View style={[styles.usageCard, { 
-              backgroundColor: theme.background.secondary,
-              borderColor: theme.border.primary 
-            }]}>
-              <Text style={[styles.usageText, { color: theme.text.secondary }]}>
-                {currentReceiptCount} of {subscription.features.maxReceipts} receipts used
-              </Text>
-              {remainingReceipts <= 2 && (
-                <Text style={[styles.warningText, { color: theme.status.warning }]}>
-                  {remainingReceipts} receipts remaining
-                </Text>
+          {/* Show usage info for free tier, or receipt count for paid tiers */}
+          <View style={[styles.usageCard, { 
+            backgroundColor: theme.background.secondary,
+            borderColor: theme.border.primary 
+          }]}>
+            <Text style={[styles.usageText, { color: theme.text.secondary }]}>
+              {subscription.tier === 'free' ? (
+                `${currentReceiptCount} of ${subscription.features.maxReceipts} receipts used`
+              ) : (
+                `${currentReceiptCount} receipts${subscription.features.maxReceipts === -1 ? ' (unlimited)' : ''}`
               )}
-            </View>
-          )}
+            </Text>
+            {subscription.tier === 'free' && remainingReceipts <= 2 && (
+              <Text style={[styles.warningText, { color: theme.status.warning }]}>
+                {remainingReceipts} receipts remaining
+              </Text>
+            )}
+          </View>
         </View>
 
         {/* Receipts List */}
@@ -104,9 +143,21 @@ export const ReceiptsListScreen: React.FC = () => {
               Upgrade to Starter Plan for unlimited receipt storage and more features
             </Text>
             <TouchableOpacity
-              style={[styles.upgradeButton, { backgroundColor: theme.gold.primary }]}
+              style={[
+                styles.upgradeButton,
+                { 
+                  backgroundColor: theme.gold.primary,
+                  opacity: isUpgrading ? 0.6 : 1,
+                }
+              ]}
+              onPress={handleUpgrade}
+              disabled={isUpgrading}
             >
-              <Text style={styles.upgradeButtonText}>Upgrade for $9/month</Text>
+              {isUpgrading ? (
+                <ActivityIndicator color="white" />
+              ) : (
+                <Text style={styles.upgradeButtonText}>Upgrade for $9/month</Text>
+              )}
             </TouchableOpacity>
           </View>
         )}
