@@ -104,7 +104,7 @@ export const ReceiptLimitGate: React.FC<ReceiptLimitGateProps> = ({
         Receipt Limit Reached
       </Text>
       <Text style={[styles.limitDescription, { color: theme.text.secondary }]}>
-        You've reached your limit of {subscription.features.maxReceipts} receipts on the {subscription.tier} plan.
+        You've reached your limit of {subscription.limits.maxReceipts} receipts on the {subscription.currentTier} plan.
       </Text>
       
       <TouchableOpacity

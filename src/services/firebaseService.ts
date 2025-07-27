@@ -376,7 +376,7 @@ export const usageService = {
         };
       case 'starter':
         return {
-          maxReceipts: -1, // unlimited
+          maxReceipts: 50, // 50 receipts for starter
           maxStorage: -1, // unlimited
           maxApiCalls: 0,
           maxReports: -1, // unlimited

@@ -36,19 +36,25 @@ export const SUBSCRIPTION_TIERS = {
     id: 'starter',
     name: 'Starter',
     price: 9.99,
-    priceId: 'price_1RpGJwAZ9H3S1Eo7K8IKCqcz', // Stripe price ID (not product ID)
+    priceId: 'price_1RpYbuAZ9H3S1Eo7Qd3qk3IV', // Stripe price ID (not product ID)
     features: [
-      'Unlimited receipts',
+      '50 receipts per month',
       'Basic reporting',
       'Email support',
       '1 Business profile'
-    ]
+    ],
+    limits: {
+      maxReceipts: 50
+    }
   },
   growth: {
     id: 'growth',
     name: 'Growth',
     price: 19.99,
-    priceId: 'price_1RpGJ2AZ9H3S1Eo7nfD3eAZt', // Stripe price ID (not product ID)
+    limits: {
+      maxReceipts: 150
+    },
+    priceId: 'price_1RpYbeAZ9H3S1Eo75oTj2nHe', // Stripe price ID (not product ID)
     features: [
       'Everything in Starter',
       'Advanced reporting',
@@ -61,7 +67,7 @@ export const SUBSCRIPTION_TIERS = {
     id: 'professional',
     name: 'Professional',
     price: 39.99,
-    priceId: 'price_1RpGKVAZ9H3S1Eo7HA1yuvqW', // Stripe price ID (not product ID)
+    priceId: 'price_1RpYbJAZ9H3S1Eo78dUvxerL', // Stripe price ID (not product ID)
     features: [
       'Everything in Growth',
       'White-label reports',

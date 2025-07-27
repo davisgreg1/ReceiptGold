@@ -53,14 +53,14 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
     {
       id: "starter",
       name: "Starter Plan",
-      price: 9,
+      price: 9.99,
       period: "month",
       description: "Perfect for new LLCs getting started",
       icon: "📄",
       gradientStart: "#3B82F6",
       gradientEnd: "#06B6D4",
       features: [
-        "Unlimited receipt generation",
+        "50 receipt uploads per month",
         "LLC-specific expense categories",
         "Educational content",
         "Basic compliance features",
@@ -71,7 +71,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
     {
       id: "growth",
       name: "Growth Plan",
-      price: 19,
+      price: 19.99,
       period: "month",
       description: "Best for growing businesses",
       icon: "📈",
@@ -79,6 +79,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       gradientEnd: "#EC4899",
       features: [
         "Everything in Starter",
+        "150 receipt uploads per month",
         "Advanced reporting",
         "Tax preparation tools",
         "Accounting software integrations",
@@ -91,14 +92,15 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
     {
       id: "professional",
       name: "Professional Plan",
-      price: 39,
+      price: 39.99,
       period: "month",
       description: "For established businesses & accountants",
-      icon: "�",
+      icon: "💼",
       gradientStart: "#F59E0B",
       gradientEnd: "#EA580C",
       features: [
         "Everything in Growth",
+        "Unlimited receipt uploads",
         "Multi-business management",
         "White-label options",
         "API access",
@@ -117,8 +119,8 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       return;
     }
 
-    if (tier.id === 'free') {
-      Alert.alert('Free Plan', 'You are already on the free plan!');
+    if (tier.id === subscription?.currentTier) {
+      Alert.alert('Current Plan', 'You are already on this plan!');
       return;
     }
 
@@ -145,7 +147,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       
       // Use the Stripe service to handle subscription
       const success = await handleSubscription(
-        tier.id as any, // Type conversion for now
+        tier.id,
         customerEmail,
         customerName
       );
@@ -169,7 +171,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
 
   const PricingCard: React.FC<PricingCardProps> = ({ tier, index }) => {
     const isSelected = selectedTier === tier.id;
-    const isCurrentTier = subscription.tier === tier.id;
+    const isCurrentTier = subscription?.currentTier === tier.id;
     const cardScale = tier.popular ? 1.02 : 1;
 
     return (
@@ -250,15 +252,15 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
             {isSelecting && selectedTier === tier.id ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color="white" />
-                <Text style={styles.buttonText}>Upgrading...</Text>
+                <Text style={[styles.buttonText, { color: 'white' }]}>Upgrading...</Text>
               </View>
             ) : isCurrentTier ? (
-              <Text style={styles.buttonText}>Current Plan ✓</Text>
+              <Text style={[styles.buttonText, { color: 'white' }]}>Current Plan ✓</Text>
             ) : isSelected ? (
-              <Text style={styles.buttonText}>Selected ✓</Text>
+              <Text style={[styles.buttonText, { color: 'white' }]}>Selected ✓</Text>
             ) : (
-              <Text style={styles.buttonText}>
-                {subscription.tier === 'free' ? `Choose ${tier.name}` : `Upgrade to ${tier.name}`}
+              <Text style={[styles.buttonText, { color: 'white' }]}>
+                {subscription?.currentTier === 'free' ? `Choose ${tier.name}` : `Upgrade to ${tier.name}`}
               </Text>
             )}
           </TouchableOpacity>

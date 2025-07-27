@@ -14,6 +14,8 @@ import { useSubscription } from '../context/SubscriptionContext';
 import { useStripePayments } from '../hooks/useStripePayments';
 import { useAuth } from '../context/AuthContext';
 import { ReceiptLimitGate } from '../components/PremiumGate';
+import { db } from '../config/firebase';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
@@ -22,9 +24,56 @@ export const ReceiptsListScreen: React.FC = () => {
   const { user } = useAuth();
   const [isUpgrading, setIsUpgrading] = useState(false);
   
-  // Mock receipt count for demo
-  const currentReceiptCount = 8; // Simulate having 8 receipts
-  const remainingReceipts = getRemainingReceipts(currentReceiptCount);
+  // Get actual receipt count from usage document
+  const [currentReceiptCount, setCurrentReceiptCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  
+  React.useEffect(() => {
+    const fetchReceiptCount = async () => {
+      if (!user?.uid) {
+        setLoading(false);
+        return;
+      }
+      
+      try {
+        setLoading(true);
+        // For professional plan, we want to show all receipts
+        if (subscription?.currentTier === 'professional') {
+          // Use collection query to get total count of non-deleted receipts
+          const receiptsQuery = query(
+            collection(db, 'receipts'),
+            where('userId', '==', user.uid),
+            where('status', '!=', 'deleted')
+          );
+          const receiptsSnapshot = await getDocs(receiptsQuery);
+          setCurrentReceiptCount(receiptsSnapshot.size);
+        } else {
+          // For other plans, only show current month's receipts
+          const currentMonth = new Date().toISOString().slice(0, 7);
+          const usageDoc = await getDoc(doc(db, 'usage', `${user.uid}_${currentMonth}`));
+          
+          if (usageDoc.exists()) {
+            const data = usageDoc.data();
+            setCurrentReceiptCount(data?.receiptsUploaded || 0);
+          } else {
+            // Reset count for new month
+            setCurrentReceiptCount(0);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching receipt count:', error);
+        setCurrentReceiptCount(0);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchReceiptCount();
+  }, [user?.uid, subscription?.currentTier]);
+  // Calculate remaining receipts based on subscription tier limits
+  const maxReceipts = subscription?.limits?.maxReceipts || 10; // default to free tier
+  console.log("🚀 ~ ReceiptsListScreen ~ subscription:", subscription)
+  const remainingReceipts = maxReceipts === -1 ? -1 : Math.max(0, maxReceipts - currentReceiptCount);
 
   const handleUpgrade = async () => {
     if (!user?.email) {
@@ -76,16 +125,20 @@ export const ReceiptsListScreen: React.FC = () => {
             backgroundColor: theme.background.secondary,
             borderColor: theme.border.primary 
           }]}>
-            <Text style={[styles.usageText, { color: theme.text.secondary }]}>
-              {subscription.tier === 'free' ? (
-                `${currentReceiptCount} of ${subscription.features.maxReceipts} receipts used`
-              ) : (
-                `${currentReceiptCount} receipts${subscription.features.maxReceipts === -1 ? ' (unlimited)' : ''}`
-              )}
-            </Text>
-            {subscription.tier === 'free' && remainingReceipts <= 2 && (
+            {loading ? (
+              <ActivityIndicator size="small" color={theme.gold.primary} />
+            ) : (
+              <Text style={[styles.usageText, { color: theme.text.secondary }]}>
+                {maxReceipts === -1 ? (
+                  `${currentReceiptCount} receipts total`
+                ) : (
+                  `${currentReceiptCount} out of ${maxReceipts} receipts used this month`
+                )}
+              </Text>
+            )}
+            {maxReceipts !== -1 && remainingReceipts <= 2 && (
               <Text style={[styles.warningText, { color: theme.status.warning }]}>
-                {remainingReceipts} receipts remaining
+                {remainingReceipts} {remainingReceipts === 1 ? 'receipt' : 'receipts'} remaining
               </Text>
             )}
           </View>
@@ -131,16 +184,16 @@ export const ReceiptsListScreen: React.FC = () => {
         </ReceiptLimitGate>
 
         {/* Free tier upgrade prompt */}
-        {subscription.tier === 'free' && (
+        {subscription?.currentTier === 'free' && (
           <View style={[styles.upgradePrompt, {
             backgroundColor: theme.gold.background,
             borderColor: theme.gold.primary,
           }]}>
             <Text style={[styles.upgradeTitle, { color: theme.gold.primary }]}>
-              ✨ Unlock Unlimited Receipts
+              ✨ Unlock More Receipts
             </Text>
             <Text style={[styles.upgradeText, { color: theme.text.secondary }]}>
-              Upgrade to Starter Plan for unlimited receipt storage and more features
+              Upgrade to Starter Plan for 50 receipts/month and more features
             </Text>
             <TouchableOpacity
               style={[

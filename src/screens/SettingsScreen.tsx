@@ -414,30 +414,60 @@ export const SettingsScreen: React.FC = () => {
         <SettingsSection title="Subscription">
           <SettingsRow
             label="Current Plan"
-            value={subscription.tier.charAt(0).toUpperCase() + subscription.tier.slice(1)}
-            description={`Your plan ${subscription.expiresAt ? 'renews' : 'expires'} on ${
-              subscription.expiresAt?.toLocaleDateString() || 'N/A'
-            }`}
+            value={subscription.currentTier.charAt(0).toUpperCase() + subscription.currentTier.slice(1)}
+            description={subscription.isActive ? 
+              `Your plan renews on ${subscription.expiresAt?.toLocaleDateString() || 'N/A'}` : 
+              subscription.currentTier === 'free' ? 
+                'Free plan' : 
+                `Your plan has expired`}
           />
-          {subscription.tier !== 'professional' && (
-            <TouchableOpacity
-              style={[styles.upgradeButton, { backgroundColor: theme.gold.primary }]}
-              onPress={() => handleUpgrade(
-                subscription.tier === 'free' ? 'starter' : 'professional'
-              )}
-              disabled={isUpgrading}
-            >
-              {isUpgrading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <>
-                  <Ionicons name="star" size={20} color="white" style={styles.upgradeIcon} />
-                  <Text style={styles.upgradeButtonText}>
-                    Upgrade to {subscription.tier === 'free' ? 'Starter' : 'Professional'}
+          <View style={[styles.planSelector, { backgroundColor: theme.background.tertiary }]}>
+            {Object.values(SUBSCRIPTION_TIERS).filter(tier => tier.id !== 'free').map((tierInfo) => {
+              const isSelected = subscription.currentTier === tierInfo.id;
+              const tierDescription = tierInfo.features[0];
+
+              return (
+                <TouchableOpacity
+                  key={tierInfo.id}
+                  style={[
+                    styles.planOption,
+                    { 
+                      borderColor: isSelected ? theme.gold.primary : theme.border.primary,
+                      backgroundColor: isSelected ? theme.gold.primary + '10' : 'transparent'
+                    }
+                  ]}
+                  onPress={() => handleUpgrade(tierInfo.id)}
+                  disabled={isUpgrading || isSelected}
+                >
+                  <View style={styles.planHeader}>
+                    <Text style={[styles.planName, { 
+                      color: isSelected ? theme.gold.primary : theme.text.primary,
+                      fontWeight: isSelected ? '700' : '600'
+                    }]}>
+                      {tierInfo.name}
+                    </Text>
+                    {isSelected && (
+                      <View style={[styles.currentPlanBadge, { backgroundColor: theme.gold.primary }]}>
+                        <Text style={styles.currentPlanText}>Current Plan</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={[styles.planPrice, { 
+                    color: isSelected ? theme.gold.primary : theme.text.primary 
+                  }]}>
+                    ${tierInfo.price}/mo
                   </Text>
-                </>
-              )}
-            </TouchableOpacity>
+                  <Text style={[styles.planDescription, { color: theme.text.secondary }]}>
+                    {tierDescription}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+          {isUpgrading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator color={theme.gold.primary} size="large" />
+            </View>
           )}
         </SettingsSection>
 
@@ -791,6 +821,54 @@ const { width } = Dimensions.get('window');
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  planSelector: {
+    padding: 16,
+    borderRadius: 12,
+  },
+  planOption: {
+    borderWidth: 2,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  planHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  planName: {
+    fontSize: 18,
+  },
+  currentPlanBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  currentPlanText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  planPrice: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  planDescription: {
+    fontSize: 14,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 12,
   },
   pickerContainer: {
     height: 48,
