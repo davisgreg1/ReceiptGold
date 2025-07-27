@@ -28,7 +28,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initializeTestUser = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = void 0;
+exports.initializeTestUser = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.testWebhookConfig = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -152,9 +152,9 @@ function getTierFromPriceId(priceId) {
     // Map your Stripe price IDs to tiers
     const priceToTierMap = {
         // TODO: Update these with your actual Stripe Price IDs from the dashboard
-        'prod_SkljfzmCw8QCH3': "starter",
-        'prod_Skll05sdZm6fHZ': "growth",
-        'prod_Skll99mJsu7C3o': "professional",
+        'price_1RpGJwAZ9H3S1Eo7K8IKCqcz': "starter",
+        'price_1RpGJ2AZ9H3S1Eo7nfD3eAZt': "growth",
+        'price_1RpGKVAZ9H3S1Eo7HA1yuvqW': "professional",
         // Example format - replace with your actual price IDs:
         // 'price_1234567890abcdef': "starter",
         // 'price_0987654321fedcba': "growth",
@@ -388,7 +388,7 @@ exports.onSubscriptionChange = functionsV1.firestore
             // Add to subscription history
             const newHistoryEntry = {
                 tier: after.currentTier,
-                startDate: admin.firestore.FieldValue.serverTimestamp(),
+                startDate: new Date(),
                 endDate: null,
                 reason: "tier_change",
             };
@@ -418,11 +418,27 @@ exports.onSubscriptionChange = functionsV1.firestore
         console.error("Error handling subscription change:", error);
     }
 });
-// 4. UPDATED Stripe Webhook Handler with environment-aware configuration
-exports.stripeWebhook = (0, https_1.onRequest)(async (req, res) => {
+// UPDATED Stripe Webhook Handler with proper raw body handling
+exports.stripeWebhook = (0, https_1.onRequest)({
+    // Explicitly disable body parsing to get raw body
+    cors: false,
+    // Set memory and timeout if needed
+    memory: "1GiB",
+    timeoutSeconds: 540,
+}, async (req, res) => {
+    console.log("🚀 Stripe webhook received");
+    console.log("Method:", req.method);
+    console.log("Content-Type:", req.headers["content-type"]);
+    console.log("Has Stripe signature:", !!req.headers["stripe-signature"]);
+    // Only allow POST requests
+    if (req.method !== "POST") {
+        console.error("❌ Invalid method:", req.method);
+        res.status(405).send("Method not allowed");
+        return;
+    }
     const sig = req.headers["stripe-signature"];
     if (!sig) {
-        console.error("No Stripe signature found in request headers");
+        console.error("❌ No Stripe signature found in request headers");
         res.status(400).send("No Stripe signature found");
         return;
     }
@@ -431,20 +447,56 @@ exports.stripeWebhook = (0, https_1.onRequest)(async (req, res) => {
     try {
         const config = getStripeConfig();
         webhookSecret = config.webhookSecret;
+        console.log("✅ Webhook secret loaded successfully");
     }
     catch (error) {
-        console.error("Stripe configuration error:", error);
+        console.error("❌ Stripe configuration error:", error);
         res.status(500).send("Stripe configuration error");
         return;
     }
     let event;
+    let payload = ""; // Initialize payload to avoid use-before-assignment
     try {
-        event = getStripe().webhooks.constructEvent(req.body, sig, webhookSecret);
-        console.log(`✅ Webhook signature verified. Event type: ${event.type}`);
+        // Firebase Functions v2 provides rawBody on the request object
+        const requestWithRawBody = req;
+        if (requestWithRawBody.rawBody) {
+            // Use the raw body provided by Firebase
+            payload = requestWithRawBody.rawBody;
+            console.log("✅ Using rawBody from Firebase Functions");
+        }
+        else if (typeof req.body === "string") {
+            // If body is already a string, use it directly
+            payload = req.body;
+            console.log("✅ Using string body");
+        }
+        else if (Buffer.isBuffer(req.body)) {
+            // If body is a Buffer, use it directly
+            payload = req.body;
+            console.log("✅ Using Buffer body");
+        }
+        else {
+            // Last resort: stringify the body (not ideal for signatures)
+            payload = JSON.stringify(req.body);
+            console.log("⚠️ Using stringified body (may cause signature issues)");
+        }
+        console.log("Payload type:", typeof payload);
+        console.log("Payload length:", payload.length);
+        // Construct the Stripe event
+        event = getStripe().webhooks.constructEvent(payload, sig, webhookSecret);
+        console.log(`✅ Webhook signature verified. Event type: ${event.type}, ID: ${event.id}`);
     }
     catch (err) {
-        console.error("❌ Webhook signature verification failed:", err.message);
-        res.status(400).send(`Webhook Error: ${err.message}`);
+        const error = err;
+        // Ensure payload is defined for error logging
+        const safePayload = typeof payload !== "undefined" ? payload : "";
+        console.error("❌ Webhook signature verification failed:", error.message);
+        console.error("Error details:", {
+            message: error.message,
+            payloadType: typeof safePayload,
+            payloadPreview: safePayload === null || safePayload === void 0 ? void 0 : safePayload.toString().substring(0, 100),
+            signature: sig.substring(0, 20) + "...",
+        });
+        res.status(400).send(`Webhook Error: ${error.message}`);
         return;
     }
     try {
@@ -452,69 +504,198 @@ exports.stripeWebhook = (0, https_1.onRequest)(async (req, res) => {
         switch (event.type) {
             case "customer.subscription.created":
                 await handleSubscriptionCreated(event.data.object);
-                console.log(`✅ Handled ${event.type}`);
+                console.log(`✅ Handled ${event.type} for subscription: ${event.data.object.id}`);
+                break;
+            case "checkout.session.completed":
+                const session = event.data.object;
+                console.log(`Processing checkout completion: ${session.id}`);
+                if (session.subscription) {
+                    // Retrieve the full subscription object
+                    const subscription = await getStripe().subscriptions.retrieve(session.subscription);
+                    await handleSubscriptionCreated(subscription);
+                    console.log(`✅ Handled checkout completion for subscription: ${subscription.id}`);
+                }
+                else {
+                    console.log("ℹ️ Checkout session completed but no subscription found");
+                }
+                break;
+            case "payment_intent.succeeded":
+                const paymentIntent = event.data.object;
+                console.log(`✅ Payment succeeded for PaymentIntent: ${paymentIntent.id}`);
+                // Handle one-time payments here if needed
                 break;
             case "customer.subscription.updated":
                 await handleSubscriptionUpdated(event.data.object);
-                console.log(`✅ Handled ${event.type}`);
+                console.log(`✅ Handled ${event.type} for subscription: ${event.data.object.id}`);
                 break;
             case "customer.subscription.deleted":
                 await handleSubscriptionDeleted(event.data.object);
-                console.log(`✅ Handled ${event.type}`);
+                console.log(`✅ Handled ${event.type} for subscription: ${event.data.object.id}`);
                 break;
             case "invoice.payment_succeeded":
                 await handlePaymentSucceeded(event.data.object);
-                console.log(`✅ Handled ${event.type}`);
+                console.log(`✅ Handled ${event.type} for invoice: ${event.data.object.id}`);
                 break;
             case "invoice.payment_failed":
                 await handlePaymentFailed(event.data.object);
-                console.log(`✅ Handled ${event.type}`);
+                console.log(`✅ Handled ${event.type} for invoice: ${event.data.object.id}`);
+                break;
+            case "customer.subscription.trial_will_end":
+                // Handle trial ending warning
+                const trialSub = event.data.object;
+                console.log(`ℹ️ Trial ending soon for subscription: ${trialSub.id}`);
+                // You can add email notifications here
                 break;
             default:
                 console.log(`ℹ️ Unhandled event type: ${event.type}`);
         }
-        res.status(200).send("Webhook received successfully");
+        // Always respond with 200 to acknowledge receipt
+        res.status(200).json({
+            received: true,
+            eventType: event.type,
+            eventId: event.id,
+            timestamp: new Date().toISOString()
+        });
     }
     catch (error) {
         console.error("❌ Error processing webhook:", error);
-        res.status(500).send("Webhook processing failed");
+        // Log the full error for debugging
+        if (error instanceof Error) {
+            console.error("Error name:", error.name);
+            console.error("Error message:", error.message);
+            console.error("Error stack:", error.stack);
+        }
+        // Still respond with 200 to prevent Stripe retries for application errors
+        // unless it's a critical error that should be retried
+        res.status(200).json({
+            received: true,
+            error: "Processing failed",
+            eventType: event.type,
+            eventId: event.id,
+            timestamp: new Date().toISOString()
+        });
     }
 });
-// Stripe webhook handlers (keeping your existing implementations)
+// Enhanced subscription created handler with better error handling
 async function handleSubscriptionCreated(subscription) {
     var _a;
-    const customerId = subscription.customer;
-    const customer = await getStripe().customers.retrieve(customerId);
-    const userId = (_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId;
-    if (!userId) {
-        console.error("No userId found in customer metadata for customer:", customerId);
-        return;
+    try {
+        const customerId = subscription.customer;
+        console.log(`Processing subscription created: ${subscription.id} for customer: ${customerId}`);
+        // Retrieve customer with error handling
+        let customer;
+        try {
+            const customerObject = await getStripe().customers.retrieve(customerId);
+            if ('deleted' in customerObject && customerObject.deleted) {
+                throw new Error(`Customer ${customerId} has been deleted`);
+            }
+            customer = customerObject;
+        }
+        catch (error) {
+            console.error(`Failed to retrieve customer ${customerId}:`, error);
+            throw new Error(`Customer retrieval failed: ${error}`);
+        }
+        const userId = (_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId;
+        if (!userId) {
+            console.error("No userId found in customer metadata for customer:", customerId);
+            console.error("Customer metadata:", customer.metadata);
+            throw new Error(`No userId in customer metadata for ${customerId}`);
+        }
+        console.log(`Processing subscription for user: ${userId}`);
+        // Validate subscription has items
+        if (!subscription.items || !subscription.items.data || subscription.items.data.length === 0) {
+            throw new Error(`Subscription ${subscription.id} has no items`);
+        }
+        // Get the price ID
+        const priceId = subscription.items.data[0].price.id;
+        console.log(`Subscription price ID: ${priceId}`);
+        // Determine tier from price ID with validation
+        const tier = getTierFromPriceId(priceId);
+        if (!subscriptionTiers[tier]) {
+            console.error(`Invalid tier determined: ${tier} for price ID: ${priceId}`);
+            throw new Error(`Invalid subscription tier: ${tier}`);
+        }
+        console.log(`Determined subscription tier: ${tier}`);
+        // Prepare subscription update
+        const subscriptionUpdate = {
+            userId,
+            currentTier: tier,
+            status: subscription.status,
+            billing: {
+                customerId: customerId,
+                subscriptionId: subscription.id,
+                priceId: priceId,
+                currentPeriodStart: new Date(subscription.current_period_start * 1000),
+                currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+                cancelAtPeriodEnd: subscription.cancel_at_period_end,
+                trialEnd: subscription.trial_end
+                    ? new Date(subscription.trial_end * 1000)
+                    : null,
+            },
+            limits: subscriptionTiers[tier].limits,
+            features: subscriptionTiers[tier].features,
+            history: admin.firestore.FieldValue.arrayUnion({
+                tier: tier,
+                startDate: new Date(),
+                endDate: null,
+                reason: "subscription_created"
+            }),
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        console.log('Saving subscription data for user:', userId);
+        // Save to Firestore with transaction for consistency
+        await db.runTransaction(async (transaction) => {
+            const subscriptionRef = db.collection("subscriptions").doc(userId);
+            const doc = await transaction.get(subscriptionRef);
+            if (doc.exists) {
+                // Update existing subscription
+                transaction.update(subscriptionRef, subscriptionUpdate);
+                console.log(`Updated existing subscription for user ${userId}`);
+            }
+            else {
+                // Create new subscription document
+                transaction.set(subscriptionRef, {
+                    ...subscriptionUpdate,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                console.log(`Created new subscription for user ${userId}`);
+            }
+            // Also update the user's usage limits for current month
+            const currentMonth = new Date().toISOString().slice(0, 7);
+            const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
+            transaction.update(usageRef, {
+                limits: subscriptionTiers[tier].limits,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        });
+        console.log(`✅ Successfully processed subscription creation for user ${userId}`);
     }
-    console.log(`Processing subscription created for user: ${userId}`);
-    // Determine tier from price ID
-    const tier = getTierFromPriceId(subscription.items.data[0].price.id);
-    await db
-        .collection("subscriptions")
-        .doc(userId)
-        .update({
-        currentTier: tier,
-        status: "active",
-        billing: {
-            customerId: customerId,
-            subscriptionId: subscription.id,
-            priceId: subscription.items.data[0].price.id,
-            currentPeriodStart: new Date(subscription.current_period_start * 1000),
-            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-            cancelAtPeriodEnd: subscription.cancel_at_period_end,
-            trialEnd: subscription.trial_end
-                ? new Date(subscription.trial_end * 1000)
-                : null,
-        },
-        limits: subscriptionTiers[tier].limits,
-        features: subscriptionTiers[tier].features,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+    catch (error) {
+        console.error('Error in handleSubscriptionCreated:', error);
+        // Re-throw to trigger webhook retry if it's a transient error
+        throw error;
+    }
 }
+// Test endpoint to verify webhook configuration
+exports.testWebhookConfig = (0, https_1.onRequest)(async (req, res) => {
+    try {
+        const config = getStripeConfig();
+        res.status(200).json({
+            webhookConfigured: true,
+            hasSecretKey: !!config.secretKey,
+            hasWebhookSecret: !!config.webhookSecret,
+            environment: process.env.NODE_ENV || 'unknown',
+            timestamp: new Date().toISOString(),
+        });
+    }
+    catch (error) {
+        res.status(500).json({
+            webhookConfigured: false,
+            error: error.message,
+            timestamp: new Date().toISOString(),
+        });
+    }
+});
 async function handleSubscriptionUpdated(subscription) {
     var _a;
     const customerId = subscription.customer;
@@ -568,7 +749,116 @@ async function handleSubscriptionDeleted(subscription) {
     });
 }
 async function handlePaymentSucceeded(invoice) {
+    var _a, _b;
     console.log("Payment succeeded for invoice:", invoice.id);
+    console.log("Full invoice data:", JSON.stringify(invoice, null, 2));
+    try {
+        const customerId = invoice.customer;
+        console.log("Customer ID from invoice:", customerId);
+        const customer = await getStripe().customers.retrieve(customerId);
+        console.log("Customer data:", JSON.stringify(customer, null, 2));
+        const userId = (_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId;
+        if (!userId) {
+            console.error("No userId found in customer metadata for customer:", customerId);
+            return;
+        }
+        console.log(`Processing successful payment for user: ${userId}`);
+        // Try to get subscription ID from different possible sources
+        let subscriptionId = invoice.subscription;
+        if (!subscriptionId && ((_b = invoice.lines) === null || _b === void 0 ? void 0 : _b.data)) {
+            // Look for subscription in invoice line items
+            const subscriptionItem = invoice.lines.data.find(line => line.type === 'subscription');
+            if (subscriptionItem) {
+                subscriptionId = subscriptionItem.subscription;
+                console.log("Found subscription ID in line items:", subscriptionId);
+            }
+        }
+        // If still no subscription, try to find it by customer
+        if (!subscriptionId) {
+            const subscriptions = await getStripe().subscriptions.list({
+                customer: customerId,
+                limit: 1,
+                status: 'active'
+            });
+            if (subscriptions.data.length > 0) {
+                subscriptionId = subscriptions.data[0].id;
+                console.log("Found subscription ID from customer's subscriptions:", subscriptionId);
+            }
+        }
+        console.log("Subscription ID from invoice:", subscriptionId);
+        if (subscriptionId) {
+            // Get subscription status in Firestore
+            const subscriptionRef = db.collection("subscriptions").doc(userId);
+            const subscriptionDoc = await subscriptionRef.get();
+            const updateData = {
+                status: "active",
+                "billing.lastPaymentStatus": "succeeded",
+                "billing.lastPaymentDate": admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
+                "billing.lastInvoiceId": invoice.id,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            if (!subscriptionDoc.exists) {
+                console.log(`Creating new subscription document for user ${userId}`);
+                // Get the subscription from Stripe to determine the tier
+                const stripeSubscription = await getStripe().subscriptions.retrieve(subscriptionId);
+                const priceId = stripeSubscription.items.data[0].price.id;
+                const tier = getTierFromPriceId(priceId);
+                // Create a new subscription document
+                await subscriptionRef.set({
+                    userId,
+                    currentTier: tier,
+                    status: "active",
+                    billing: {
+                        customerId: customerId,
+                        subscriptionId: subscriptionId,
+                        priceId: priceId,
+                        currentPeriodStart: admin.firestore.Timestamp.fromDate(new Date(stripeSubscription.current_period_start * 1000)),
+                        currentPeriodEnd: admin.firestore.Timestamp.fromDate(new Date(stripeSubscription.current_period_end * 1000)),
+                        cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end,
+                        trialEnd: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
+                        lastPaymentStatus: "succeeded",
+                        lastPaymentDate: admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
+                        lastInvoiceId: invoice.id,
+                    },
+                    limits: subscriptionTiers[tier].limits,
+                    features: subscriptionTiers[tier].features,
+                    history: [{
+                            tier: tier,
+                            startDate: new Date(),
+                            endDate: null,
+                            reason: "subscription_created"
+                        }],
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            }
+            else {
+                // Update existing subscription
+                await subscriptionRef.update(updateData);
+            }
+            // Add to billing history collection if you're tracking detailed payment history
+            await db.collection("billing_history").add({
+                userId,
+                invoiceId: invoice.id,
+                subscriptionId: subscriptionId,
+                amount: invoice.amount_paid,
+                currency: invoice.currency,
+                status: "succeeded",
+                paymentDate: admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
+                periodStart: admin.firestore.Timestamp.fromDate(new Date(invoice.period_start * 1000)),
+                periodEnd: admin.firestore.Timestamp.fromDate(new Date(invoice.period_end * 1000)),
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            console.log(`✅ Successfully updated billing records for user ${userId}`);
+        }
+        else {
+            console.log("Invoice is not associated with a subscription");
+        }
+    }
+    catch (error) {
+        console.error("Error processing successful payment:", error);
+        throw error; // Rethrow to trigger webhook retry if needed
+    }
 }
 async function handlePaymentFailed(invoice) {
     var _a;
@@ -680,12 +970,16 @@ exports.createSubscription = (0, https_1.onCall)(async (request) => {
             customer: customerId,
             items: [{ price: priceId }],
             payment_behavior: 'default_incomplete',
-            payment_settings: { save_default_payment_method: 'on_subscription' },
-            expand: ['latest_invoice.payment_intent'],
+            payment_settings: {
+                save_default_payment_method: 'on_subscription',
+                payment_method_types: ['card']
+            },
             metadata: {
-                userId: request.auth.uid // Add user ID to subscription metadata
-            }
+                userId: request.auth.uid
+            },
+            expand: ['latest_invoice.payment_intent', 'latest_invoice']
         });
+        console.log('Created subscription:', JSON.stringify(subscription, null, 2));
         console.log('Subscription created:', subscription.id);
         // @ts-ignore - Stripe types don't properly capture the expanded fields
         const clientSecret = (_d = (_c = subscription.latest_invoice) === null || _c === void 0 ? void 0 : _c.payment_intent) === null || _d === void 0 ? void 0 : _d.client_secret;
