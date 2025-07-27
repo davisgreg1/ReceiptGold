@@ -8,6 +8,7 @@ import { useSubscription } from '../context/SubscriptionContext';
 import { PremiumGate } from '../components/PremiumGate';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ReceiptsListScreen } from '../screens/ReceiptsListScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
 
 // Tab Navigator Types
 export type BottomTabParamList = {
@@ -175,8 +176,11 @@ const SettingsStackNavigator = () => (
   <SettingsStack.Navigator>
     <SettingsStack.Screen 
       name="SettingsHome" 
-      component={() => <PlaceholderScreen title="Settings" />}
-      options={{ title: 'Settings' }}
+      component={SettingsScreen}
+      options={{ 
+        title: 'Settings',
+        headerShown: false,
+      }}
     />
     <SettingsStack.Screen 
       name="Profile" 
