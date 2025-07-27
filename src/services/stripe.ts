@@ -34,7 +34,7 @@ export const SUBSCRIPTION_TIERS = {
     id: 'starter',
     name: 'Starter',
     price: 9.99,
-    priceId: 'price_starter_monthly', // Replace with your actual Stripe price ID
+    priceId: 'price_1RpGJwAZ9H3S1Eo7K8IKCqcz', // Stripe price ID (not product ID)
     features: [
       'Unlimited receipts',
       'Basic reporting',
@@ -46,7 +46,7 @@ export const SUBSCRIPTION_TIERS = {
     id: 'growth',
     name: 'Growth',
     price: 19.99,
-    priceId: 'price_growth_monthly', // Replace with your actual Stripe price ID
+    priceId: 'price_1RpGJ2AZ9H3S1Eo7nfD3eAZt', // Stripe price ID (not product ID)
     features: [
       'Everything in Starter',
       'Advanced reporting',
@@ -59,7 +59,7 @@ export const SUBSCRIPTION_TIERS = {
     id: 'professional',
     name: 'Professional',
     price: 39.99,
-    priceId: 'price_professional_monthly', // Replace with your actual Stripe price ID
+    priceId: 'price_1RpGKVAZ9H3S1Eo7HA1yuvqW', // Stripe price ID (not product ID)
     features: [
       'Everything in Growth',
       'White-label reports',
@@ -88,9 +88,11 @@ class StripeService {
 
   // Create checkout session via Cloud Function
   async createCheckoutSession(priceId: string, customerId: string): Promise<string> {
+    console.log("🚀 Creating checkout session with:", { priceId, customerId });
     try {
       const createSession = httpsCallable(functions, 'createCheckoutSession');
       const result = await createSession({ priceId, customerId });
+      console.log("📦 Checkout session response:", result);
       const data = result.data as { sessionId: string };
       return data.sessionId;
     } catch (error) {
@@ -135,11 +137,10 @@ class StripeService {
       // Create checkout session
       const sessionId = await this.createCheckoutSession(tier.priceId, finalCustomerId);
       
-      // For now, we'll return the session ID
-      // In a real implementation, you might redirect to Stripe Checkout
+      // Return the correct Stripe Checkout URL format
       return {
         success: true,
-        checkoutUrl: `https://checkout.stripe.com/pay/${sessionId}`
+        checkoutUrl: `https://checkout.stripe.com/c/pay/${sessionId}`
       };
     } catch (error) {
       console.error('Subscription error:', error);

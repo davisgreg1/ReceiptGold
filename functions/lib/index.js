@@ -34,6 +34,7 @@ const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const stripe_1 = __importDefault(require("stripe"));
 const https_1 = require("firebase-functions/v2/https");
+// Initialize Firebase Admin SDK for production
 admin.initializeApp();
 const db = admin.firestore();
 // Environment-aware Stripe configuration
@@ -151,9 +152,9 @@ function getTierFromPriceId(priceId) {
     // Map your Stripe price IDs to tiers
     const priceToTierMap = {
         // TODO: Update these with your actual Stripe Price IDs from the dashboard
-        'price_starter_monthly': "starter",
-        'price_growth_monthly': "growth",
-        'price_professional_monthly': "professional",
+        'prod_SkljfzmCw8QCH3': "starter",
+        'prod_Skll05sdZm6fHZ': "growth",
+        'prod_Skll99mJsu7C3o': "professional",
         // Example format - replace with your actual price IDs:
         // 'price_1234567890abcdef': "starter",
         // 'price_0987654321fedcba': "growth",
@@ -177,8 +178,8 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
             userId,
             email,
             displayName,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastLoginAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: admin.firestore.Timestamp.now(),
+            lastLoginAt: admin.firestore.Timestamp.now(),
             profile: {
                 firstName: displayName.split(" ")[0] || "",
                 lastName: displayName.split(" ").slice(1).join(" ") || "",
@@ -216,7 +217,7 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
                 customerId: null,
                 subscriptionId: null,
                 priceId: null,
-                currentPeriodStart: admin.firestore.FieldValue.serverTimestamp(),
+                currentPeriodStart: admin.firestore.Timestamp.now(),
                 currentPeriodEnd: null,
                 cancelAtPeriodEnd: false,
                 trialEnd: null,
@@ -226,13 +227,13 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
             history: [
                 {
                     tier: "free",
-                    startDate: admin.firestore.FieldValue.serverTimestamp(),
+                    startDate: admin.firestore.Timestamp.now(),
                     endDate: null,
                     reason: "initial_signup",
                 },
             ],
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: admin.firestore.Timestamp.now(),
+            updatedAt: admin.firestore.Timestamp.now(),
         };
         await db.collection("subscriptions").doc(userId).set(subscriptionDoc);
         // Create usage tracking document
@@ -246,8 +247,8 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
             reportsGenerated: 0,
             limits: subscriptionTiers.free.limits,
             resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString(),
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: admin.firestore.Timestamp.now(),
+            updatedAt: admin.firestore.Timestamp.now(),
         };
         await db.collection("usage").doc(`${userId}_${currentMonth}`).set(usageDoc);
         console.log(`User ${userId} initialized successfully`);
