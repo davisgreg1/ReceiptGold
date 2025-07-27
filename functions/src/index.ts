@@ -831,25 +831,166 @@ export const resetMonthlyUsage = functionsV1.pubsub
     }
   });
 
-// 6. Create Stripe Customer (with environment-aware app URL)
+// 6. Create Subscription for Mobile App
+interface CreateSubscriptionData {
+  priceId: string;
+  customerId: string;
+}
+
+export const createSubscription = onCall(async (request: CallableRequest<CreateSubscriptionData>) => {
+  console.log('createSubscription called with auth:', request.auth);
+  console.log('createSubscription request data:', request.data);
+
+  if (!request.auth) {
+    console.error('Authentication missing in createSubscription');
+    throw new HttpsError('unauthenticated', 'You must be logged in to create a subscription');
+  }
+
+  if (!request.auth.uid) {
+    console.error('User ID missing in auth object:', request.auth);
+    throw new HttpsError('unauthenticated', 'Invalid authentication state');
+  }
+
+  try {
+    const { priceId, customerId } = request.data;
+    
+    if (!priceId || !customerId) {
+      console.error('Missing required subscription data:', { priceId, customerId });
+      throw new HttpsError('invalid-argument', 'Price ID and customer ID are required');
+    }
+
+    console.log(`Creating subscription for user ${request.auth.uid}:`, { priceId, customerId });
+
+    // Validate Stripe configuration first
+    const stripeConfig = getStripeConfig();
+    if (!stripeConfig.secretKey) {
+      console.error("Missing Stripe secret key");
+      throw new HttpsError('failed-precondition', "Stripe configuration is incomplete");
+    }
+
+    // Initialize and validate Stripe instance
+    const stripe = getStripe();
+    if (!stripe) {
+      console.error("Failed to initialize Stripe");
+      throw new HttpsError('internal', "Stripe initialization failed");
+    }
+
+    // Verify the customer exists and belongs to this user
+    const customer = await stripe.customers.retrieve(customerId);
+    if (!customer || customer.deleted) {
+      console.error('Customer not found:', customerId);
+      throw new HttpsError('not-found', 'Invalid customer ID');
+    }
+
+    if (customer.metadata?.userId !== request.auth.uid) {
+      console.error('Customer does not belong to user:', { 
+        customerId, 
+        customerUserId: customer.metadata?.userId, 
+        requestUserId: request.auth.uid 
+      });
+      throw new HttpsError('permission-denied', 'Customer does not belong to this user');
+    }
+
+    console.log('Customer verified, creating subscription...');
+
+    // Create the subscription
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: priceId }],
+      payment_behavior: 'default_incomplete',
+      payment_settings: { save_default_payment_method: 'on_subscription' },
+      expand: ['latest_invoice.payment_intent'],
+      metadata: {
+        userId: request.auth.uid  // Add user ID to subscription metadata
+      }
+    });
+
+    console.log('Subscription created:', subscription.id);
+
+    // @ts-ignore - Stripe types don't properly capture the expanded fields
+    const clientSecret = subscription.latest_invoice?.payment_intent?.client_secret;
+
+    if (!clientSecret) {
+      console.error('No client secret in subscription response:', subscription);
+      throw new HttpsError('internal', 'Failed to create subscription: No client secret returned');
+    }
+
+    console.log('Subscription created successfully with client secret');
+
+    return {
+      subscriptionId: subscription.id,
+      clientSecret: clientSecret,
+    };
+  } catch (error) {
+    console.error('Error creating subscription:', error);
+    
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+    
+    if (error instanceof Error && error.message.includes('auth')) {
+      throw new HttpsError('unauthenticated', error.message);
+    }
+    
+    throw new HttpsError(
+      'internal',
+      error instanceof Error ? error.message : 'Failed to create subscription'
+    );
+  }
+});
+
+// Create Stripe Customer (with environment-aware app URL)
 interface CreateCustomerData {
   email: string;
   name: string;
 }
 
 export const createStripeCustomer = onCall(async (request: CallableRequest<CreateCustomerData>) => {
+  console.log('createStripeCustomer called with auth:', request.auth);
+  
   if (!request.auth) {
+    console.error('Authentication missing in createStripeCustomer');
     throw new HttpsError(
       "unauthenticated",
-      "User must be authenticated"
+      "You must be logged in to create a customer"
+    );
+  }
+
+  if (!request.auth.uid) {
+    console.error('User ID missing in auth object:', request.auth);
+    throw new HttpsError(
+      "unauthenticated",
+      "Invalid authentication state"
     );
   }
 
   try {
     const userId: string = request.auth.uid;
     const { email, name }: CreateCustomerData = request.data;
+    
+    if (!email || !name) {
+      console.error('Missing required customer data:', { email, name });
+      throw new HttpsError(
+        "invalid-argument",
+        "Email and name are required"
+      );
+    }
 
-    console.log(`Creating Stripe customer for user: ${userId}`);
+    console.log(`Creating Stripe customer for user: ${userId}`, { email, name });
+
+    // Validate Stripe configuration
+    const stripeConfig = getStripeConfig();
+    if (!stripeConfig.secretKey) {
+      console.error("Missing Stripe secret key");
+      throw new Error("Stripe configuration is incomplete");
+    }
+
+    // Initialize and validate Stripe instance
+    const stripe = getStripe();
+    if (!stripe) {
+      console.error("Failed to initialize Stripe");
+      throw new Error("Stripe initialization failed");
+    }
 
     // Create Stripe customer
     const customer: Stripe.Customer = await getStripe().customers.create({
@@ -866,7 +1007,7 @@ export const createStripeCustomer = onCall(async (request: CallableRequest<Creat
     console.error("Error creating Stripe customer:", error);
     throw new HttpsError(
       "internal",
-      "Failed to create customer"
+      error instanceof Error ? error.message : "Failed to create customer"
     );
   }
 });
@@ -922,7 +1063,12 @@ export const createCheckoutSession = onCall(
       });
 
       console.log(`✅ Created checkout session ${session.id} for user ${request.auth.uid}`);
-      return { sessionId: session.id };
+      console.log(`📍 Checkout URL: ${session.url}`);
+      
+      return { 
+        sessionId: session.id,
+        url: session.url
+      };
     } catch (error) {
       console.error("Error creating checkout session:", error);
       throw new HttpsError(

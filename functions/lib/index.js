@@ -28,7 +28,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initializeTestUser = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.resetMonthlyUsage = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = void 0;
+exports.initializeTestUser = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -629,14 +629,117 @@ exports.resetMonthlyUsage = functionsV1.pubsub
         console.error("Error resetting monthly usage:", error);
     }
 });
-exports.createStripeCustomer = (0, https_1.onCall)(async (request) => {
+exports.createSubscription = (0, https_1.onCall)(async (request) => {
+    var _a, _b, _c, _d;
+    console.log('createSubscription called with auth:', request.auth);
+    console.log('createSubscription request data:', request.data);
     if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "User must be authenticated");
+        console.error('Authentication missing in createSubscription');
+        throw new https_1.HttpsError('unauthenticated', 'You must be logged in to create a subscription');
+    }
+    if (!request.auth.uid) {
+        console.error('User ID missing in auth object:', request.auth);
+        throw new https_1.HttpsError('unauthenticated', 'Invalid authentication state');
+    }
+    try {
+        const { priceId, customerId } = request.data;
+        if (!priceId || !customerId) {
+            console.error('Missing required subscription data:', { priceId, customerId });
+            throw new https_1.HttpsError('invalid-argument', 'Price ID and customer ID are required');
+        }
+        console.log(`Creating subscription for user ${request.auth.uid}:`, { priceId, customerId });
+        // Validate Stripe configuration first
+        const stripeConfig = getStripeConfig();
+        if (!stripeConfig.secretKey) {
+            console.error("Missing Stripe secret key");
+            throw new https_1.HttpsError('failed-precondition', "Stripe configuration is incomplete");
+        }
+        // Initialize and validate Stripe instance
+        const stripe = getStripe();
+        if (!stripe) {
+            console.error("Failed to initialize Stripe");
+            throw new https_1.HttpsError('internal', "Stripe initialization failed");
+        }
+        // Verify the customer exists and belongs to this user
+        const customer = await stripe.customers.retrieve(customerId);
+        if (!customer || customer.deleted) {
+            console.error('Customer not found:', customerId);
+            throw new https_1.HttpsError('not-found', 'Invalid customer ID');
+        }
+        if (((_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId) !== request.auth.uid) {
+            console.error('Customer does not belong to user:', {
+                customerId,
+                customerUserId: (_b = customer.metadata) === null || _b === void 0 ? void 0 : _b.userId,
+                requestUserId: request.auth.uid
+            });
+            throw new https_1.HttpsError('permission-denied', 'Customer does not belong to this user');
+        }
+        console.log('Customer verified, creating subscription...');
+        // Create the subscription
+        const subscription = await stripe.subscriptions.create({
+            customer: customerId,
+            items: [{ price: priceId }],
+            payment_behavior: 'default_incomplete',
+            payment_settings: { save_default_payment_method: 'on_subscription' },
+            expand: ['latest_invoice.payment_intent'],
+            metadata: {
+                userId: request.auth.uid // Add user ID to subscription metadata
+            }
+        });
+        console.log('Subscription created:', subscription.id);
+        // @ts-ignore - Stripe types don't properly capture the expanded fields
+        const clientSecret = (_d = (_c = subscription.latest_invoice) === null || _c === void 0 ? void 0 : _c.payment_intent) === null || _d === void 0 ? void 0 : _d.client_secret;
+        if (!clientSecret) {
+            console.error('No client secret in subscription response:', subscription);
+            throw new https_1.HttpsError('internal', 'Failed to create subscription: No client secret returned');
+        }
+        console.log('Subscription created successfully with client secret');
+        return {
+            subscriptionId: subscription.id,
+            clientSecret: clientSecret,
+        };
+    }
+    catch (error) {
+        console.error('Error creating subscription:', error);
+        if (error instanceof https_1.HttpsError) {
+            throw error;
+        }
+        if (error instanceof Error && error.message.includes('auth')) {
+            throw new https_1.HttpsError('unauthenticated', error.message);
+        }
+        throw new https_1.HttpsError('internal', error instanceof Error ? error.message : 'Failed to create subscription');
+    }
+});
+exports.createStripeCustomer = (0, https_1.onCall)(async (request) => {
+    console.log('createStripeCustomer called with auth:', request.auth);
+    if (!request.auth) {
+        console.error('Authentication missing in createStripeCustomer');
+        throw new https_1.HttpsError("unauthenticated", "You must be logged in to create a customer");
+    }
+    if (!request.auth.uid) {
+        console.error('User ID missing in auth object:', request.auth);
+        throw new https_1.HttpsError("unauthenticated", "Invalid authentication state");
     }
     try {
         const userId = request.auth.uid;
         const { email, name } = request.data;
-        console.log(`Creating Stripe customer for user: ${userId}`);
+        if (!email || !name) {
+            console.error('Missing required customer data:', { email, name });
+            throw new https_1.HttpsError("invalid-argument", "Email and name are required");
+        }
+        console.log(`Creating Stripe customer for user: ${userId}`, { email, name });
+        // Validate Stripe configuration
+        const stripeConfig = getStripeConfig();
+        if (!stripeConfig.secretKey) {
+            console.error("Missing Stripe secret key");
+            throw new Error("Stripe configuration is incomplete");
+        }
+        // Initialize and validate Stripe instance
+        const stripe = getStripe();
+        if (!stripe) {
+            console.error("Failed to initialize Stripe");
+            throw new Error("Stripe initialization failed");
+        }
         // Create Stripe customer
         const customer = await getStripe().customers.create({
             email: email,
@@ -650,7 +753,7 @@ exports.createStripeCustomer = (0, https_1.onCall)(async (request) => {
     }
     catch (error) {
         console.error("Error creating Stripe customer:", error);
-        throw new https_1.HttpsError("internal", "Failed to create customer");
+        throw new https_1.HttpsError("internal", error instanceof Error ? error.message : "Failed to create customer");
     }
 });
 exports.createCheckoutSession = (0, https_1.onCall)(async (request) => {
@@ -688,7 +791,11 @@ exports.createCheckoutSession = (0, https_1.onCall)(async (request) => {
             },
         });
         console.log(`✅ Created checkout session ${session.id} for user ${request.auth.uid}`);
-        return { sessionId: session.id };
+        console.log(`📍 Checkout URL: ${session.url}`);
+        return {
+            sessionId: session.id,
+            url: session.url
+        };
     }
     catch (error) {
         console.error("Error creating checkout session:", error);

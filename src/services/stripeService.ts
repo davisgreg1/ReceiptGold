@@ -25,6 +25,11 @@ export interface CustomerResponse {
   customerId: string;
 }
 
+export interface SubscriptionResponse {
+  clientSecret: string;
+  subscriptionId: string;
+}
+
 export interface SubscriptionTier {
   id: 'starter' | 'growth' | 'professional';
   name: string;
@@ -40,7 +45,7 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
     id: 'starter',
     name: 'Starter',
     price: 9.99,
-    priceId: 'price_starter_monthly', // Replace with your actual Stripe price ID
+    priceId: 'price_1RpGJwAZ9H3S1Eo7K8IKCqcz', // Starter tier price ID
     features: [
       'Unlimited receipts',
       'Basic reporting',
@@ -52,7 +57,7 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
     id: 'growth',
     name: 'Growth',
     price: 19.99,
-    priceId: 'price_growth_monthly', // Replace with your actual Stripe price ID
+    priceId: 'price_1RpGJ2AZ9H3S1Eo7nfD3eAZt', // Growth tier price ID
     features: [
       'Everything in Starter',
       'Advanced reporting',
@@ -66,7 +71,7 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
     id: 'professional',
     name: 'Professional',
     price: 39.99,
-    priceId: 'price_professional_monthly', // Replace with your actual Stripe price ID
+    priceId: 'price_1RpGKVAZ9H3S1Eo7HA1yuvqW', // Professional tier price ID
     features: [
       'Everything in Growth',
       'White-label reports',
@@ -93,10 +98,13 @@ class StripeService {
 
   // Create checkout session for subscription
   async createCheckoutSession(priceId: string, customerId: string): Promise<string> {
+    console.log("🚀 Creating checkoutCreating checkout session with session with:", { priceId, customerId });
     try {
       const createSession = httpsCallable(functions, 'createCheckoutSession');
       const result = await createSession({ priceId, customerId });
+      console.log("🚀 ~ StripeServiceStripeService ~ createCheckoutSession ~ result:", result)
       const data = result.data as CheckoutSessionResponse;
+      // console.log("🚀 ~ StripeService ~ createCheckoutSession ~ data:", data)
       return data.sessionId;
     } catch (error) {
       console.error('Error creating checkout session:', error);
@@ -140,54 +148,66 @@ class StripeService {
 
 // Stripe hook for easier usage in components
 export const useStripeService = () => {
+  console.log("🚀 ~ useStripeService ~ useStripeService called");
   const stripe = useStripe();
   const { initPaymentSheet, presentPaymentSheet } = usePaymentSheet();
   const { confirmPayment } = useConfirmPayment();
 
   const service = new StripeService();
 
-  const handleSubscription = async (
+    const handleSubscription = async (
     tierId: string, 
     customerId: string,
     onSuccess?: () => void,
     onError?: (error: Error) => void
   ) => {
     try {
+      console.log('🚀 Starting handleSubscription:', { tierId, customerId });
       const priceId = service.getPriceId(tierId);
+      console.log('📦 Got priceId:', priceId);
       if (!priceId) {
+        console.error('❌ Invalid price ID for tier:', tierId);
         throw new Error('Invalid subscription tier');
       }
 
-      const sessionId = await service.createCheckoutSession(priceId, customerId);
+      // Create subscription and get payment intent client secret
+      const createSubscription = httpsCallable(functions, 'createSubscription');
+      const { data: subscriptionData } = await createSubscription({ priceId, customerId });
+      const { clientSecret, subscriptionId } = subscriptionData as { clientSecret: string; subscriptionId: string };
       
+      console.log('📦 Created subscription:', { subscriptionId });
+
       // Initialize payment sheet
       const { error: initError } = await initPaymentSheet({
         merchantDisplayName: 'ReceiptGold',
-        paymentIntentClientSecret: sessionId, // You might need to adjust this
+        paymentIntentClientSecret: clientSecret,
         allowsDelayedPaymentMethods: true,
         defaultBillingDetails: {
           name: 'Customer', // You can pass actual customer name
         },
+        returnURL: 'receiptgold://stripe-redirect',
       });
 
       if (initError) {
+        console.error('❌ Payment sheet init error:', initError);
         throw new Error(initError.message);
       }
 
       // Present payment sheet
       const { error: presentError } = await presentPaymentSheet();
-
+      
       if (presentError) {
+        console.error('❌ Payment sheet present error:', presentError);
         throw new Error(presentError.message);
       }
 
-      // Payment successful
+      console.log('✅ Payment successful!');
       onSuccess?.();
     } catch (error) {
-      console.error('Subscription error:', error);
+      console.error('❌ handleSubscription error:', error);
       onError?.(error as Error);
     }
-  };
+  }
 
   return {
     ...service,
