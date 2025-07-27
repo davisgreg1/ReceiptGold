@@ -129,3 +129,7 @@ public
 # Temporary folders
 tmp/
 temp/
+
+service-account-key.json
+*.json
+.env*

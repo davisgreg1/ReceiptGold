@@ -1,0 +1,162 @@
+// Firestore Security Rules for ReceiptGold
+
+rules_version = '2';
+service cloud.firestore {
+    match /databases/{database}/documents {
+
+        // Helper functions
+        function isAuthenticated() {
+            return request.auth != null;
+        }
+
+        function isOwner(userId) {
+            return isAuthenticated() && request.auth.uid == userId;
+        }
+
+        function isValidUser() {
+            return isAuthenticated() && request.auth.uid != null;
+        }
+
+        function hasValidEmail() {
+            return isAuthenticated() && request.auth.token.email_verified == true;
+        }
+
+        // Users collection - users can only access their own data
+        match /users/{userId} {
+            allow read, write: if isOwner(userId);
+
+            // Allow creation during signup
+            allow create: if isAuthenticated() && 
+            request.auth.uid == userId &&
+            hasValidEmail();
+        }
+
+        // Subscriptions collection - read only for users, write only via Cloud Functions
+        match /subscriptions/{userId} {
+            allow read: if isOwner(userId);
+
+            // Only Cloud Functions can write to subscriptions
+            // This prevents users from upgrading themselves
+            allow write: if false;
+
+            // Allow creation during user initialization
+            allow create: if isOwner(userId) && 
+            resource == null; // Only if document doesn't exist
+        }
+
+        // Receipts collection - users can only access their own receipts
+        match /receipts/{receiptId} {
+            allow read, write: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+
+            allow create: if isAuthenticated() && 
+            request.auth.uid == request.resource.data.userId &&
+            // Validate required fields
+            request.resource.data.keys().hasAll(['userId', 'amount', 'vendor']) &&
+            // Validate data types
+            request.resource.data.amount is number &&
+            request.resource.data.amount >= 0;
+
+            allow update: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId &&
+            // Prevent changing userId
+            request.resource.data.userId == resource.data.userId;
+
+            allow delete: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+        }
+
+        // Businesses collection - users can only access their own businesses
+        match /businesses/{businessId} {
+            allow read, write: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+
+            allow create: if isAuthenticated() && 
+            request.auth.uid == request.resource.data.userId &&
+            // Validate required fields
+            request.resource.data.keys().hasAll(['userId', 'name']) &&
+            // Validate business name is not empty
+            request.resource.data.name.size() > 0;
+
+            allow update: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId &&
+            // Prevent changing userId
+            request.resource.data.userId == resource.data.userId;
+
+            allow delete: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+        }
+
+        // Reports collection - users can only access their own reports
+        match /reports/{reportId} {
+            allow read: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+
+            allow create: if isAuthenticated() && 
+            request.auth.uid == request.resource.data.userId &&
+            // Validate required fields
+            request.resource.data.keys().hasAll(['userId', 'type', 'title']);
+
+            allow update: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId &&
+            // Prevent changing userId
+            request.resource.data.userId == resource.data.userId;
+
+            allow delete: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+        }
+
+        // Usage collection - read only for users, write only via Cloud Functions
+        match /usage/{usageId} {
+            // Allow users to read their own usage data
+            allow read: if isAuthenticated() && 
+            usageId.startsWith(request.auth.uid + '_');
+
+            // Only Cloud Functions can write usage data
+            allow write: if false;
+
+            // Allow creation during user initialization
+            allow create: if isAuthenticated() && 
+            usageId.startsWith(request.auth.uid + '_') &&
+            request.resource.data.userId == request.auth.uid;
+        }
+
+        // Categories collection - public read access, admin write only
+        match /categories/{categoryId} {
+            // Anyone can read categories (for autocomplete, etc.)
+            allow read: if true;
+
+            // Only admins can write categories
+            // This would need to be updated with admin logic or use Cloud Functions
+            allow write: if false;
+        }
+
+        // Admin functions (if needed)
+        // You can extend this with custom claims for admin users
+        function isAdmin() {
+            return isAuthenticated() && 
+            request.auth.token.admin == true;
+        }
+
+        // Admin-only collections (if you add them later)
+        match /admin/{document=**} {
+            allow read, write: if isAdmin();
+        }
+
+        // Analytics collection (optional - for tracking app usage)
+        match /analytics/{document=**} {
+            // Only allow reading/writing via Cloud Functions
+            allow read, write: if false;
+        }
+
+        // Audit logs (optional - for compliance)
+        match /audit_logs/{logId} {
+            // Users can read their own audit logs
+            allow read: if isAuthenticated() && 
+            resource.data.userId == request.auth.uid;
+
+            // Only Cloud Functions can write audit logs
+            allow write: if false;
+        }
+    }
+}
