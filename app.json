@@ -34,7 +34,11 @@
     "extra": {
       "eas": {
         "projectId": "your-project-id-here"
-      }
+      },
+      "FREE_TIER_MAX_RECEIPTS": "10",
+      "STARTER_TIER_MAX_RECEIPTS": "50",
+      "GROWTH_TIER_MAX_RECEIPTS": "150",
+      "PROFESSIONAL_TIER_MAX_RECEIPTS": "-1"
     },
     "plugins": [
       "expo-splash-screen",

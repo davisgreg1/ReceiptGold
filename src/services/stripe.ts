@@ -3,6 +3,7 @@ import { httpsCallable } from 'firebase/functions';
 import { functions } from '../config/firebase';
 import { initPaymentSheet, presentPaymentSheet } from '@stripe/stripe-react-native';
 import { getAuth } from 'firebase/auth';
+import Constants from 'expo-constants';
 
 // Types for Stripe operations
 export interface StripeCustomer {
@@ -27,12 +28,12 @@ export const SUBSCRIPTION_TIERS = {
     price: 0,
     priceId: null,
     features: [
-      `${parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10)} receipts per month`,
+      `${Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || 10} receipts per month`,
       'Basic categorization',
       'Email support'
     ],
     limits: {
-      maxReceipts: parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10)
+      maxReceipts: parseInt(Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || "10", 10)
     }
   },
   starter: {
@@ -41,13 +42,13 @@ export const SUBSCRIPTION_TIERS = {
     price: 9.99,
     priceId: 'price_1RpYbuAZ9H3S1Eo7Qd3qk3IV', // Stripe price ID (not product ID)
     features: [
-      `${parseInt(process.env.REACT_APP_STARTER_TIER_MAX_RECEIPTS || "50", 10)} receipts per month`,
+      `${Constants.expoConfig?.extra?.STARTER_TIER_MAX_RECEIPTS || 50} receipts per month`,
       'Basic reporting',
       'Email support',
       '1 Business profile'
     ],
     limits: {
-      maxReceipts: parseInt(process.env.REACT_APP_STARTER_TIER_MAX_RECEIPTS || "50", 10)
+      maxReceipts: parseInt(Constants.expoConfig?.extra?.STARTER_TIER_MAX_RECEIPTS || "50", 10)
     }
   },
   growth: {
@@ -55,11 +56,11 @@ export const SUBSCRIPTION_TIERS = {
     name: 'Growth',
     price: 19.99,
     limits: {
-      maxReceipts: parseInt(process.env.REACT_APP_GROWTH_TIER_MAX_RECEIPTS || "150", 10)
+      maxReceipts: parseInt(Constants.expoConfig?.extra?.GROWTH_TIER_MAX_RECEIPTS || "150", 10)
     },
     priceId: 'price_1RpYbeAZ9H3S1Eo75oTj2nHe', // Stripe price ID (not product ID)
     features: [
-      'Everything in Starter',
+      `Everything in Starter + ${Constants.expoConfig?.extra?.GROWTH_TIER_MAX_RECEIPTS || 150} receipts`,
       'Advanced reporting',
       'OCR scanning',
       '3 Business profiles',
@@ -72,7 +73,7 @@ export const SUBSCRIPTION_TIERS = {
     price: 39.99,
     priceId: 'price_1RpYbJAZ9H3S1Eo78dUvxerL', // Stripe price ID (not product ID)
     features: [
-      'Everything in Growth',
+      `Everything in Growth + unlimited receipts`,
       'White-label reports',
       'API access',
       'Unlimited businesses',

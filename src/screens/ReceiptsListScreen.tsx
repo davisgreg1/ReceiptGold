@@ -15,7 +15,9 @@ import { getMonthlyReceiptCount } from '../utils/getMonthlyReceipts';
 import { checkReceiptLimit } from '../utils/navigationGuards';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
+import { Platform } from 'react-native';
 import { useSubscription } from '../context/SubscriptionContext';
+import Constants from 'expo-constants';
 import { useStripePayments } from '../hooks/useStripePayments';
 import { useAuth } from '../context/AuthContext';
 import { ReceiptLimitGate } from '../components/PremiumGate';
@@ -205,7 +207,7 @@ export const ReceiptsListScreen: React.FC = () => {
     }, [fetchReceipts])
   );
   // Calculate remaining receipts based on subscription tier limits
-  const maxReceipts = subscription?.limits?.maxReceipts || 10; // default to free tier
+  const maxReceipts = subscription?.limits?.maxReceipts || Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || 10; // default to free tier
   console.log("🚀 ~ ReceiptsListScreen ~ subscription:", subscription)
   const remainingReceipts = maxReceipts === -1 ? -1 : Math.max(0, maxReceipts - currentReceiptCount);
 
@@ -321,7 +323,9 @@ export const ReceiptsListScreen: React.FC = () => {
                   </View>
                   <View style={styles.usageColumn}>
                     <Text style={[styles.usageLabel, { color: theme.text.tertiary }]}>
-                      Monthly Usage (includes deleted)
+                      {subscription?.currentTier === 'free' 
+                        ? 'Total Usage (includes deleted)'
+                        : 'Monthly Usage (includes deleted)'}
                     </Text>
                     <Text style={[styles.usageValue, { color: theme.text.primary }]}>
                       {currentReceiptCount} / {maxReceipts === -1 ? '∞' : maxReceipts}
@@ -332,9 +336,11 @@ export const ReceiptsListScreen: React.FC = () => {
                 <View style={styles.usageDivider} />
                 
                 <View style={styles.usageInfo}>
-                  <Text style={[styles.usageLabel, { color: theme.text.tertiary }]}>
-                    Limit resets on {subscription?.billing?.currentPeriodEnd?.toLocaleDateString() || 'N/A'}
-                  </Text>
+                  {subscription?.currentTier !== 'free' && maxReceipts !== -1 && (
+                    <Text style={[styles.usageLabel, { color: theme.text.tertiary }]}>
+                      Limit resets on {subscription?.billing?.currentPeriodEnd?.toLocaleDateString() || 'N/A'}
+                    </Text>
+                  )}
                   
                   {maxReceipts !== -1 && remainingReceipts <= 2 && (
                     <Text style={[styles.warningText, { color: theme.status.warning }]}>
