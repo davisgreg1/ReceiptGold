@@ -23,7 +23,11 @@
         "backgroundColor": "#000000"
       },
       "package": "com.receiptgold.app",
-      "versionCode": 1
+      "versionCode": 1,
+      "permissions": ["CAMERA", "INTERNET", "ACCESS_NETWORK_STATE"],
+      "config": {
+        "usesCleartextTraffic": true
+      }
     },
     "web": {
       "favicon": "./assets/favicon.png",

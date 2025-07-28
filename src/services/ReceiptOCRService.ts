@@ -1,3 +1,4 @@
+import { Platform } from 'react-native';
 import DocumentIntelligence, {
     isUnexpected,
     DocumentIntelligenceClient,
@@ -51,9 +52,20 @@ const validateImageUri = (uri: string): void => {
     if (!uri) {
         throw new Error("No image URI provided");
     }
-    if (!uri.startsWith('file://') && !uri.startsWith('content://')) {
-        throw new Error("Invalid image URI format");
+    
+    // For Android, we'll be more permissive since we'll normalize the URI later
+    if (Platform.OS === 'android') {
+        if (!uri.includes('file:') && !uri.includes('content:')) {
+            throw new Error("Invalid image URI format");
+        }
+    } else {
+        // For iOS, we'll be strict about the format
+        if (!uri.startsWith('file://') && !uri.startsWith('content://')) {
+            throw new Error("Invalid image URI format");
+        }
     }
+    
+    logDebug("Image URI validation passed", { uri });
 };
 
 // Helper function to safely get field content
@@ -155,8 +167,39 @@ export const analyzeReceipt = async (imageUri: string): Promise<ReceiptData> => 
         validateImageUri(imageUri);
         logDebug("Starting receipt analysis...", { imageUri });
 
+        // Normalize the URI for Android
+        let normalizedUri = imageUri;
+        if (Platform.OS === 'android') {
+            // First, remove any duplicate 'file:' prefixes and normalize slashes
+            normalizedUri = imageUri
+                .replace(/^\/+/, '') // Remove leading slashes
+                .replace(/file:\/\/+file:\/\/+/, 'file://') // Remove duplicate file:// prefixes
+                .replace(/file:\/\/+file:\//, 'file://') // Handle file://file:/ case
+                .replace(/file:\/([^\/])/, 'file://$1') // Ensure double slash after file:
+                .replace(/([^:])\/+/g, '$1/'); // Remove duplicate slashes except after colon
+            
+            // If still no file:// prefix, add it
+            if (!normalizedUri.startsWith('file://')) {
+                normalizedUri = `file://${normalizedUri}`;
+            }
+            
+            logDebug("Normalized URI for Android", { 
+                originalUri: imageUri, 
+                normalizedUri,
+                steps: [
+                    { step: 'initial', uri: imageUri },
+                    { step: 'remove_duplicates', uri: normalizedUri }
+                ]
+            });
+        }
+
         // Check if file exists
-        const fileInfo = await FileSystem.getInfoAsync(imageUri);
+        const fileInfo = await FileSystem.getInfoAsync(normalizedUri, { size: true })
+            .catch(error => {
+                logError("Error checking file info", error);
+                throw new Error(`Unable to access image file: ${error.message}`);
+            });
+
         if (!fileInfo.exists) {
             throw new Error("Image file does not exist");
         }
@@ -169,8 +212,11 @@ export const analyzeReceipt = async (imageUri: string): Promise<ReceiptData> => 
         }
 
         logDebug("Converting image to base64...");
-        const base64 = await FileSystem.readAsStringAsync(imageUri, {
+        const base64 = await FileSystem.readAsStringAsync(normalizedUri, {
             encoding: FileSystem.EncodingType.Base64,
+        }).catch(error => {
+            logError("Error reading file as base64", error);
+            throw new Error(`Unable to read image file: ${error.message}`);
         });
 
         if (!base64) {
@@ -185,12 +231,30 @@ export const analyzeReceipt = async (imageUri: string): Promise<ReceiptData> => 
         console.log("Sending to Azure Document Intelligence...");
 
         // Start the analysis using the official pattern
-        const initialResponse = await client
-            .path("/documentModels/{modelId}:analyze", "prebuilt-receipt")
-            .post({
-                contentType: "application/octet-stream",
-                body: bytes
-            });
+        let initialResponse;
+        try {
+            initialResponse = await client
+                .path("/documentModels/{modelId}:analyze", "prebuilt-receipt")
+                .post({
+                    contentType: "application/octet-stream",
+                    body: bytes,
+                    headers: {
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/octet-stream',
+                        'User-Agent': `ReceiptGold/${Platform.OS}`
+                    }
+                });
+        } catch (error: unknown) {
+            console.error('Initial API call error:', error);
+            if (Platform.OS === 'android') {
+                console.error('Android API call details:', {
+                    message: error instanceof Error ? error.message : 'Unknown error',
+                    name: error instanceof Error ? error.name : 'Unknown',
+                    stack: error instanceof Error ? error.stack : undefined
+                });
+            }
+            throw new Error('Failed to connect to Azure service. Please check your internet connection and try again.');
+        }
 
         if (isUnexpected(initialResponse)) {
             throw new Error(initialResponse.body?.error?.message || 'Analysis request failed');
@@ -223,7 +287,21 @@ export const analyzeReceipt = async (imageUri: string): Promise<ReceiptData> => 
                 method: 'GET',
                 headers: {
                     'Ocp-Apim-Subscription-Key': apiKey,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json',
                 },
+            }).catch(error => {
+                console.error('Network error:', error);
+                if (Platform.OS === 'android') {
+                    // Log more details about the error on Android
+                    console.error('Android network error details:', {
+                        message: error.message,
+                        code: error.code,
+                        name: error.name,
+                        stack: error.stack,
+                    });
+                }
+                throw new Error('Network request failed. Please check your internet connection and try again.');
             });
 
             if (!statusResponse.ok) {

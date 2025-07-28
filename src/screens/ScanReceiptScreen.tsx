@@ -100,6 +100,10 @@ export const ScanReceiptScreen = () => {
         if (!user?.uid) return;
         
         const maxReceipts = subscription?.limits?.maxReceipts || 10;
+        
+        // Skip limit check for unlimited plan (professional tier)
+        if (maxReceipts === -1) return;
+        
         const allowed = await enforceReceiptLimit(user.uid, maxReceipts, () => {
           Alert.alert(
             "Receipt Limit Reached",
@@ -180,7 +184,8 @@ export const ScanReceiptScreen = () => {
       remaining
     });
 
-    if (!canAddReceipt(currentReceiptCount) || remaining <= 0) {
+    // Professional tier has maxReceipts = -1, indicating unlimited
+    if (subscription.limits.maxReceipts !== -1 && (!canAddReceipt(currentReceiptCount) || remaining <= 0)) {
       Alert.alert(
         'Monthly Limit Reached',
         'You have reached your monthly receipt limit. Please upgrade your plan or wait until next month to add more receipts.',
