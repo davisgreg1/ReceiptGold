@@ -11,6 +11,8 @@ import { ReceiptsListScreen } from "../screens/ReceiptsListScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { ScanReceiptScreen } from "../screens/ScanReceiptScreen";
 import { ReceiptDetailScreen } from "../screens/ReceiptDetailScreen";
+import { EditReceiptScreen } from "../screens/EditReceiptScreen";
+import { Receipt } from "../types/receipt";
 
 // Tab Navigator Types
 export type BottomTabParamList = {
@@ -30,7 +32,7 @@ export type ReceiptsStackParamList = {
   ReceiptsList: undefined;
   ReceiptDetail: { receiptId: string; imageUrl?: string };
   ScanReceipt: undefined;
-  EditReceipt: { receiptId: string };
+  EditReceipt: { receipt: Receipt };
 };
 
 export type ReportsStackParamList = {
@@ -142,6 +144,15 @@ const ReceiptsStackNavigator = () => (
       options={{ 
         headerShown: true,
         title: 'Receipt Details'
+      }} 
+    />
+    <ReceiptsStack.Screen 
+      name="EditReceipt" 
+      component={EditReceiptScreen} 
+      options={{ 
+        headerShown: true,
+        title: 'Edit Receipt',
+        presentation: 'modal'
       }} 
     />
   </ReceiptsStack.Navigator>
