@@ -16,6 +16,7 @@ import {
 import { db } from '../config/firebase';
 import { getMonthlyReceiptCount } from '../utils/getMonthlyReceipts';
 import { SubscriptionTier } from '../context/SubscriptionContext';
+import Constants from 'expo-constants';
 
 // Types
 export interface UserProfile {
@@ -288,7 +289,7 @@ export const receiptService = {
             apiCalls: 0,
             reportsGenerated: 0,
             limits: {
-              maxReceipts: parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10),
+              maxReceipts: parseInt(Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || "10", 10),
               maxApiCalls: 0,
               maxReports: 1,
             },
@@ -373,25 +374,25 @@ export const usageService = {
     switch (tier) {
       case 'free':
         return {
-          maxReceipts: parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10),
+          maxReceipts: parseInt(Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || "10", 10),
           maxApiCalls: 0,
           maxReports: 1,
         };
       case 'starter':
         return {
-          maxReceipts: parseInt(process.env.REACT_APP_STARTER_TIER_MAX_RECEIPTS || "50", 10),
+          maxReceipts: parseInt(Constants.expoConfig?.extra?.STARTER_TIER_MAX_RECEIPTS || "50", 10),
           maxApiCalls: 0,
           maxReports: -1, // unlimited
         };
       case 'growth':
         return {
-          maxReceipts: parseInt(process.env.REACT_APP_GROWTH_TIER_MAX_RECEIPTS || "150", 10),
+          maxReceipts: parseInt(Constants.expoConfig?.extra?.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
           maxApiCalls: 100,
           maxReports: -1,
         };
       case 'professional':
         return {
-          maxReceipts: parseInt(process.env.REACT_APP_PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
+          maxReceipts: parseInt(Constants.expoConfig?.extra?.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
           maxApiCalls: 1000,
           maxReports: -1,
         };

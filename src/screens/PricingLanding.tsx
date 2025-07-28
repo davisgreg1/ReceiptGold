@@ -60,7 +60,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       gradientStart: "#3B82F6",
       gradientEnd: "#06B6D4",
       features: [
-        "50 receipt uploads per month",
+        "50 receipts per month",
         "LLC-specific expense categories",
         "Educational content",
         "Basic compliance features",
@@ -79,7 +79,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       gradientEnd: "#EC4899",
       features: [
         "Everything in Starter",
-        "150 receipt uploads per month",
+        "150 receipts per month",
         "Advanced reporting",
         "Tax preparation tools",
         "Accounting software integrations",
@@ -100,7 +100,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       gradientEnd: "#EA580C",
       features: [
         "Everything in Growth",
-        "Unlimited receipt uploads",
+        "Unlimited receipts",
         "Multi-business management",
         "White-label options",
         "API access",

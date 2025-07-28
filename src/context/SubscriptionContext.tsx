@@ -54,13 +54,16 @@ const SubscriptionContext = createContext<SubscriptionContextType | undefined>(
   undefined
 );
 
+import Constants from 'expo-constants';
+
 // Get receipt limits from environment variables
 const getReceiptLimits = () => {
+  const extra = Constants.expoConfig?.extra || {};
   return {
-    free: parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10),
-    starter: parseInt(process.env.REACT_APP_STARTER_TIER_MAX_RECEIPTS || "50", 10),
-    growth: parseInt(process.env.REACT_APP_GROWTH_TIER_MAX_RECEIPTS || "150", 10),
-    professional: parseInt(process.env.REACT_APP_PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10)
+    free: parseInt(extra.FREE_TIER_MAX_RECEIPTS || "10", 10),
+    starter: parseInt(extra.STARTER_TIER_MAX_RECEIPTS || "50", 10),
+    growth: parseInt(extra.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
+    professional: parseInt(extra.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10)
   };
 };
 
