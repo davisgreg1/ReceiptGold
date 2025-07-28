@@ -11,7 +11,9 @@
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.receiptgold.app",
@@ -24,7 +26,11 @@
       },
       "package": "com.receiptgold.app",
       "versionCode": 1,
-      "permissions": ["CAMERA", "INTERNET", "ACCESS_NETWORK_STATE"],
+      "permissions": [
+        "CAMERA",
+        "INTERNET",
+        "ACCESS_NETWORK_STATE"
+      ],
       "config": {
         "usesCleartextTraffic": true
       }
@@ -47,13 +53,20 @@
     "plugins": [
       "expo-splash-screen",
       [
+        "react-native-vision-camera",
+      {
+        "cameraPermissionText": "$(PRODUCT_NAME) needs access to your Camera.",
+        "enableMicrophonePermission": false,
+        "microphonePermissionText": "$(PRODUCT_NAME) needs access to your Microphone."
+      },
         "expo-camera",
         {
           "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera",
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone",
           "recordAudioAndroid": true
         }
-      ]
+      ],
+      "react-native-vision-camera"
     ]
   }
 }
