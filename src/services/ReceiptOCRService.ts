@@ -5,6 +5,7 @@ import DocumentIntelligence, {
     AnalyzeResultOutput,
     DocumentFieldOutput
 } from "@azure-rest/ai-document-intelligence";
+import { ReceiptCategoryService } from './ReceiptCategoryService';
 import { AzureKeyCredential } from "@azure/core-auth";
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
@@ -15,6 +16,8 @@ const apiKey = process.env.EXPO_PUBLIC_AZURE_FORM_RECOGNIZER_API_KEY;
 if (!endpoint || !apiKey) {
     throw new Error("Azure Form Recognizer credentials not found in environment variables");
 }
+
+import { ReceiptCategory } from './ReceiptCategoryService';
 
 export interface ReceiptData {
     merchantName?: string;
@@ -31,6 +34,8 @@ export interface ReceiptData {
         price: number;
     }>;
     paymentMethod?: string;
+    category?: ReceiptCategory;
+    categoryConfidence?: number;
 }
 
 // Create client instance
@@ -136,28 +141,55 @@ const parseDate = (dateString: string): Date | undefined => {
     }
 };
 
-export const pickImage = async (): Promise<string | null> => {
+import * as ImageManipulator from 'expo-image-manipulator';
+
+export type ImageSource = 'camera' | 'gallery';
+
+export const pickImage = async (source: ImageSource = 'gallery'): Promise<string | null> => {
     try {
-        // Request permission
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        // Request appropriate permission
+        const { status } = source === 'gallery' 
+            ? await ImagePicker.requestMediaLibraryPermissionsAsync()
+            : await ImagePicker.requestCameraPermissionsAsync();
+
         if (status !== "granted") {
-            throw new Error("Permission to access media library was denied");
+            throw new Error(`Permission to access ${source} was denied`);
         }
 
-        // Pick the image
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            quality: 1,
-        });
+        // Launch picker or camera
+        const result = source === 'gallery'
+            ? await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                quality: 1,
+                aspect: [3, 4], // Receipt-like aspect ratio
+            })
+            : await ImagePicker.launchCameraAsync({
+                allowsEditing: true,
+                quality: 1,
+                aspect: [3, 4], // Receipt-like aspect ratio
+            });
 
         if (!result.canceled && result.assets?.[0]?.uri) {
-            return result.assets[0].uri;
+            // Process the image for optimal OCR
+            const processedImage = await ImageManipulator.manipulateAsync(
+                result.assets[0].uri,
+                [
+                    // Resize if the image is too large
+                    { resize: { width: 1200 } }, // Keep aspect ratio, set max width
+                ],
+                {
+                    compress: 0.8, // Good balance of quality and file size
+                    format: ImageManipulator.SaveFormat.JPEG,
+                }
+            );
+
+            return processedImage.uri;
         }
 
         return null;
     } catch (error) {
-        console.error("Error picking image:", error);
+        console.error(`Error picking image from ${source}:`, error);
         throw error;
     }
 };
@@ -367,6 +399,11 @@ export const analyzeReceipt = async (imageUri: string): Promise<ReceiptData> => 
             paymentMethod: getFieldContent(fields.PaymentMethod),
         };
 
+        // Determine category
+        const { category, confidence } = await ReceiptCategoryService.determineCategory(receiptData);
+        receiptData.category = category;
+        receiptData.categoryConfidence = confidence;
+
         logDebug("Extracted receipt data:", receiptData);
         return receiptData;
 
@@ -386,28 +423,17 @@ export const analyzeReceipt = async (imageUri: string): Promise<ReceiptData> => 
     }
 };
 
-export const captureAndAnalyzeReceipt = async (): Promise<ReceiptData | null> => {
+export const captureAndAnalyzeReceipt = async (source: ImageSource = 'camera'): Promise<ReceiptData | null> => {
     try {
-        // Request camera permission
-        const { status } = await ImagePicker.requestCameraPermissionsAsync();
-        if (status !== "granted") {
-            throw new Error("Permission to access camera was denied");
+        const imageUri = await pickImage(source);
+        if (!imageUri) {
+            return null;
         }
 
-        // Launch camera
-        const result = await ImagePicker.launchCameraAsync({
-            allowsEditing: true,
-            quality: 1,
-        });
-
-        if (!result.canceled && result.assets?.[0]?.uri) {
-            // Analyze the captured receipt
-            return await analyzeReceipt(result.assets[0].uri);
-        }
-
-        return null;
+        // Analyze the captured receipt
+        return await analyzeReceipt(imageUri);
     } catch (error) {
-        console.error("Error capturing and analyzing receipt:", error);
+        console.error(`Error ${source === 'camera' ? 'capturing' : 'selecting'} and analyzing receipt:`, error);
         throw error;
     }
 };
