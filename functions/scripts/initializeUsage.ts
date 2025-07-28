@@ -1,5 +1,4 @@
 import * as admin from 'firebase-admin';
-
 import * as path from 'path';
 
 // Initialize Firebase Admin if not already initialized
@@ -21,12 +20,21 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
+// Get receipt limits from environment variables
+const getReceiptLimits = () => {
+  return {
+    free: parseInt(process.env.FREE_TIER_MAX_RECEIPTS || "10", 10),
+    starter: parseInt(process.env.STARTER_TIER_MAX_RECEIPTS || "50", 10),
+    growth: parseInt(process.env.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
+    professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10)
+  };
+};
+
 type SubscriptionTier = 'free' | 'starter' | 'growth' | 'professional';
 
 interface SubscriptionLimits {
   maxReceipts: number;
   maxBusinesses: number;
-  storageLimit: number;
   apiCallsPerMonth: number;
   maxReports: number;
 }
@@ -77,9 +85,8 @@ const subscriptionTiers: Record<SubscriptionTier, TierConfig & { features: Subsc
   free: {
     name: "Free",
     limits: {
-      maxReceipts: 10,
+      maxReceipts: getReceiptLimits().free,
       maxBusinesses: 1,
-      storageLimit: 104857600, // 100 MB
       apiCallsPerMonth: 0,
       maxReports: 3,
     },
@@ -97,9 +104,8 @@ const subscriptionTiers: Record<SubscriptionTier, TierConfig & { features: Subsc
   starter: {
     name: "Starter",
     limits: {
-      maxReceipts: -1, // unlimited
+      maxReceipts: getReceiptLimits().starter,
       maxBusinesses: 1,
-      storageLimit: -1, // unlimited
       apiCallsPerMonth: 0,
       maxReports: 10,
     },
@@ -117,9 +123,8 @@ const subscriptionTiers: Record<SubscriptionTier, TierConfig & { features: Subsc
   growth: {
     name: "Growth",
     limits: {
-      maxReceipts: -1,
+      maxReceipts: getReceiptLimits().growth,
       maxBusinesses: 3,
-      storageLimit: -1,
       apiCallsPerMonth: 1000,
       maxReports: 50,
     },
@@ -137,9 +142,8 @@ const subscriptionTiers: Record<SubscriptionTier, TierConfig & { features: Subsc
   professional: {
     name: "Professional",
     limits: {
-      maxReceipts: -1,
+      maxReceipts: getReceiptLimits().professional,
       maxBusinesses: -1,
-      storageLimit: -1,
       apiCallsPerMonth: 10000,
       maxReports: -1,
     },
@@ -232,7 +236,6 @@ async function initializeUsageCollection() {
         userId,
         month: currentMonth,
         receiptsUploaded: 0,
-        storageUsed: 0,
         apiCalls: 0,
         reportsGenerated: 0,
         limits: subscriptionTiers[currentTier].limits,

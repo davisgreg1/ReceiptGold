@@ -12,6 +12,7 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "../src/config/firebase"; // Your Firebase app instance
+import { getReceiptLimits } from "../src/config/limits";
 
 // Type definitions
 interface UserAddress {
@@ -57,7 +58,6 @@ interface UserDocument {
 interface SubscriptionLimits {
   maxReceipts: number;
   maxBusinesses: number;
-  storageLimit: number;
   apiCallsPerMonth: number;
 }
 
@@ -178,7 +178,6 @@ interface BusinessDocument {
 
 interface UsageLimits {
   maxReceipts: number;
-  maxStorage: number;
   maxApiCalls: number;
   maxReports: number;
 }
@@ -187,7 +186,6 @@ interface UsageDocument {
   userId: string;
   month: string;
   receiptsUploaded: number;
-  storageUsed: number;
   apiCalls: number;
   reportsGenerated: number;
   limits: UsageLimits;
@@ -343,9 +341,8 @@ export const createSubscriptionDocument = async (userId: string): Promise<Docume
 
     // Feature Limits (free tier)
     limits: {
-      maxReceipts: 10,
+      maxReceipts: getReceiptLimits().free,
       maxBusinesses: 1,
-      storageLimit: 100, // 100 MB
       apiCallsPerMonth: 0,
     },
 
@@ -497,14 +494,12 @@ export const createUsageDocument = async (userId: string): Promise<DocumentRefer
 
     // Usage Statistics
     receiptsUploaded: 0,
-    storageUsed: 0,
     apiCalls: 0,
     reportsGenerated: 0,
 
     // Limits for current tier (free tier defaults)
     limits: {
-      maxReceipts: 10,
-      maxStorage: 104857600, // 100 MB in bytes
+      maxReceipts: getReceiptLimits().free,
       maxApiCalls: 0,
       maxReports: 1,
     },
@@ -657,9 +652,8 @@ export const subscriptionTiers: Record<string, SubscriptionTier> = {
     name: "Free",
     price: 0,
     limits: {
-      maxReceipts: 10,
+      maxReceipts: getReceiptLimits().free,
       maxBusinesses: 1,
-      storageLimit: 100, // MB
       apiCallsPerMonth: 0,
     },
     features: {
@@ -677,9 +671,8 @@ export const subscriptionTiers: Record<string, SubscriptionTier> = {
     name: "Starter",
     price: 9.99,
     limits: {
-      maxReceipts: 100,
+      maxReceipts: getReceiptLimits().starter,
       maxBusinesses: 1,
-      storageLimit: 1000, // MB
       apiCallsPerMonth: 100,
     },
     features: {
@@ -697,9 +690,8 @@ export const subscriptionTiers: Record<string, SubscriptionTier> = {
     name: "Growth",
     price: 29.99,
     limits: {
-      maxReceipts: 1000,
+      maxReceipts: getReceiptLimits().growth,
       maxBusinesses: 3,
-      storageLimit: 5000, // MB
       apiCallsPerMonth: 1000,
     },
     features: {
@@ -717,9 +709,8 @@ export const subscriptionTiers: Record<string, SubscriptionTier> = {
     name: "Professional",
     price: 99.99,
     limits: {
-      maxReceipts: -1, // unlimited
+      maxReceipts: getReceiptLimits().professional,
       maxBusinesses: -1, // unlimited
-      storageLimit: -1, // unlimited
       apiCallsPerMonth: 10000,
     },
     features: {

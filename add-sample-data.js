@@ -61,7 +61,6 @@ async function addSampleData() {
       limits: {
         maxReceipts: 10,
         maxBusinesses: 1,
-        storageLimit: 104857600,
         apiCallsPerMonth: 0,
         maxReports: 3
       },
