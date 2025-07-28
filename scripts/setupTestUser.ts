@@ -45,7 +45,6 @@ interface UserAddress {
 interface SubscriptionLimits {
   maxReceipts: number;
   maxBusinesses: number;
-  storageLimit: number;
   apiCallsPerMonth: number;
   maxReports: number;
 }
@@ -157,7 +156,6 @@ const subscriptionTiers: Record<string, SubscriptionTier> = {
     limits: {
       maxReceipts: 10,
       maxBusinesses: 1,
-      storageLimit: 104857600, // 100 MB
       apiCallsPerMonth: 0,
       maxReports: 3,
     },
@@ -473,7 +471,6 @@ async function createUsageDocument(): Promise<void> {
     userId: TEST_USER_CONFIG.userId,
     month: currentMonth,
     receiptsUploaded: SAMPLE_RECEIPTS.length,
-    storageUsed: 1250000, // ~1.25MB
     apiCalls: 0,
     reportsGenerated: 0,
     limits: subscriptionTiers.free.limits,

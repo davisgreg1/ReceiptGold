@@ -67,7 +67,6 @@
   limits: {
     maxReceipts: -1, // -1 = unlimited, number = limit
     maxBusinesses: 1,
-    storageLimit: -1, // in MB, -1 = unlimited
     apiCallsPerMonth: 0 // 0 = no API access
   },
   
@@ -284,14 +283,12 @@
   
   // Usage Statistics
   receiptsUploaded: 8,
-  storageUsed: 15728640, // bytes
   apiCalls: 0,
   reportsGenerated: 2,
   
   // Limits for current tier
   limits: {
     maxReceipts: 10,
-    maxStorage: -1,
     maxApiCalls: 0,
     maxReports: 1
   },

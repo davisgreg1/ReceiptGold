@@ -3,7 +3,6 @@ export interface SubscriptionTier {
   limits: {
     maxReceipts: number;
     maxBusinesses: number;
-    storageLimit: number;
     apiCallsPerMonth: number;
     maxReports?: number;
   };
@@ -93,7 +92,6 @@ export interface UsageDocument {
   userId: string;
   month: string;
   receiptsUploaded: number;
-  storageUsed: number;
   apiCalls: number;
   reportsGenerated: number;
   limits: SubscriptionTier['limits'];

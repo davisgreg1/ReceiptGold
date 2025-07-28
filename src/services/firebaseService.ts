@@ -10,9 +10,11 @@ import {
   limit,
   getDocs,
   serverTimestamp,
-  increment 
+  increment,
+  runTransaction
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
+import { getMonthlyReceiptCount } from '../utils/getMonthlyReceipts';
 import { SubscriptionTier } from '../context/SubscriptionContext';
 
 // Types
@@ -95,12 +97,10 @@ export interface Usage {
   userId: string;
   month: string; // YYYY-MM
   receiptsUploaded: number;
-  storageUsed: number;
   apiCalls: number;
   reportsGenerated: number;
   limits: {
     maxReceipts: number;
-    maxStorage: number;
     maxApiCalls: number;
     maxReports: number;
   };
@@ -224,20 +224,15 @@ export const receiptService = {
     try {
       const docRef = doc(db, 'receipts', receiptId);
       
-      // In a real app, you'd want to soft delete or move to a deleted collection
-      // For now, we'll just decrement the usage count
+      // Soft delete the receipt by updating its status
       await updateDoc(docRef, {
         status: 'deleted',
         updatedAt: serverTimestamp(),
       });
       
-      // Decrement usage count
-      const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
-      const usageRef = doc(db, 'usage', `${userId}_${currentMonth}`);
-      await updateDoc(usageRef, {
-        receiptsUploaded: increment(-1),
-        updatedAt: serverTimestamp(),
-      });
+      // We no longer decrement the usage count when deleting receipts
+      // Monthly usage should track ALL receipts created in a month,
+      // regardless of whether they are later deleted
     } catch (error) {
       console.error('Error deleting receipt:', error);
       throw error;
@@ -264,37 +259,48 @@ export const receiptService = {
     try {
       const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
       const usageRef = doc(db, 'usage', `${userId}_${currentMonth}`);
-      
-      await updateDoc(usageRef, {
-        receiptsUploaded: increment(1),
-        updatedAt: serverTimestamp(),
+
+      // Use transaction to ensure atomic updates and accurate counting
+      await runTransaction(db, async (transaction) => {
+        // Get the current month's receipt count using our utility function
+        const actualReceiptCount = await getMonthlyReceiptCount(userId);
+        
+        // Check if usage document exists
+        const usageDoc = await transaction.get(usageRef);
+        
+        if (usageDoc.exists()) {
+          // Update with accurate count
+          transaction.update(usageRef, {
+            receiptsUploaded: actualReceiptCount,
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          // Create new usage document with accurate count
+          const nextMonth = new Date();
+          nextMonth.setMonth(nextMonth.getMonth() + 1);
+          nextMonth.setDate(1);
+          nextMonth.setHours(0, 0, 0, 0);
+          
+          transaction.set(usageRef, {
+            userId,
+            month: currentMonth,
+            receiptsUploaded: actualReceiptCount,
+            apiCalls: 0,
+            reportsGenerated: 0,
+            limits: {
+              maxReceipts: parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10),
+              maxApiCalls: 0,
+              maxReports: 1,
+            },
+            resetDate: nextMonth,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        }
       });
     } catch (error) {
-      // If usage document doesn't exist, create it
-      const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
-      const usageRef = doc(db, 'usage', `${userId}_${currentMonth}`);
-      const nextMonth = new Date();
-      nextMonth.setMonth(nextMonth.getMonth() + 1);
-      nextMonth.setDate(1);
-      nextMonth.setHours(0, 0, 0, 0);
-      
-      await setDoc(usageRef, {
-        userId,
-        month: currentMonth,
-        receiptsUploaded: 1,
-        storageUsed: 0,
-        apiCalls: 0,
-        reportsGenerated: 0,
-        limits: {
-          maxReceipts: 10, // Default to free tier
-          maxStorage: -1,
-          maxApiCalls: 0,
-          maxReports: 1,
-        },
-        resetDate: nextMonth,
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
+      console.error('Error updating usage stats:', error);
+      throw error;
     }
   },
 };
@@ -321,12 +327,10 @@ export const usageService = {
         userId,
         month: currentMonth,
         receiptsUploaded: 0,
-        storageUsed: 0,
         apiCalls: 0,
         reportsGenerated: 0,
         limits: {
-          maxReceipts: 10, // Default to free tier
-          maxStorage: -1,
+          maxReceipts: parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10),
           maxApiCalls: 0,
           maxReports: 1,
         },
@@ -369,32 +373,49 @@ export const usageService = {
     switch (tier) {
       case 'free':
         return {
-          maxReceipts: 10,
-          maxStorage: 100 * 1024 * 1024, // 100MB
+          maxReceipts: parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10),
           maxApiCalls: 0,
           maxReports: 1,
         };
       case 'starter':
         return {
-          maxReceipts: 50, // 50 receipts for starter
-          maxStorage: -1, // unlimited
+          maxReceipts: parseInt(process.env.REACT_APP_STARTER_TIER_MAX_RECEIPTS || "50", 10),
           maxApiCalls: 0,
           maxReports: -1, // unlimited
         };
       case 'growth':
         return {
-          maxReceipts: -1,
-          maxStorage: -1,
+          maxReceipts: parseInt(process.env.REACT_APP_GROWTH_TIER_MAX_RECEIPTS || "150", 10),
           maxApiCalls: 100,
           maxReports: -1,
         };
       case 'professional':
         return {
-          maxReceipts: -1,
-          maxStorage: -1,
+          maxReceipts: parseInt(process.env.REACT_APP_PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
           maxApiCalls: 1000,
           maxReports: -1,
         };
+    }
+  },
+
+  async getCurrentMonthUsage(userId: string): Promise<number> {
+    try {
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+      
+      const monthlyUsageQuery = query(
+        collection(db, 'receipts'),
+        where('userId', '==', userId),
+        where('createdAt', '>=', startOfMonth),
+        orderBy('createdAt', 'desc')
+      );
+      
+      const monthlyUsageSnapshot = await getDocs(monthlyUsageQuery);
+      return monthlyUsageSnapshot.size;
+    } catch (error) {
+      console.error('Error getting current month usage:', error);
+      throw error;
     }
   },
 

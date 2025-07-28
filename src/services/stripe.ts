@@ -27,10 +27,13 @@ export const SUBSCRIPTION_TIERS = {
     price: 0,
     priceId: null,
     features: [
-      '10 receipts per month',
+      `${parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10)} receipts per month`,
       'Basic categorization',
       'Email support'
-    ]
+    ],
+    limits: {
+      maxReceipts: parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10)
+    }
   },
   starter: {
     id: 'starter',
@@ -38,13 +41,13 @@ export const SUBSCRIPTION_TIERS = {
     price: 9.99,
     priceId: 'price_1RpYbuAZ9H3S1Eo7Qd3qk3IV', // Stripe price ID (not product ID)
     features: [
-      '50 receipts per month',
+      `${parseInt(process.env.REACT_APP_STARTER_TIER_MAX_RECEIPTS || "50", 10)} receipts per month`,
       'Basic reporting',
       'Email support',
       '1 Business profile'
     ],
     limits: {
-      maxReceipts: 50
+      maxReceipts: parseInt(process.env.REACT_APP_STARTER_TIER_MAX_RECEIPTS || "50", 10)
     }
   },
   growth: {
@@ -52,7 +55,7 @@ export const SUBSCRIPTION_TIERS = {
     name: 'Growth',
     price: 19.99,
     limits: {
-      maxReceipts: 150
+      maxReceipts: parseInt(process.env.REACT_APP_GROWTH_TIER_MAX_RECEIPTS || "150", 10)
     },
     priceId: 'price_1RpYbeAZ9H3S1Eo75oTj2nHe', // Stripe price ID (not product ID)
     features: [
@@ -91,9 +94,9 @@ class StripeService {
       if (!currentUser) {
         throw new Error('Authentication required to create customer');
       }
-      console.log("� Current user:", { 
-        uid: currentUser.uid, 
-        email: currentUser.email 
+      console.log("� Current user:", {
+        uid: currentUser.uid,
+        email: currentUser.email
       });
 
       // Get fresh token
@@ -102,14 +105,14 @@ class StripeService {
 
       const createCustomer = httpsCallable(functions, 'createStripeCustomer');
       console.log("� Calling createStripeCustomer with:", { email, name });
-      
+
       const result = await createCustomer({ email, name });
       console.log("📦 Raw customer creation response:", JSON.stringify(result, null, 2));
-      
+
       if (!result.data) {
         throw new Error('No data returned from customer creation');
       }
-      
+
       const data = result.data as { customerId: string };
       if (!data.customerId) {
         console.error('Invalid customer data structure:', data);
@@ -145,28 +148,28 @@ class StripeService {
       } else {
         throw new Error('Authentication required');
       }
-      
+
       // Connect to the function
       const createSub = httpsCallable(functions, 'createSubscription');
       console.log("📞 Calling createSubscription function with:", { priceId, customerId });
-      
+
       const result = await createSub({ priceId, customerId });
       console.log("📦 Raw subscription creation response:", JSON.stringify(result, null, 2));
-      
+
       if (!result.data) throw new Error('No data returned from subscription creation');
-      
+
       const data = result.data as { subscriptionId: string; clientSecret: string };
       console.log("🚀 ~ StripeService ~ createSubscriptionPaymentcreateSubscriptionPayment ~ data:", data)
       if (!data.subscriptionId || !data.clientSecret) {
         console.error('Invalid data structure:', data);
         throw new Error('Invalid subscription response format');
       }
-      
-      console.log("✅ Successfully created subscription:", { 
+
+      console.log("✅ Successfully created subscription:", {
         subscriptionId: data.subscriptionId,
-        hasClientSecret: !!data.clientSecret 
+        hasClientSecret: !!data.clientSecret
       });
-      
+
       return data;
     } catch (error) {
       console.error('Detailed subscription error:', {
@@ -197,8 +200,8 @@ class StripeService {
     userEmail: string,
     userName: string,
     customerId?: string
-  ): Promise<{ 
-    success: boolean; 
+  ): Promise<{
+    success: boolean;
     error?: string;
     clientSecret?: string;
     subscriptionId?: string;
@@ -211,7 +214,7 @@ class StripeService {
       if (!currentUser) {
         throw new Error('You must be logged in to subscribe');
       }
-      
+
       const tier = this.getSubscriptionTier(tierId);
       console.log("🚀 ~ StripeService ~ startSubscription ~ tier:", tier)
 
@@ -247,17 +250,17 @@ class StripeService {
 
       // Present PaymentSheet to user
       const { error: presentError } = await presentPaymentSheet();
-      
+
       if (presentError) {
         console.error('PaymentSheet presentation failed:', presentError);
         throw new Error(presentError.message);
       }
 
       console.log('✅ Payment successful!');
-      return { 
-        success: true, 
+      return {
+        success: true,
         clientSecret,
-        subscriptionId 
+        subscriptionId
       };
     } catch (error) {
       console.error('Subscription error:', error);

@@ -17,14 +17,20 @@ interface RequestWithRawBody extends Request {
 admin.initializeApp();
 const db = admin.firestore();
 
-// Environment-aware Stripe configuration
-const getStripeConfig = (): { secretKey: string; webhookSecret: string } => {
-  // For local development, check environment variables first
-  const secretKey = process.env.STRIPE_SECRET_KEY ||
-    functions.config().stripe?.secret;
+// Receipt limits configuration from environment variables
+const getReceiptLimits = () => {
+  return {
+    free: parseInt(process.env.FREE_TIER_MAX_RECEIPTS || "10", 10),
+    starter: parseInt(process.env.STARTER_TIER_MAX_RECEIPTS || "50", 10),
+    growth: parseInt(process.env.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
+    professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10)
+  };
+};
 
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ||
-    functions.config().stripe?.webhook_secret;
+// Stripe configuration from environment variables
+const getStripeConfig = (): { secretKey: string; webhookSecret: string } => {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!secretKey) {
     throw new Error('Stripe secret key not found. Set STRIPE_SECRET_KEY or run: firebase functions:config:set stripe.secret="sk_test_..."');
@@ -55,7 +61,6 @@ interface SubscriptionTier {
   limits: {
     maxReceipts: number; // 50 for starter, 150 for growth, -1 for professional
     maxBusinesses: number;
-    storageLimit: number;
     apiCallsPerMonth: number;
     maxReports?: number;
   };
@@ -76,19 +81,16 @@ export const TIER_LIMITS = {
   starter: {
     maxReceipts: 50,
     maxBusinesses: 1,
-    storageLimit: 500, // MB
     apiCallsPerMonth: 1000,
   },
   growth: {
     maxReceipts: 150,
     maxBusinesses: 3,
-    storageLimit: 1000, // MB
     apiCallsPerMonth: 5000,
   },
   professional: {
     maxReceipts: -1, // unlimited
     maxBusinesses: -1, // unlimited
-    storageLimit: 5000, // MB
     apiCallsPerMonth: -1, // unlimited
     }
 } as const;
@@ -156,7 +158,6 @@ interface UsageDocument {
   userId: string;
   month: string;
   receiptsUploaded: number;
-  storageUsed: number;
   apiCalls: number;
   reportsGenerated: number;
   limits: SubscriptionTier['limits'];
@@ -211,9 +212,8 @@ const subscriptionTiers: Record<string, SubscriptionTier> = {
   free: {
     name: "Free",
     limits: {
-      maxReceipts: 10,
+      maxReceipts: getReceiptLimits().free,
       maxBusinesses: 1,
-      storageLimit: 104857600, // 100 MB
       apiCallsPerMonth: 0,
       maxReports: 3,
     },
@@ -231,9 +231,8 @@ const subscriptionTiers: Record<string, SubscriptionTier> = {
   starter: {
     name: "Starter",
     limits: {
-      maxReceipts: 50, // 50 receipts per month
+      maxReceipts: getReceiptLimits().starter,
       maxBusinesses: 1,
-      storageLimit: -1, // unlimited
       apiCallsPerMonth: 0,
       maxReports: 10,
     },
@@ -251,9 +250,8 @@ const subscriptionTiers: Record<string, SubscriptionTier> = {
   growth: {
     name: "Growth",
     limits: {
-      maxReceipts: -1, // unlimited
+      maxReceipts: getReceiptLimits().growth,
       maxBusinesses: 3,
-      storageLimit: -1, // unlimited
       apiCallsPerMonth: 1000,
       maxReports: 50,
     },
@@ -271,9 +269,8 @@ const subscriptionTiers: Record<string, SubscriptionTier> = {
   professional: {
     name: "Professional",
     limits: {
-      maxReceipts: -1, // unlimited
+      maxReceipts: getReceiptLimits().professional,
       maxBusinesses: -1, // unlimited
-      storageLimit: -1, // unlimited
       apiCallsPerMonth: 10000,
       maxReports: -1, // unlimited
     },
@@ -394,7 +391,6 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
       userId,
       month: currentMonth,
       receiptsUploaded: 0,
-      storageUsed: 0,
       apiCalls: 0,
       reportsGenerated: 0,
       limits: subscriptionTiers.free.limits,
@@ -451,7 +447,6 @@ export const onReceiptCreate = functionsV1.firestore
           userId,
           month: currentMonth,
           receiptsUploaded: 1,
-          storageUsed: 0,
           apiCalls: 0,
           reportsGenerated: 0,
           limits: subscription.limits,
@@ -1168,7 +1163,6 @@ export const resetMonthlyUsage = functionsV1.pubsub
           userId: data.userId,
           month: currentMonth,
           receiptsUploaded: 0,
-          storageUsed: 0,
           apiCalls: 0,
           reportsGenerated: 0,
           limits: subscription.limits,

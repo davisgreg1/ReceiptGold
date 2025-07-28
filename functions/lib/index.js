@@ -37,14 +37,19 @@ const https_1 = require("firebase-functions/v2/https");
 // Initialize Firebase Admin SDK for production
 admin.initializeApp();
 const db = admin.firestore();
-// Environment-aware Stripe configuration
+// Receipt limits configuration from environment variables
+const getReceiptLimits = () => {
+    return {
+        free: parseInt(process.env.FREE_TIER_MAX_RECEIPTS || "10", 10),
+        starter: parseInt(process.env.STARTER_TIER_MAX_RECEIPTS || "50", 10),
+        growth: parseInt(process.env.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
+        professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10)
+    };
+};
+// Stripe configuration from environment variables
 const getStripeConfig = () => {
-    var _a, _b;
-    // For local development, check environment variables first
-    const secretKey = process.env.STRIPE_SECRET_KEY ||
-        ((_a = functions.config().stripe) === null || _a === void 0 ? void 0 : _a.secret);
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET ||
-        ((_b = functions.config().stripe) === null || _b === void 0 ? void 0 : _b.webhook_secret);
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
     if (!secretKey) {
         throw new Error('Stripe secret key not found. Set STRIPE_SECRET_KEY or run: firebase functions:config:set stripe.secret="sk_test_..."');
     }
@@ -69,19 +74,16 @@ exports.TIER_LIMITS = {
     starter: {
         maxReceipts: 50,
         maxBusinesses: 1,
-        storageLimit: 500,
         apiCallsPerMonth: 1000,
     },
     growth: {
         maxReceipts: 150,
         maxBusinesses: 3,
-        storageLimit: 1000,
         apiCallsPerMonth: 5000,
     },
     professional: {
         maxReceipts: -1,
         maxBusinesses: -1,
-        storageLimit: 5000,
         apiCallsPerMonth: -1, // unlimited
     }
 };
@@ -90,9 +92,8 @@ const subscriptionTiers = {
     free: {
         name: "Free",
         limits: {
-            maxReceipts: 10,
+            maxReceipts: getReceiptLimits().free,
             maxBusinesses: 1,
-            storageLimit: 104857600,
             apiCallsPerMonth: 0,
             maxReports: 3,
         },
@@ -110,9 +111,8 @@ const subscriptionTiers = {
     starter: {
         name: "Starter",
         limits: {
-            maxReceipts: 50,
+            maxReceipts: getReceiptLimits().starter,
             maxBusinesses: 1,
-            storageLimit: -1,
             apiCallsPerMonth: 0,
             maxReports: 10,
         },
@@ -130,9 +130,8 @@ const subscriptionTiers = {
     growth: {
         name: "Growth",
         limits: {
-            maxReceipts: -1,
+            maxReceipts: getReceiptLimits().growth,
             maxBusinesses: 3,
-            storageLimit: -1,
             apiCallsPerMonth: 1000,
             maxReports: 50,
         },
@@ -150,9 +149,8 @@ const subscriptionTiers = {
     professional: {
         name: "Professional",
         limits: {
-            maxReceipts: -1,
+            maxReceipts: getReceiptLimits().professional,
             maxBusinesses: -1,
-            storageLimit: -1,
             apiCallsPerMonth: 10000,
             maxReports: -1, // unlimited
         },
@@ -263,7 +261,6 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
             userId,
             month: currentMonth,
             receiptsUploaded: 0,
-            storageUsed: 0,
             apiCalls: 0,
             reportsGenerated: 0,
             limits: subscriptionTiers.free.limits,
@@ -308,7 +305,6 @@ exports.onReceiptCreate = functionsV1.firestore
                 userId,
                 month: currentMonth,
                 receiptsUploaded: 1,
-                storageUsed: 0,
                 apiCalls: 0,
                 reportsGenerated: 0,
                 limits: subscription.limits,
@@ -926,7 +922,6 @@ exports.resetMonthlyUsage = functionsV1.pubsub
                 userId: data.userId,
                 month: currentMonth,
                 receiptsUploaded: 0,
-                storageUsed: 0,
                 apiCalls: 0,
                 reportsGenerated: 0,
                 limits: subscription.limits,

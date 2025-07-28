@@ -10,6 +10,7 @@ import { HomeScreen } from "../screens/HomeScreen";
 import { ReceiptsListScreen } from "../screens/ReceiptsListScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { ScanReceiptScreen } from "../screens/ScanReceiptScreen";
+import { ReceiptDetailScreen } from "../screens/ReceiptDetailScreen";
 
 // Tab Navigator Types
 export type BottomTabParamList = {
@@ -27,7 +28,7 @@ export type HomeStackParamList = {
 
 export type ReceiptsStackParamList = {
   ReceiptsList: undefined;
-  ReceiptDetail: { receiptId: string };
+  ReceiptDetail: { receiptId: string; imageUrl?: string };
   ScanReceipt: undefined;
   EditReceipt: { receiptId: string };
 };
@@ -121,32 +122,27 @@ const HomeStackNavigator = () => (
 
 const ReceiptsStackNavigator = () => (
   <ReceiptsStack.Navigator>
-    <ReceiptsStack.Screen
-      name="ReceiptsList"
-      component={ReceiptsListScreen}
-      options={{
-        title: "My Receipts",
+    <ReceiptsStack.Screen 
+      name="ReceiptsList" 
+      component={ReceiptsListScreen} 
+      options={{ 
+        headerShown: false 
+      }} 
+    />
+    <ReceiptsStack.Screen 
+      name="ScanReceipt" 
+      component={ScanReceiptScreen} 
+      options={{ 
+        headerShown: false 
+      }} 
+    />
+    <ReceiptsStack.Screen 
+      name="ReceiptDetail" 
+      component={ReceiptDetailScreen} 
+      options={{ 
         headerShown: true,
-      }}
-    />
-    <ReceiptsStack.Screen
-      name="ReceiptDetail"
-      component={ReceiptsListScreen}
-      options={{ title: "Receipt Details" }}
-    />
-    <ReceiptsStack.Screen
-      name="ScanReceipt"
-      component={ScanReceiptScreen}
-      options={{
-        title: "Scan Receipt",
-        presentation: "modal",
-        headerShown: true,
-      }}
-    />
-    <ReceiptsStack.Screen
-      name="EditReceipt"
-      component={ReceiptsListScreen}
-      options={{ title: "Edit Receipt" }}
+        title: 'Receipt Details'
+      }} 
     />
   </ReceiptsStack.Navigator>
 );
