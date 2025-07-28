@@ -9,6 +9,9 @@
     "web": "expo start --web"
   },
   "dependencies": {
+    "@azure-rest/ai-document-intelligence": "^1.1.0",
+    "@azure/ai-form-recognizer": "^5.1.0",
+    "@azure/identity": "^4.10.2",
     "@expo/metro-runtime": "~5.0.4",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-picker/picker": "^2.11.1",
@@ -21,7 +24,9 @@
     "dotenv": "^17.2.1",
     "expo": "~53.0.20",
     "expo-camera": "^16.1.11",
+    "expo-file-system": "^18.1.11",
     "expo-image-manipulator": "~13.1.7",
+    "expo-image-picker": "^16.1.4",
     "expo-linear-gradient": "^14.1.5",
     "expo-sharing": "^13.1.5",
     "expo-splash-screen": "^0.30.10",

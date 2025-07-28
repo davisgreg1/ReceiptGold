@@ -14,6 +14,8 @@ import { enforceReceiptLimit } from '../utils/enforceReceiptLimit';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { receiptService } from '../services/firebaseService';
 import * as ImageManipulator from 'expo-image-manipulator';
+// Import the receipt OCR service
+import { receiptOCRService } from '../services/ReceiptOCRService';
 
 const styles = StyleSheet.create({
   container: {
@@ -74,6 +76,13 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     opacity: 0.8,
   },
+  ocrStatus: {
+    color: 'white',
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 4,
+    opacity: 0.9,
+  },
 });
 
 export const ScanReceiptScreen = () => {
@@ -81,6 +90,8 @@ export const ScanReceiptScreen = () => {
   const navigation = useReceiptsNavigation();
   const { subscription } = useSubscription();
   const [initialized, setInitialized] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [ocrStatus, setOcrStatus] = useState<string>('');
 
   // Check receipt limit whenever the screen gains focus
   useFocusEffect(
@@ -109,6 +120,7 @@ export const ScanReceiptScreen = () => {
       }
     }, [user?.uid, subscription?.limits?.maxReceipts, navigation, initialized])
   );
+
   const [isCapturing, setIsCapturing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentReceiptCount, setCurrentReceiptCount] = useState(0);
@@ -152,6 +164,7 @@ export const ScanReceiptScreen = () => {
     
     fetchCurrentUsage();
   }, [user?.uid]);
+
   const [permission, requestPermission] = useCameraPermissions();
   const [facing] = useState<CameraType>('back');
 
@@ -178,6 +191,7 @@ export const ScanReceiptScreen = () => {
 
     try {
       setIsCapturing(true);
+      setOcrStatus('Capturing photo...');
       
       // Capture the photo using the CameraView API
       const photo = await cameraRef.current.takePictureAsync({
@@ -185,6 +199,8 @@ export const ScanReceiptScreen = () => {
         skipProcessing: true,
       });
 
+      setOcrStatus('Optimizing image...');
+      
       // Optimize the image
       const optimizedImage = await ImageManipulator.manipulateAsync(
         photo.uri,
@@ -196,6 +212,8 @@ export const ScanReceiptScreen = () => {
       const timestamp = Date.now();
       const filename = `receipts/${user.uid}/${timestamp}.jpg`;
       const storageRef = ref(storage, filename);
+
+      setOcrStatus('Preparing upload...');
 
       // Convert image to blob with proper path handling
       const uri = Platform.OS === 'ios' ? optimizedImage.uri : `file://${optimizedImage.uri}`;
@@ -213,6 +231,8 @@ export const ScanReceiptScreen = () => {
       };
 
       try {
+        setOcrStatus('Uploading to cloud...');
+        
         // Try to upload in a single operation
         await uploadBytesResumable(storageRef, blob, metadata);
         const downloadURL = await getDownloadURL(storageRef);
@@ -228,30 +248,102 @@ export const ScanReceiptScreen = () => {
           return;
         }
 
-        // Create receipt record in Firestore
-        await receiptService.createReceipt({
-          userId: user.uid,
-          images: [{
-            url: downloadURL,
-            size: blob.size,
-            uploadedAt: new Date(),
-          }],
-          status: 'uploaded',
-          vendor: '',
-          amount: 0,
-          currency: 'USD',
-          date: new Date(),
-          description: '',
-          category: 'uncategorized',
-          tags: [],
-          tax: {
-            deductible: true,
-            deductionPercentage: 100,
-            taxYear: new Date().getFullYear(),
-            category: 'business_expense',
-          },
-          processingErrors: [],
-        });
+        // Analyze receipt with OCR using the new function-based approach
+        setIsAnalyzing(true);
+        setOcrStatus('Analyzing receipt data...');
+        console.log('Analyzing receipt with OCR...');
+        
+        try {
+          // Use the OCR service to analyze the receipt
+          const ocrData = await receiptOCRService.analyzeReceipt(uri);
+          console.log('OCR Analysis result:', ocrData);
+          setOcrStatus('Processing complete!');
+          
+          // Create receipt record in Firestore with OCR data - ensure no undefined values
+          const receiptData = {
+            userId: user.uid,
+            images: [{
+              url: downloadURL,
+              size: blob.size,
+              uploadedAt: new Date(),
+            }],
+            status: 'processed' as const, // Change to processed since we have OCR data
+            vendor: ocrData.merchantName || '',
+            amount: ocrData.total || 0,
+            currency: 'USD',
+            date: ocrData.transactionDate instanceof Date ? ocrData.transactionDate : new Date(),
+            description: ocrData.merchantName ? `Receipt from ${ocrData.merchantName}` : 'Scanned Receipt',
+            tax: {
+              deductible: true,
+              deductionPercentage: 100,
+              taxYear: new Date().getFullYear(),
+              category: 'business_expense',
+            },
+            category: 'business_expense', // Use the same category as tax
+            tags: ['ocr-processed'],
+            extractedData: {
+              vendor: ocrData.merchantName || '',
+              amount: ocrData.total || 0,
+              tax: ocrData.tax || 0,
+              date: ocrData.transactionDate instanceof Date ? ocrData.transactionDate.toISOString() : new Date().toISOString(),
+              confidence: 0.9, // Azure Document Intelligence typically has high confidence
+              items: ocrData.items?.map(item => ({
+                description: item.description || '',
+                amount: item.price || 0,
+                quantity: item.quantity || 1
+              })) || []
+            },
+            processingErrors: []
+          };
+
+          await receiptService.createReceipt(receiptData);
+
+        } catch (ocrError: any) {
+          console.error('OCR Analysis failed:', ocrError);
+          setOcrStatus('OCR failed, saving without analysis...');
+          
+          // Still save the receipt even if OCR fails - ensure no undefined values
+          const fallbackReceiptData = {
+            userId: user.uid,
+            images: [{
+              url: downloadURL,
+              size: blob.size,
+              uploadedAt: new Date(),
+            }],
+            status: 'error' as const, // Mark as error since OCR failed
+            vendor: '',
+            amount: 0,
+            currency: 'USD',
+            date: new Date(),
+            description: 'Scanned Receipt (Manual entry required)',
+            tax: {
+              deductible: true,
+              deductionPercentage: 100,
+              taxYear: new Date().getFullYear(),
+              category: 'business_expense',
+            },
+            category: 'business_expense', // Use the same category as tax
+            tags: ['manual-entry-required'],
+            extractedData: {
+              vendor: '',
+              amount: 0,
+              tax: 0,
+              date: new Date().toISOString(),
+              confidence: 0,
+              items: []
+            },
+            processingErrors: [ocrError.message || 'OCR analysis failed']
+          };
+
+          await receiptService.createReceipt(fallbackReceiptData);
+
+          // Show OCR error but don't prevent saving
+          Alert.alert(
+            'Receipt Saved',
+            'The receipt was saved successfully, but automatic data extraction failed. You can manually edit the receipt details.',
+            [{ text: 'OK' }]
+          );
+        }
 
         // Fetch the current count from Firestore to ensure accuracy
         const startOfMonth = new Date();
@@ -279,6 +371,7 @@ export const ScanReceiptScreen = () => {
 
         // Navigate back to receipts list
         navigation.goBack();
+        
       } catch (error: any) {
         console.error('Upload error:', error);
         let errorMessage = 'Failed to upload receipt. ';
@@ -312,12 +405,18 @@ export const ScanReceiptScreen = () => {
       Alert.alert('Camera Error', errorMessage, [
         { 
           text: 'Try Again',
-          onPress: () => setIsCapturing(false)
+          onPress: () => {
+            setIsCapturing(false);
+            setIsAnalyzing(false);
+            setOcrStatus('');
+          }
         },
         {
           text: 'Cancel',
           onPress: () => {
             setIsCapturing(false);
+            setIsAnalyzing(false);
+            setOcrStatus('');
             navigation.goBack();
           },
           style: 'cancel'
@@ -325,6 +424,8 @@ export const ScanReceiptScreen = () => {
       ]);
     } finally {
       setIsCapturing(false);
+      setIsAnalyzing(false);
+      setOcrStatus('');
     }
   };
 
@@ -418,7 +519,17 @@ export const ScanReceiptScreen = () => {
             disabled={isCapturing}
           >
             {isCapturing ? (
-              <ActivityIndicator color="white" />
+              <>
+                <ActivityIndicator color="white" />
+                <Text style={[styles.captureText, { marginTop: 8 }]}>
+                  {isAnalyzing ? 'Analyzing Receipt...' : 'Capturing...'}
+                </Text>
+                {ocrStatus && (
+                  <Text style={styles.ocrStatus}>
+                    {ocrStatus}
+                  </Text>
+                )}
+              </>
             ) : (
               <Text style={styles.captureText}>
                 📸 Capture Receipt
