@@ -186,6 +186,7 @@ export const SettingsScreen: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = React.useState('');
   const [isLoading, setIsLoading] = React.useState(false);
   const [showBusinessDialog, setShowBusinessDialog] = React.useState(false);
+  const [showIOSPicker, setShowIOSPicker] = React.useState(false);
   const formatEIN = (ein: string) => {
     // Remove all non-numeric characters
     const numbers = ein.replace(/[^\d]/g, '');
@@ -616,9 +617,13 @@ export const SettingsScreen: React.FC = () => {
       {/* Business Information Dialog */}
       {showBusinessDialog && (
         <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
-          <ScrollView>
-            <View style={[styles.dialog, { backgroundColor: theme.background.secondary }]}>
-              <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>Business Information</Text>
+          <View style={styles.modalContainer}>
+            <ScrollView 
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <View style={[styles.dialog, { backgroundColor: theme.background.secondary }]}>
+                <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>Business Information</Text>
               <TextInput
                 style={[styles.input, { 
                   color: theme.text.primary,
@@ -634,16 +639,40 @@ export const SettingsScreen: React.FC = () => {
                 borderColor: theme.border.primary,
                 backgroundColor: theme.background.tertiary,
               }]}>
-                <Picker
-                  selectedValue={businessInfo.businessType}
-                  onValueChange={(value) => setBusinessInfo(prev => ({ ...prev, businessType: value }))}
-                  style={[styles.picker, { color: theme.text.primary }]}
-                  dropdownIconColor={theme.text.primary}
-                >
-                  {BUSINESS_TYPES.map((type) => (
-                    <Picker.Item key={type} label={type} value={type} color={Platform.OS === 'ios' ? theme.text.primary : undefined} />
-                  ))}
-                </Picker>
+                {Platform.OS === 'ios' ? (
+                  <TouchableOpacity 
+                    style={styles.iosPickerButton}
+                    onPress={() => setShowIOSPicker(true)}
+                  >
+                    <Text style={[styles.iosPickerText, { color: theme.text.primary }]}>
+                      {businessInfo.businessType}
+                    </Text>
+                    <Ionicons name="chevron-down" size={20} color={theme.text.tertiary} />
+                  </TouchableOpacity>
+                ) : (
+                  <Picker
+                    selectedValue={businessInfo.businessType}
+                    onValueChange={(value) => setBusinessInfo(prev => ({ ...prev, businessType: value }))}
+                    style={[
+                      styles.picker, 
+                      { 
+                        color: theme.text.primary,
+                        backgroundColor: theme.background.tertiary
+                      }
+                    ]}
+                    dropdownIconColor={theme.text.primary}
+                    mode="dropdown"
+                  >
+                    {BUSINESS_TYPES.map((type) => (
+                      <Picker.Item 
+                        key={type} 
+                        label={type} 
+                        value={type} 
+                        color="#000000"
+                      />
+                    ))}
+                  </Picker>
+                )}
               </View>
               <TextInput
                 style={[styles.input, { 
@@ -739,8 +768,41 @@ export const SettingsScreen: React.FC = () => {
                   )}
                 </TouchableOpacity>
               </View>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      )}
+
+      {/* iOS Business Type Picker Modal */}
+      {showIOSPicker && Platform.OS === 'ios' && (
+        <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
+          <View style={[styles.iosPickerModal, { backgroundColor: theme.background.secondary }]}>
+            <View style={[styles.iosPickerHeader, { borderBottomColor: theme.border.primary }]}>
+              <TouchableOpacity onPress={() => setShowIOSPicker(false)}>
+                <Text style={[styles.iosPickerAction, { color: theme.text.secondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={[styles.iosPickerTitle, { color: theme.text.primary }]}>Business Type</Text>
+              <TouchableOpacity onPress={() => setShowIOSPicker(false)}>
+                <Text style={[styles.iosPickerAction, { color: theme.gold.primary }]}>Done</Text>
+              </TouchableOpacity>
             </View>
-          </ScrollView>
+            <Picker
+              selectedValue={businessInfo.businessType}
+              onValueChange={(value) => setBusinessInfo(prev => ({ ...prev, businessType: value }))}
+              style={[styles.iosPickerWheel, { backgroundColor: theme.background.secondary }]}
+              itemStyle={{ color: theme.text.primary, fontSize: 18 }}
+            >
+              {BUSINESS_TYPES.map((type) => (
+                <Picker.Item 
+                  key={type} 
+                  label={type} 
+                  value={type} 
+                  color={theme.text.primary}
+                />
+              ))}
+            </Picker>
+          </View>
         </View>
       )}
 
@@ -871,15 +933,69 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   pickerContainer: {
-    height: 48,
+    height: Platform.OS === 'android' ? 56 : 48,
     borderWidth: 1,
     borderRadius: 8,
     marginBottom: 12,
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   picker: {
-    height: 55,
+    height: Platform.OS === 'android' ? 56 : 48,
     width: '100%',
+    ...Platform.select({
+      android: {
+        marginTop: -8,
+        marginBottom: -8,
+      },
+      ios: {
+        // Ensure iOS picker is properly positioned
+        height: 48,
+      },
+    }),
+  },
+  iosPickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 48,
+    paddingHorizontal: 12,
+  },
+  iosPickerText: {
+    fontSize: 16,
+    flex: 1,
+  },
+  hiddenPicker: {
+    position: 'absolute',
+    opacity: 0,
+    width: '100%',
+    height: '100%',
+  },
+  iosPickerModal: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  iosPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+  },
+  iosPickerAction: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  iosPickerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  iosPickerWheel: {
+    height: 200,
   },
   content: {
     flex: 1,
@@ -959,6 +1075,16 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
   },
   dialog: {
     width: width - 48,
