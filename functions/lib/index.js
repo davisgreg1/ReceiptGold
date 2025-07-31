@@ -317,13 +317,22 @@ exports.onReceiptCreate = functionsV1.firestore
         else {
             const usage = usageDoc.data();
             const newReceiptCount = usage.receiptsUploaded + 1;
+            console.log("🚀 ~ newReceiptCount:", newReceiptCount);
+            // TEMPORARILY DISABLED - Fix counting logic inconsistency
+            // The app and Cloud Function use different counting methods
             // Check if user has reached their limit
-            if (subscription.limits.maxReceipts !== -1 &&
-                newReceiptCount > subscription.limits.maxReceipts) {
-                // Delete the receipt and throw error
-                await snap.ref.delete();
-                throw new Error(`Receipt limit exceeded. Current plan allows ${subscription.limits.maxReceipts} receipts per month.`);
-            }
+            // console.log("🚀 ~ newReceiptCount subscription.limits.maxReceipts:", subscription.limits.maxReceipts)
+            // if (
+            //   subscription.limits.maxReceipts !== -1 &&
+            //   newReceiptCount > subscription.limits.maxReceipts
+            // ) {
+            //   // Delete the receipt and throw error
+            //   await snap.ref.delete();
+            //   throw new Error(
+            //     `Receipt limit exceeded. Current plan allows ${subscription.limits.maxReceipts} receipts per month.`
+            //   );
+            // }
+            console.log("⚠️ LIMIT CHECKING TEMPORARILY DISABLED - App handles limits client-side");
             // Update usage count
             await usageRef.update({
                 receiptsUploaded: newReceiptCount,
@@ -898,41 +907,76 @@ async function handlePaymentFailed(invoice) {
 }
 // 5. Monthly Usage Reset (updated for Firebase Functions v6)
 exports.resetMonthlyUsage = functionsV1.pubsub
-    .schedule("0 0 1 * *") // First day of every month at midnight
+    .schedule("0 * * * *") // Run every hour
     .onRun(async (context) => {
     try {
-        const currentMonth = new Date().toISOString().slice(0, 7);
-        const usageSnapshot = await db.collection("usage").get();
+        console.log("Checking for subscriptions that need usage reset...");
+        const now = new Date();
+        // Get all subscriptions
+        const subscriptionsSnapshot = await db.collection("subscriptions")
+            .where("status", "==", "active")
+            .get();
         const batch = db.batch();
-        for (const doc of usageSnapshot.docs) {
-            const data = doc.data();
-            // Create new usage document for current month
-            const newUsageRef = db
-                .collection("usage")
-                .doc(`${data.userId}_${currentMonth}`);
-            // Get user's current subscription
-            const subscriptionDoc = await db
-                .collection("subscriptions")
-                .doc(data.userId)
-                .get();
-            if (!subscriptionDoc.exists)
-                continue;
+        let resetCount = 0;
+        for (const subscriptionDoc of subscriptionsSnapshot.docs) {
             const subscription = subscriptionDoc.data();
-            const newUsageDoc = {
-                userId: data.userId,
-                month: currentMonth,
-                receiptsUploaded: 0,
-                apiCalls: 0,
-                reportsGenerated: 0,
-                limits: subscription.limits,
-                resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString(),
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            };
-            batch.set(newUsageRef, newUsageDoc);
+            const periodStart = subscription.billing.currentPeriodStart;
+            if (!periodStart)
+                continue;
+            // Convert Firestore Timestamp to Date if needed
+            let periodStartDate;
+            if (periodStart instanceof admin.firestore.Timestamp) {
+                periodStartDate = periodStart.toDate();
+            }
+            else if (periodStart instanceof Date) {
+                periodStartDate = periodStart;
+            }
+            else if (typeof periodStart === 'string' || typeof periodStart === 'number') {
+                periodStartDate = new Date(periodStart);
+            }
+            else {
+                console.log(`Skipping user ${subscription.userId} - invalid period start date`);
+                continue;
+            }
+            // Check if we need to reset (if current time >= next period start)
+            const nextResetDate = new Date(periodStartDate);
+            nextResetDate.setMonth(nextResetDate.getMonth() + 1);
+            if (now >= nextResetDate) {
+                console.log(`Resetting usage for user ${subscription.userId}`);
+                resetCount++;
+                // Create new usage document
+                const newUsageRef = db
+                    .collection("usage")
+                    .doc(`${subscription.userId}_${now.toISOString().slice(0, 7)}`);
+                const newUsageDoc = {
+                    userId: subscription.userId,
+                    month: now.toISOString().slice(0, 7),
+                    receiptsUploaded: 0,
+                    apiCalls: 0,
+                    reportsGenerated: 0,
+                    limits: subscription.limits,
+                    resetDate: nextResetDate.toISOString(),
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                };
+                batch.set(newUsageRef, newUsageDoc);
+                // Update subscription with next reset date
+                const nextMonthReset = new Date(nextResetDate);
+                nextMonthReset.setMonth(nextMonthReset.getMonth() + 1);
+                batch.update(subscriptionDoc.ref, {
+                    "billing.lastMonthlyReset": admin.firestore.FieldValue.serverTimestamp(),
+                    "billing.nextMonthlyReset": nextMonthReset,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            }
         }
-        await batch.commit();
-        console.log("Monthly usage reset completed");
+        if (resetCount > 0) {
+            await batch.commit();
+            console.log(`Monthly usage reset completed for ${resetCount} users`);
+        }
+        else {
+            console.log("No subscriptions needed usage reset at this time");
+        }
     }
     catch (error) {
         console.error("Error resetting monthly usage:", error);

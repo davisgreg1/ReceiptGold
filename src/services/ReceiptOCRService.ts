@@ -160,9 +160,9 @@ export const pickImage = async (source: ImageSource = 'gallery'): Promise<string
         const result = source === 'gallery'
             ? await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ImagePicker.MediaTypeOptions.Images,
-                allowsEditing: true,
+                allowsEditing: false,
                 quality: 1,
-                aspect: [3, 4], // Receipt-like aspect ratio
+                aspect: [2, 3], // Receipt-like aspect ratio
             })
             : await ImagePicker.launchCameraAsync({
                 allowsEditing: true,
@@ -194,10 +194,22 @@ export const pickImage = async (source: ImageSource = 'gallery'): Promise<string
     }
 };
 
-export const analyzeReceipt = async (imageUri: string): Promise<ReceiptData> => {
+export interface OCRProgressCallback {
+    onStart?: () => void;
+    onError?: (error: Error) => void;
+    onSuccess?: () => void;
+}
+
+export const analyzeReceipt = async (
+    imageUri: string,
+    progressCallback?: OCRProgressCallback
+): Promise<ReceiptData> => {
     try {
         validateImageUri(imageUri);
         logDebug("Starting receipt analysis...", { imageUri });
+        
+        // Notify analysis start
+        progressCallback?.onStart?.();
 
         // Normalize the URI for Android
         let normalizedUri = imageUri;
@@ -405,21 +417,30 @@ export const analyzeReceipt = async (imageUri: string): Promise<ReceiptData> => 
         receiptData.categoryConfidence = confidence;
 
         logDebug("Extracted receipt data:", receiptData);
+        
+        // Notify success
+        progressCallback?.onSuccess?.();
+        
         return receiptData;
 
     } catch (error: any) {
         logError("Error analyzing receipt", error);
 
         // Provide more descriptive error messages
+        let finalError: Error;
         if (error.message?.includes("image data")) {
-            throw new Error("Failed to process the image. Please try taking the photo again.");
+            finalError = new Error("Failed to process the image. Please try taking the photo again.");
         } else if (error.message?.includes("No receipt data found")) {
-            throw new Error("Could not detect a receipt in the image. Please try again with a clearer photo.");
+            finalError = new Error("Could not detect a receipt in the image. Please try again with a clearer photo.");
         } else if (error.name === "RestError" || error.code) {
-            throw new Error("Connection error with Azure Document Intelligence. Please check your internet connection and try again.");
+            finalError = new Error("Please check your internet connection and try again.");
+        } else {
+            finalError = error;
         }
 
-        throw error;
+        // Notify error
+        progressCallback?.onError?.(finalError);
+        throw finalError;
     }
 };
 
