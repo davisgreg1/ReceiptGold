@@ -40,22 +40,26 @@ export async function getMonthlyReceiptCount(userId: string): Promise<number> {
     console.log("🚀 ~ getMonthlyReceiptCount ~ Total receipts found:", monthlyUsageSnapshot.size);
     console.log("🚀 ~ getMonthlyReceiptCount ~ Counting from date:", countFromDate);
     
-    // Filter out excluded receipts manually and log details
+    // Filter out only receipts excluded from monthly count (e.g., when upgrading tiers)
+    // Note: We don't exclude deleted receipts because they still count toward monthly usage
     const validReceipts = monthlyUsageSnapshot.docs.filter(doc => {
       const data = doc.data();
       const receiptDate = data.createdAt?.toDate?.() || data.createdAt;
       const isExcluded = data.excludeFromMonthlyCount === true;
+      const isDeleted = data.status === 'deleted';
       
       console.log("🚀 ~ Receipt:", {
         id: doc.id.substring(0, 8) + '...',
         createdAt: receiptDate,
         isAfterCountDate: receiptDate >= countFromDate,
         excludeFromMonthlyCount: data.excludeFromMonthlyCount,
+        status: data.status,
         isExcluded,
-        willInclude: !isExcluded
+        isDeleted,
+        willInclude: !isExcluded // Deleted receipts still count toward monthly usage
       });
       
-      return !isExcluded;
+      return !isExcluded; // Only exclude receipts marked as excluded, not deleted ones
     });
 
     console.log("🚀 ~ getMonthlyReceiptCount ~ Valid (non-excluded) receipts:", validReceipts.length);

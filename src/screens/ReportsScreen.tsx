@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { View, StyleSheet, ScrollView, Dimensions } from "react-native";
 import {
   Text,
@@ -18,7 +18,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { useAuth } from "../context/AuthContext";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { PremiumGate } from "../components/PremiumGate";
 import { LineChart } from "react-native-chart-kit";
 import * as Sharing from "expo-sharing";
@@ -115,14 +115,17 @@ export const ReportsScreen = () => {
 
         querySnapshot.forEach((doc) => {
           const data = doc.data();
-          fetchedReceipts.push({
-            id: doc.id,
-            amount: data.amount,
-            category: data.category,
-            date: data.date,
-            businessId: data.businessId,
-            description: data.description,
-          });
+          // Filter out deleted receipts
+          if (data.status !== 'deleted') {
+            fetchedReceipts.push({
+              id: doc.id,
+              amount: data.amount,
+              category: data.category,
+              date: data.date,
+              businessId: data.businessId,
+              description: data.description,
+            });
+          }
         });
 
         setReceipts(fetchedReceipts);
@@ -136,6 +139,49 @@ export const ReportsScreen = () => {
 
     fetchReceipts();
   }, [user, dateRangeFilter]);
+
+  // Refresh data when screen comes into focus
+  const refreshData = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const receiptsRef = collection(db, "receipts");
+      const q = query(
+        receiptsRef,
+        where("userId", "==", user.uid),
+        where("date", ">=", dateRangeFilter.startDate),
+        where("date", "<=", dateRangeFilter.endDate)
+      );
+
+      const querySnapshot = await getDocs(q);
+      const fetchedReceipts: Receipt[] = [];
+
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        // Filter out deleted receipts
+        if (data.status !== 'deleted') {
+          fetchedReceipts.push({
+            id: doc.id,
+            amount: data.amount,
+            category: data.category,
+            date: data.date,
+            businessId: data.businessId,
+            description: data.description,
+          });
+        }
+      });
+
+      setReceipts(fetchedReceipts);
+    } catch (error) {
+      console.error("Error refreshing receipts:", error);
+    }
+  }, [user, dateRangeFilter]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshData();
+    }, [refreshData])
+  );
 
   const generateBasicReport = () => {
     const totalAmount = receipts.reduce(
