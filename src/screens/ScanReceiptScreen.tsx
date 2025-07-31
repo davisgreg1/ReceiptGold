@@ -396,7 +396,7 @@ export const ScanReceiptScreen = () => {
           
           setShowScanning(false);
           setCapturedImageUri(null);
-          navigation.goBack();
+          // navigation.goBack();
         } catch (ocrError: any) {
           console.error("OCR Analysis failed:", ocrError);
           setOcrStatus("OCR failed, saving without analysis...");
