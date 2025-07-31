@@ -61,6 +61,12 @@
           "enableMicrophonePermission": false,
           "microphonePermissionText": "$(PRODUCT_NAME) needs access to your Microphone."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you select a receipt."
+        }
       ]
     ]
   }

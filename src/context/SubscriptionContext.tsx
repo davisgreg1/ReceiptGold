@@ -1,7 +1,20 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { doc, onSnapshot, updateDoc } from "firebase/firestore";
+import { 
+  doc, 
+  onSnapshot, 
+  updateDoc, 
+  writeBatch,
+  collection,
+  query,
+  where,
+  getDocs,
+  getDoc,
+  DocumentData,
+  QueryDocumentSnapshot
+} from "firebase/firestore";
 import { useAuth } from "./AuthContext";
 import { db } from "../config/firebase";
+import { getMonthlyReceiptCount } from "../utils/getMonthlyReceipts";
 
 export type SubscriptionTier = "free" | "starter" | "growth" | "professional";
 
@@ -48,6 +61,8 @@ interface SubscriptionContextType {
   getRemainingReceipts: (currentReceiptCount: number) => number;
   upgradeTo: (tier: SubscriptionTier) => Promise<void>;
   loading: boolean;
+  currentReceiptCount: number;
+  refreshReceiptCount: () => Promise<void>;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(
@@ -126,7 +141,44 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const { user } = useAuth();
-    const limits = getReceiptLimits();
+  const limits = getReceiptLimits();
+  const [currentReceiptCount, setCurrentReceiptCount] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
+  
+  const refreshReceiptCount = async (retryCount = 0) => {
+    if (!user?.uid) {
+      console.log("🚀 ~ refreshReceiptCount ~ No user ID, skipping");
+      return;
+    }
+    
+    // Prevent multiple simultaneous refreshes
+    if (refreshing) {
+      console.log("🚀 ~ refreshReceiptCount ~ Already refreshing, skipping");
+      return;
+    }
+    
+    setRefreshing(true);
+    console.log("🚀 ~ refreshReceiptCount ~ Starting refresh for user:", user.uid, "retry:", retryCount);
+    console.log("🚀 ~ refreshReceiptCount ~ Current count before refresh:", currentReceiptCount);
+    
+    try {
+      // Add a small delay to allow Firestore to propagate changes
+      if (retryCount === 0) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      
+      const count = await getMonthlyReceiptCount(user.uid);
+      console.log("🚀 ~ refreshReceiptCount ~ New count from getMonthlyReceiptCount:", count);
+      
+      // Update the count immediately
+      setCurrentReceiptCount(count);
+      console.log("🚀 ~ refreshReceiptCount ~ Set new count to state:", count);
+    } catch (error) {
+      console.error("🚀 ~ refreshReceiptCount ~ Error:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const [subscription, setSubscription] = useState<SubscriptionState>({
     currentTier: "free",
@@ -150,6 +202,14 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     },
   });
   const [loading, setLoading] = useState(true);
+
+  // Refresh receipt count when subscription changes or user changes
+  useEffect(() => {
+    if (user?.uid) {
+      console.log("🚀 ~ SubscriptionContext ~ Refreshing receipt count for user:", user.uid);
+      refreshReceiptCount();
+    }
+  }, [user?.uid, subscription.currentTier]);
 
   // Set up Firestore subscription
   useEffect(() => {
@@ -185,12 +245,58 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       // Set up real-time subscription to Firestore
       const subscriptionRef = doc(db, "subscriptions", user.uid);
 
-      unsubscribe = onSnapshot(subscriptionRef, (docSnapshot) => {
+      unsubscribe = onSnapshot(subscriptionRef, async (docSnapshot) => {
         if (docSnapshot.exists()) {
           const data = docSnapshot.data();
           if (!data) return;
 
           const currentTier = (data.currentTier || "free") as SubscriptionTier;
+
+          // Initialize lastMonthlyCountResetAt if it doesn't exist
+          // For free accounts, we should start counting from the beginning of the month
+          if (!data.lastMonthlyCountResetAt && data.billing?.currentPeriodStart) {
+            try {
+              // For free accounts, use start of month instead of subscription creation time
+              const resetDate = currentTier === 'free' 
+                ? (() => {
+                    const startOfMonth = new Date();
+                    startOfMonth.setDate(1);
+                    startOfMonth.setHours(0, 0, 0, 0);
+                    return startOfMonth;
+                  })()
+                : data.billing.currentPeriodStart;
+                
+              await updateDoc(subscriptionRef, {
+                lastMonthlyCountResetAt: resetDate,
+                updatedAt: new Date()
+              });
+              console.log("Initialized lastMonthlyCountResetAt for subscription:", currentTier, resetDate);
+            } catch (error) {
+              console.error("Error initializing lastMonthlyCountResetAt:", error);
+            }
+          }
+
+          // TEMPORARY FIX: Force update for existing free accounts with wrong reset date
+          if (currentTier === 'free' && data.lastMonthlyCountResetAt) {
+            const currentResetDate = data.lastMonthlyCountResetAt.toDate();
+            const startOfMonth = new Date();
+            startOfMonth.setDate(1);
+            startOfMonth.setHours(0, 0, 0, 0);
+            
+            // If the reset date is after the start of the month, update it
+            if (currentResetDate > startOfMonth) {
+              try {
+                await updateDoc(subscriptionRef, {
+                  lastMonthlyCountResetAt: startOfMonth,
+                  updatedAt: new Date()
+                });
+                console.log("🔧 FIXED: Updated lastMonthlyCountResetAt for free account from", currentResetDate, "to", startOfMonth);
+              } catch (error) {
+                console.error("Error fixing lastMonthlyCountResetAt:", error);
+              }
+            }
+          }
+
           console.log("Subscription updated:", {
             currentTier,
             status: data.status,
@@ -255,6 +361,9 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               trialEnd: data.billing?.trialEnd?.toDate() || null,
             },
           });
+          
+          // Refresh receipt count when subscription is loaded
+          refreshReceiptCount();
         } else {
           setSubscription({
             currentTier: "free",
@@ -337,12 +446,46 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
         throw new Error("User must be logged in to upgrade subscription");
       }
 
-      // Update Firestore - this will trigger the onSnapshot listener
+      const now = new Date();
+      const batch = writeBatch(db);
       const subscriptionRef = doc(db, "subscriptions", user.uid);
-      await updateDoc(subscriptionRef, {
+      
+      // Get current subscription to check if this is actually a tier change
+      const currentSub = await getDoc(subscriptionRef);
+      const currentTier = currentSub.data()?.currentTier || 'free';
+      
+      if (currentTier !== tier) {
+        // This is a tier change, so reset monthly count
+        
+        // Get current month's receipts
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+        
+        const receiptsQuery = query(
+          collection(db, "receipts"),
+          where("userId", "==", user.uid),
+          where("createdAt", ">=", startOfMonth)
+        );
+        
+        const receiptsSnapshot = await getDocs(receiptsQuery);
+        
+        // Mark all current month's receipts as excluded from the new tier's count
+        receiptsSnapshot.docs.forEach((receiptDoc: DocumentData) => {
+          batch.update(doc(db, "receipts", receiptDoc.id), {
+            excludeFromMonthlyCount: true,
+            monthlyCountExcludedAt: now,
+            previousTier: currentTier
+          });
+        });
+      }
+      
+      // Update subscription
+      batch.update(subscriptionRef, {
         currentTier: tier,
         status: "active",
-        updatedAt: new Date(),
+        updatedAt: now,
+        lastMonthlyCountResetAt: tier !== currentTier ? now : currentSub.data()?.lastMonthlyCountResetAt,
         limits: {
           maxReceipts:
             tier === "free"
@@ -379,6 +522,9 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
         },
         features: getFeaturesByTier(tier),
       });
+      
+      // Commit all changes
+      await batch.commit();
     } catch (error) {
       console.error("Error upgrading subscription:", error);
       throw error;
@@ -392,6 +538,8 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     getRemainingReceipts,
     upgradeTo,
     loading,
+    currentReceiptCount,
+    refreshReceiptCount,
   };
 
   return (

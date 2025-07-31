@@ -192,18 +192,59 @@ export const receiptService = {
   async createReceipt(receipt: Omit<Receipt, 'receiptId' | 'createdAt' | 'updatedAt'>): Promise<string> {
     try {
       const docRef = doc(collection(db, 'receipts'));
-      await setDoc(docRef, {
+      console.log("🚀 Creating receipt document with ID:", docRef.id);
+      
+      const receiptData = {
         ...receipt,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      });
+      };
       
-      // Update usage statistics
-      await this.updateUsageStats(receipt.userId);
+      console.log("🚀 Receipt data to save:", receiptData);
       
+      await setDoc(docRef, receiptData);
+      console.log("✅ Receipt document created successfully");
+      
+      // Immediately verify the document exists
+      const verifyDoc = await getDoc(docRef);
+      if (verifyDoc.exists()) {
+        console.log("✅ Document verified to exist immediately after creation");
+        console.log("🚀 Document data:", verifyDoc.data());
+      } else {
+        console.error("❌ Document does not exist immediately after creation!");
+      }
+      
+      // Re-enable usage stats update now that Cloud Function limit check is disabled
+      try {
+        await this.updateUsageStats(receipt.userId);
+        console.log("✅ Usage stats updated successfully");
+      } catch (usageError) {
+        console.error("❌ Error updating usage stats (receipt still saved):", usageError);
+        // Don't throw here - the receipt was saved successfully
+      }
+      
+      // Add a small delay and check again to verify document persistence
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const verifyDoc2 = await getDoc(docRef);
+      if (verifyDoc2.exists()) {
+        console.log("✅ Document still exists after 1 second delay");
+      } else {
+        console.error("❌ Document was deleted within 1 second!");
+      }
+      
+      // Temporarily disable usage stats update to isolate the issue
+      // try {
+      //   await this.updateUsageStats(receipt.userId);
+      //   console.log("✅ Usage stats updated successfully");
+      // } catch (usageError) {
+      //   console.error("❌ Error updating usage stats (receipt still saved):", usageError);
+      //   // Don't throw here - the receipt was saved successfully
+      // }
+      
+      console.log("🚀 Receipt creation process completed, returning ID:", docRef.id);
       return docRef.id;
     } catch (error) {
-      console.error('Error creating receipt:', error);
+      console.error('❌ Error creating receipt:', error);
       throw error;
     }
   },
@@ -261,22 +302,19 @@ export const receiptService = {
       const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
       const usageRef = doc(db, 'usage', `${userId}_${currentMonth}`);
 
-      // Use transaction to ensure atomic updates and accurate counting
+      // Use transaction to ensure atomic updates
       await runTransaction(db, async (transaction) => {
-        // Get the current month's receipt count using our utility function
-        const actualReceiptCount = await getMonthlyReceiptCount(userId);
-        
         // Check if usage document exists
         const usageDoc = await transaction.get(usageRef);
         
         if (usageDoc.exists()) {
-          // Update with accurate count
+          // Increment the count by 1 (since we just added a receipt)
           transaction.update(usageRef, {
-            receiptsUploaded: actualReceiptCount,
+            receiptsUploaded: increment(1),
             updatedAt: serverTimestamp(),
           });
         } else {
-          // Create new usage document with accurate count
+          // Create new usage document starting with 1 receipt
           const nextMonth = new Date();
           nextMonth.setMonth(nextMonth.getMonth() + 1);
           nextMonth.setDate(1);
@@ -285,7 +323,7 @@ export const receiptService = {
           transaction.set(usageRef, {
             userId,
             month: currentMonth,
-            receiptsUploaded: actualReceiptCount,
+            receiptsUploaded: 1, // Start with 1 since we just added a receipt
             apiCalls: 0,
             reportsGenerated: 0,
             limits: {

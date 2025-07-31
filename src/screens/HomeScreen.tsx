@@ -19,23 +19,23 @@ export const HomeScreen: React.FC = () => {
   const homeNavigation = useHomeNavigation();
   const tabNavigation = useTabNavigation();
 
-  const handleLogout = () => {
-    Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Sign Out',
-          style: 'destructive',
-          onPress: logout,
-        },
-      ]
-    );
-  };
+  // const handleLogout = () => {
+  //   Alert.alert(
+  //     'Sign Out',
+  //     'Are you sure you want to sign out?',
+  //     [
+  //       {
+  //         text: 'Cancel',
+  //         style: 'cancel',
+  //       },
+  //       {
+  //         text: 'Sign Out',
+  //         style: 'destructive',
+  //         onPress: logout,
+  //       },
+  //     ]
+  //   );
+  // };
 
   return (
     <SafeAreaView
@@ -45,7 +45,7 @@ export const HomeScreen: React.FC = () => {
         <Text style={[styles.title, { color: theme.gold.primary }]}>
           ReceiptGold
         </Text>
-        <View style={styles.headerButtons}>
+        {/* <View style={styles.headerButtons}>
           <TouchableOpacity
             onPress={handleLogout}
             style={[styles.logoutButton, { backgroundColor: theme.status.error }]}
@@ -54,7 +54,7 @@ export const HomeScreen: React.FC = () => {
               Sign Out
             </Text>
           </TouchableOpacity>
-        </View>
+        </View> */}
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>

@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Platform,
 } from "react-native";
+import { OCRScanningOverlay } from "../components/OCRScanningOverlay";
 import { CaptureOptions } from "../components/CaptureOptions";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
 import { SaveFormat } from "expo-image-manipulator";
@@ -17,13 +18,13 @@ import { useAuth } from "../context/AuthContext";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useFocusEffect } from "@react-navigation/native";
 import { useReceiptsNavigation } from "../navigation/navigationHelpers";
+import { getMonthlyReceiptCount } from '../utils/getMonthlyReceipts';
 import { storage, db } from "../config/firebase";
 import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { enforceReceiptLimit } from "../utils/enforceReceiptLimit";
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import { receiptService } from "../services/firebaseService";
 import * as ImageManipulator from "expo-image-manipulator";
-// Import the receipt OCR service
 import { receiptOCRService } from "../services/ReceiptOCRService";
 import { ReceiptCategoryService, ReceiptCategory } from "../services/ReceiptCategoryService";
 
@@ -107,10 +108,19 @@ const styles = StyleSheet.create({
 export const ScanReceiptScreen = () => {
   const { user } = useAuth();
   const navigation = useReceiptsNavigation();
-  const { subscription, canAddReceipt, getRemainingReceipts } =
+  const { subscription, canAddReceipt, getRemainingReceipts, currentReceiptCount, refreshReceiptCount } =
     useSubscription();
   const { theme } = useTheme();
   const cameraRef = useRef<CameraView>(null);
+
+  // Refresh receipt count when screen is focused
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.uid) {
+        refreshReceiptCount();
+      }
+    }, [user?.uid, refreshReceiptCount])
+  );
 
   // States
   const [initialized, setInitialized] = useState(false);
@@ -118,7 +128,9 @@ export const ScanReceiptScreen = () => {
   const [ocrStatus, setOcrStatus] = useState<string>("");
   const [isCapturing, setIsCapturing] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [currentReceiptCount, setCurrentReceiptCount] = useState(0);
+  const [showScanning, setShowScanning] = useState(false);
+  const [scanningError, setScanningError] = useState<string | null>(null);
+  const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
 
   // Combined effect for receipt limit check and count fetch
   useFocusEffect(
@@ -130,21 +142,8 @@ export const ScanReceiptScreen = () => {
         }
 
         try {
-          // Get monthly usage count
-          const startOfMonth = new Date();
-          startOfMonth.setDate(1);
-          startOfMonth.setHours(0, 0, 0, 0);
-
-          const monthlyUsageSnapshot = await getDocs(
-            query(
-              collection(db, "receipts"),
-              where("userId", "==", user.uid),
-              where("createdAt", ">=", startOfMonth),
-              orderBy("createdAt", "desc")
-            )
-          );
-
-          setCurrentReceiptCount(monthlyUsageSnapshot.size);
+          // Get monthly usage count using the unified counting method
+          await refreshReceiptCount();
 
           // Check receipt limit
           const maxReceipts = subscription?.limits?.maxReceipts || 10;
@@ -202,26 +201,12 @@ export const ScanReceiptScreen = () => {
       return { canAdd: false, currentCount: 0 };
     }
 
-    // Always get a fresh count from Firestore
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const usageSnapshot = await getDocs(
-      query(
-        collection(db, "receipts"),
-        where("userId", "==", user.uid),
-        where("createdAt", ">=", startOfMonth),
-        orderBy("createdAt", "desc")
-      )
-    );
-
-    const actualCount = usageSnapshot.size;
-    setCurrentReceiptCount(actualCount);
+    // Get the monthly count using our utility that properly handles excluded receipts
+    await refreshReceiptCount();
     
     // Professional tier has maxReceipts = -1, indicating unlimited
     const maxReceipts = subscription?.limits.maxReceipts;
-    const canAdd = maxReceipts === -1 || actualCount < maxReceipts;
+    const canAdd = maxReceipts === -1 || currentReceiptCount < maxReceipts;
 
     if (!canAdd) {
       Alert.alert(
@@ -231,7 +216,7 @@ export const ScanReceiptScreen = () => {
       );
     }
 
-    return { canAdd, currentCount: actualCount };
+    return { canAdd, currentCount: currentReceiptCount };
   };
 
   const handleCapture = async () => {
@@ -253,6 +238,11 @@ export const ScanReceiptScreen = () => {
         skipProcessing: true,
       });
 
+      // Set captured image and show scanning overlay
+      setCapturedImageUri(photo.uri);
+      setShowScanning(true);
+      setScanningError(null);
+
       setOcrStatus("Optimizing image...");
 
       // Optimize the image
@@ -267,6 +257,7 @@ export const ScanReceiptScreen = () => {
       const filename = `receipts/${user.uid}/${timestamp}.jpg`;
       const storageRef = ref(storage, filename);
 
+      console.log("🚀 Starting receipt upload process for user:", user.uid);
       setOcrStatus("Preparing upload...");
 
       // Convert image to blob with proper path handling
@@ -276,6 +267,7 @@ export const ScanReceiptScreen = () => {
           : `file://${optimizedImage.uri}`;
       const response = await fetch(uri);
       const blob = await response.blob();
+      console.log("🚀 Image converted to blob, size:", blob.size);
 
       // Upload to Firebase Storage
       const metadata = {
@@ -289,10 +281,12 @@ export const ScanReceiptScreen = () => {
 
       try {
         setOcrStatus("Uploading to cloud...");
+        console.log("🚀 Starting upload to Firebase Storage...");
 
         // Try to upload in a single operation
         await uploadBytesResumable(storageRef, blob, metadata);
         const downloadURL = await getDownloadURL(storageRef);
+        console.log("🚀 Upload completed, download URL:", downloadURL);
 
         // Analyze receipt with OCR using the new function-based approach
         setIsAnalyzing(true);
@@ -364,6 +358,11 @@ export const ScanReceiptScreen = () => {
           };
 
           await receiptService.createReceipt(receiptData);
+          console.log("✅ Receipt successfully saved to Firestore");
+          
+          setShowScanning(false);
+          setCapturedImageUri(null);
+          navigation.goBack();
         } catch (ocrError: any) {
           console.error("OCR Analysis failed:", ocrError);
           setOcrStatus("OCR failed, saving without analysis...");
@@ -404,6 +403,7 @@ export const ScanReceiptScreen = () => {
           };
 
           await receiptService.createReceipt(fallbackReceiptData);
+          console.log("✅ Fallback receipt successfully saved to Firestore");
 
           // Show OCR error but don't prevent saving
           Alert.alert(
@@ -418,20 +418,17 @@ export const ScanReceiptScreen = () => {
         startOfMonth.setDate(1);
         startOfMonth.setHours(0, 0, 0, 0);
 
-        const updatedUsageSnapshot = await getDocs(
-          query(
-            collection(db, "receipts"),
-            where("userId", "==", user.uid),
-            where("createdAt", ">=", startOfMonth),
-            orderBy("createdAt", "desc")
-          )
-        );
-
-        const actualCount = updatedUsageSnapshot.size;
-        setCurrentReceiptCount(actualCount);
+        // Refresh receipt count after upload
+        await refreshReceiptCount();
+        
+        // Verify the count is correct by checking Firestore directly
+        console.log("🚀 Verifying receipt count after upload...");
+        const manualCount = await getMonthlyReceiptCount(user.uid);
+        console.log("🚀 Manual count check result:", manualCount);
+        console.log("🚀 Context count:", currentReceiptCount);
 
         // Check if we can add more receipts after this one
-        if (!canAddReceipt(actualCount)) {
+        if (!canAddReceipt(currentReceiptCount)) {
           Alert.alert(
             "Monthly Limit Reached",
             "You have reached your monthly receipt limit. The receipt was saved successfully, but you cannot add more receipts until next month or upgrading your plan.",
@@ -471,27 +468,12 @@ export const ScanReceiptScreen = () => {
         errorMessage += "Please try again.";
       }
 
-      Alert.alert("Camera Error", errorMessage, [
-        {
-          text: "Try Again",
-          onPress: () => {
-            setIsCapturing(false);
-            setIsAnalyzing(false);
-            setOcrStatus("");
-          },
-        },
-        {
-          text: "Cancel",
-          onPress: () => {
-            setIsCapturing(false);
-            setIsAnalyzing(false);
-            setOcrStatus("");
-            navigation.goBack();
-          },
-          style: "cancel",
-        },
-      ]);
+      setScanningError(errorMessage);
     } finally {
+      if (!scanningError) {
+        setShowScanning(false);
+        setCapturedImageUri(null);
+      }
       setIsCapturing(false);
       setIsAnalyzing(false);
       setOcrStatus("");
@@ -630,6 +612,11 @@ export const ScanReceiptScreen = () => {
         return;
       }
 
+      // Show scanning animation
+      setCapturedImageUri(imageUri);
+      setShowScanning(true);
+      setScanningError(null);
+
       console.log("Gallery image selected, analyzing...");
       setOcrStatus("Analyzing receipt...");
 
@@ -741,8 +728,8 @@ export const ScanReceiptScreen = () => {
           );
         }
 
-        // Navigate back to receipts list
-        navigation.goBack();
+        // Navigate to receipts list
+        navigation.navigate("ReceiptsList");
 
       } catch (error) {
         console.error("Failed to process receipt:", error);
@@ -793,11 +780,12 @@ export const ScanReceiptScreen = () => {
 
     } catch (error) {
       console.error("Gallery selection error:", error);
-      Alert.alert(
-        "Error",
-        "Failed to process image from gallery. Please try again."
-      );
+      setScanningError("Failed to process image from gallery. Please try again.");
     } finally {
+      if (!scanningError) {
+        setShowScanning(false);
+        setCapturedImageUri(null);
+      }
       setIsAnalyzing(false);
       setOcrStatus("");
     }
@@ -850,6 +838,20 @@ export const ScanReceiptScreen = () => {
           onSelectGallery={handleGallerySelect}
           isLoading={isAnalyzing}
           ocrStatus={ocrStatus}
+        />
+      )}
+      {capturedImageUri && (showScanning || scanningError) && (
+        <OCRScanningOverlay
+          imageUri={capturedImageUri}
+          isScanning={showScanning}
+          isError={!!scanningError}
+          errorMessage={scanningError || ''}
+          statusMessage={ocrStatus}
+          onRetry={() => {
+            setScanningError(null);
+            setShowScanning(false);
+            setCapturedImageUri(null);
+          }}
         />
       )}
     </SafeAreaView>

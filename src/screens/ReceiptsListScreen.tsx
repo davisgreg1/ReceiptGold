@@ -328,7 +328,7 @@ export const ReceiptsListScreen: React.FC = () => {
                         : 'Monthly Usage (includes deleted)'}
                     </Text>
                     <Text style={[styles.usageValue, { color: theme.text.primary }]}>
-                      {currentReceiptCount} / {maxReceipts === -1 ? '∞' : maxReceipts}
+                      {maxReceipts === -1 ? currentReceiptCount : `${currentReceiptCount} / ${maxReceipts}`}
                     </Text>
                   </View>
                 </View>
