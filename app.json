@@ -42,7 +42,8 @@
       "FREE_TIER_MAX_RECEIPTS": "10",
       "STARTER_TIER_MAX_RECEIPTS": "50",
       "GROWTH_TIER_MAX_RECEIPTS": "150",
-      "PROFESSIONAL_TIER_MAX_RECEIPTS": "-1"
+      "PROFESSIONAL_TIER_MAX_RECEIPTS": "-1",
+      "USE_DUMMY_DATA": "true"
     },
     "plugins": [
       "expo-splash-screen",

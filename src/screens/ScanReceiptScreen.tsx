@@ -27,6 +27,7 @@ import { receiptService } from "../services/firebaseService";
 import * as ImageManipulator from "expo-image-manipulator";
 import { receiptOCRService } from "../services/ReceiptOCRService";
 import { ReceiptCategoryService, ReceiptCategory } from "../services/ReceiptCategoryService";
+import { USE_DUMMY_DATA, generateDummyReceiptData, logDummyDataStatus } from "../utils/dummyReceiptData";
 
 const styles = StyleSheet.create({
   container: {
@@ -113,6 +114,11 @@ export const ScanReceiptScreen = () => {
   const { theme } = useTheme();
   const cameraRef = useRef<CameraView>(null);
 
+  // Log dummy data status on component mount
+  useEffect(() => {
+    logDummyDataStatus();
+  }, []);
+
   // Refresh receipt count when screen is focused
   useFocusEffect(
     useCallback(() => {
@@ -160,7 +166,7 @@ export const ScanReceiptScreen = () => {
                   [
                     {
                       text: "OK",
-                      onPress: () => navigation.navigate("ReceiptsList"),
+                      onPress: () => navigation.goBack(),
                     },
                   ]
                 );
@@ -168,7 +174,7 @@ export const ScanReceiptScreen = () => {
             );
 
             if (!allowed) {
-              navigation.navigate("ReceiptsList");
+              navigation.goBack();
             }
           }
         } catch (error) {
@@ -294,68 +300,96 @@ export const ScanReceiptScreen = () => {
         console.log("Analyzing receipt with OCR...");
 
         try {
-          // Use the OCR service to analyze the receipt
-          const ocrData = await receiptOCRService.analyzeReceipt(uri);
-          console.log("OCR Analysis result:", ocrData);
-          setOcrStatus("Processing complete!");
+          let receiptData;
 
-          // Get the receipt category based on the OCR data
-          let category: ReceiptCategory = 'other';
-          const result = await ReceiptCategoryService.determineCategory(ocrData);
-          category = result.category;
-          console.log('Determined category:', { 
-            merchantName: ocrData.merchantName, 
-            category,
-            confidence: result.confidence 
-          });
+          if (USE_DUMMY_DATA) {
+            // Use dummy data instead of OCR
+            console.log("🎭 Using dummy data instead of OCR analysis");
+            setOcrStatus("Generating dummy data...");
+            
+            // Add a small delay to simulate processing
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            const dummyData = generateDummyReceiptData();
+            console.log("Generated dummy data:", dummyData);
+            setOcrStatus("Processing complete!");
 
-          // Create receipt record in Firestore with OCR data - ensure no undefined values
-          const receiptData = {
-            userId: user.uid,
-            images: [
-              {
-                url: downloadURL,
-                size: blob.size,
-                uploadedAt: new Date(),
-              },
-            ],
-            status: "processed" as const,
-            vendor: ocrData.merchantName || "",
-            amount: ocrData.total || 0,
-            currency: "USD",
-            date:
-              ocrData.transactionDate instanceof Date
-                ? ocrData.transactionDate
-                : new Date(),
-            description: ocrData.merchantName
-              ? `Receipt from ${ocrData.merchantName}`
-              : "Scanned Receipt",
-            tax: {
-              deductible: true,
-              deductionPercentage: 100,
-              taxYear: new Date().getFullYear(),
+            // Create receipt record with dummy data
+            receiptData = {
+              userId: user.uid,
+              images: [
+                {
+                  url: downloadURL,
+                  size: blob.size,
+                  uploadedAt: new Date(),
+                },
+              ],
+              ...dummyData, // Spread all the dummy data
+            };
+          } else {
+            // Use real OCR service
+            const ocrData = await receiptOCRService.analyzeReceipt(uri);
+            console.log("OCR Analysis result:", ocrData);
+            setOcrStatus("Processing complete!");
+
+            // Get the receipt category based on the OCR data
+            let category: ReceiptCategory = 'other';
+            const result = await ReceiptCategoryService.determineCategory(ocrData);
+            category = result.category;
+            console.log('Determined category:', { 
+              merchantName: ocrData.merchantName, 
               category,
-            },
-            category, // Use determined category
-            tags: ["ocr-processed"],
-            extractedData: {
+              confidence: result.confidence 
+            });
+
+            // Create receipt record in Firestore with OCR data - ensure no undefined values
+            receiptData = {
+              userId: user.uid,
+              images: [
+                {
+                  url: downloadURL,
+                  size: blob.size,
+                  uploadedAt: new Date(),
+                },
+              ],
+              status: "processed" as const,
               vendor: ocrData.merchantName || "",
               amount: ocrData.total || 0,
-              tax: ocrData.tax || 0,
+              currency: "USD",
               date:
                 ocrData.transactionDate instanceof Date
-                  ? ocrData.transactionDate.toISOString()
-                  : new Date().toISOString(),
-              confidence: 0.9, // Azure Document Intelligence typically has high confidence
-              items:
-                ocrData.items?.map((item) => ({
-                  description: item.description || "",
-                  amount: item.price || 0,
-                  quantity: item.quantity || 1,
-                })) || [],
-            },
-            processingErrors: [],
-          };
+                  ? ocrData.transactionDate
+                  : new Date(),
+              description: ocrData.merchantName
+                ? `Receipt from ${ocrData.merchantName}`
+                : "Scanned Receipt",
+              tax: {
+                deductible: true,
+                deductionPercentage: 100,
+                taxYear: new Date().getFullYear(),
+                category,
+              },
+              category, // Use determined category
+              tags: ["ocr-processed"],
+              extractedData: {
+                vendor: ocrData.merchantName || "",
+                amount: ocrData.total || 0,
+                tax: ocrData.tax || 0,
+                date:
+                  ocrData.transactionDate instanceof Date
+                    ? ocrData.transactionDate.toISOString()
+                    : new Date().toISOString(),
+                confidence: 0.9, // Azure Document Intelligence typically has high confidence
+                items:
+                  ocrData.items?.map((item) => ({
+                    description: item.description || "",
+                    amount: item.price || 0,
+                    quantity: item.quantity || 1,
+                  })) || [],
+              },
+              processingErrors: [],
+            };
+          }
 
           await receiptService.createReceipt(receiptData);
           console.log("✅ Receipt successfully saved to Firestore");
@@ -620,17 +654,6 @@ export const ScanReceiptScreen = () => {
       console.log("Gallery image selected, analyzing...");
       setOcrStatus("Analyzing receipt...");
 
-      // Analyze the receipt
-      const ocrData = await receiptOCRService.analyzeReceipt(imageUri);
-      if (!ocrData) {
-        console.error("Failed to analyze receipt");
-        setIsAnalyzing(false);
-        setOcrStatus("");
-        return;
-      }
-
-      setOcrStatus("Preparing upload...");
-
       // Generate a unique filename with timestamp
       const timestamp = Date.now();
       const filename = `receipts/${user.uid}/${timestamp}.jpg`;
@@ -659,61 +682,96 @@ export const ScanReceiptScreen = () => {
       setOcrStatus("Processing receipt data...");
 
       try {
-        // Get the receipt category based on the OCR data
-        const result = await ReceiptCategoryService.determineCategory(ocrData);
-        console.log('Determined category:', { 
-          merchantName: ocrData.merchantName, 
-          category: result.category,
-          confidence: result.confidence 
-        });
+        let receiptData;
 
-        // Create receipt record in Firestore with OCR data
-        const receiptData = {
-          userId: user.uid,
-          images: [
-            {
-              url: downloadURL,
-              size: blob.size,
-              uploadedAt: new Date(),
-            },
-          ],
-          status: "processed" as const,
-          vendor: ocrData.merchantName || "",
-          amount: ocrData.total || 0,
-          currency: "USD",
-          date:
-            ocrData.transactionDate instanceof Date
-              ? ocrData.transactionDate
-              : new Date(),
-          description: ocrData.merchantName
-            ? `Receipt from ${ocrData.merchantName}`
-            : "Scanned Receipt",
-          tax: {
-            deductible: true,
-            deductionPercentage: 100,
-            taxYear: new Date().getFullYear(),
+        if (USE_DUMMY_DATA) {
+          // Use dummy data instead of OCR
+          console.log("🎭 Using dummy data for gallery image");
+          setOcrStatus("Generating dummy data...");
+          
+          // Add a small delay to simulate processing
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          const dummyData = generateDummyReceiptData();
+          console.log("Generated dummy data for gallery image:", dummyData);
+
+          receiptData = {
+            userId: user.uid,
+            images: [
+              {
+                url: downloadURL,
+                size: blob.size,
+                uploadedAt: new Date(),
+              },
+            ],
+            ...dummyData, // Spread all the dummy data
+          };
+        } else {
+          // Analyze the receipt with real OCR
+          const ocrData = await receiptOCRService.analyzeReceipt(imageUri);
+          if (!ocrData) {
+            console.error("Failed to analyze receipt");
+            setIsAnalyzing(false);
+            setOcrStatus("");
+            return;
+          }
+
+          // Get the receipt category based on the OCR data
+          const result = await ReceiptCategoryService.determineCategory(ocrData);
+          console.log('Determined category:', { 
+            merchantName: ocrData.merchantName, 
             category: result.category,
-          },
-          category: result.category,
-          tags: ["ocr-processed"],
-          extractedData: {
+            confidence: result.confidence 
+          });
+
+          // Create receipt record in Firestore with OCR data
+          receiptData = {
+            userId: user.uid,
+            images: [
+              {
+                url: downloadURL,
+                size: blob.size,
+                uploadedAt: new Date(),
+              },
+            ],
+            status: "processed" as const,
             vendor: ocrData.merchantName || "",
             amount: ocrData.total || 0,
-            tax: ocrData.tax || 0,
+            currency: "USD",
             date:
               ocrData.transactionDate instanceof Date
-                ? ocrData.transactionDate.toISOString()
-                : new Date().toISOString(),
-            confidence: 0.9,
-            items:
-              ocrData.items?.map((item: { description: string; quantity?: number; price: number }) => ({
-                description: item.description || "",
-                amount: item.price || 0,
-                quantity: item.quantity || 1,
-              })) || [],
-          },
-          processingErrors: [],
-        };
+                ? ocrData.transactionDate
+                : new Date(),
+            description: ocrData.merchantName
+              ? `Receipt from ${ocrData.merchantName}`
+              : "Scanned Receipt",
+            tax: {
+              deductible: true,
+              deductionPercentage: 100,
+              taxYear: new Date().getFullYear(),
+              category: result.category,
+            },
+            category: result.category,
+            tags: ["ocr-processed"],
+            extractedData: {
+              vendor: ocrData.merchantName || "",
+              amount: ocrData.total || 0,
+              tax: ocrData.tax || 0,
+              date:
+                ocrData.transactionDate instanceof Date
+                  ? ocrData.transactionDate.toISOString()
+                  : new Date().toISOString(),
+              confidence: 0.9,
+              items:
+                ocrData.items?.map((item: { description: string; quantity?: number; price: number }) => ({
+                  description: item.description || "",
+                  amount: item.price || 0,
+                  quantity: item.quantity || 1,
+                })) || [],
+            },
+            processingErrors: [],
+          };
+        }
 
         await receiptService.createReceipt(receiptData);
         setOcrStatus("Processing complete!");
@@ -724,12 +782,13 @@ export const ScanReceiptScreen = () => {
           Alert.alert(
             "Monthly Limit Reached",
             "The receipt was saved successfully. You have now reached your monthly limit and cannot add more receipts until next month or upgrading your plan.",
-            [{ text: "OK" }]
+            [{ text: "OK", onPress: () => navigation.goBack() }]
           );
+        } else {
+          // Navigate back to the previous screen (receipts list)
+          console.log("Receipt saved successfully, navigating back to Receipts List");
+          navigation.navigate("ReceiptsList");
         }
-
-        // Navigate to receipts list
-        navigation.navigate("ReceiptsList");
 
       } catch (error) {
         console.error("Failed to process receipt:", error);

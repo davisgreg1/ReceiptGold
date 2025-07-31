@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,9 +6,13 @@ import {
   TouchableOpacity,
   Modal,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
-import { useSubscription, SubscriptionTier } from '../context/SubscriptionContext';
+import { SubscriptionTier } from '../context/SubscriptionContext';
+import { useStripePayments } from '../hooks/useStripePayments';
+import { useAuth } from '../context/AuthContext';
+import { SubscriptionTierKey } from '../services/stripe';
 
 interface UpgradePromptProps {
   visible: boolean;
@@ -26,27 +30,63 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
   requiredTier = 'starter',
 }) => {
   const { theme } = useTheme();
-  const { upgradeTo, loading } = useSubscription();
+  const { handleSubscription } = useStripePayments();
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(false);
+
+  // Map SubscriptionTier to SubscriptionTierKey for Stripe
+  const mapTierToStripeKey = (tier: SubscriptionTier): SubscriptionTierKey => {
+    switch (tier) {
+      case 'starter':
+        return 'starter';
+      case 'growth':
+        return 'growth';
+      case 'professional':
+        return 'professional';
+      default:
+        return 'starter';
+    }
+  };
 
   const handleUpgrade = async () => {
+    if (!user?.email) {
+      Alert.alert('Error', 'You must be logged in to upgrade');
+      return;
+    }
+
+    setLoading(true);
     try {
-      await upgradeTo(requiredTier);
-      onClose();
+      // Start the Stripe payment flow
+      const success = await handleSubscription(
+        mapTierToStripeKey(requiredTier),
+        user.email,
+        user.displayName || 'User'
+      );
+
+      if (success) {
+        onClose();
+      }
     } catch (error) {
       console.error('Upgrade failed:', error);
+      Alert.alert(
+        'Error', 
+        'Failed to process payment. Please check your payment details and try again.'
+      );
+    } finally {
+      setLoading(false);
     }
   };
 
   const getTierInfo = (tier: SubscriptionTier) => {
     switch (tier) {
       case 'starter':
-        return { name: 'Starter Plan', price: '$9', color: '#3B82F6' };
+        return { name: 'Starter Plan', price: '$9.99', color: '#3B82F6' };
       case 'growth':
-        return { name: 'Growth Plan', price: '$19', color: '#8B5CF6' };
+        return { name: 'Growth Plan', price: '$19.99', color: '#8B5CF6' };
       case 'professional':
-        return { name: 'Professional Plan', price: '$39', color: '#F59E0B' };
+        return { name: 'Professional Plan', price: '$39.99', color: '#F59E0B' };
       default:
-        return { name: 'Starter Plan', price: '$9', color: '#3B82F6' };
+        return { name: 'Starter Plan', price: '$9.99', color: '#3B82F6' };
     }
   };
 
