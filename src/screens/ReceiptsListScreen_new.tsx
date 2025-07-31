@@ -293,23 +293,21 @@ export const ReceiptsListScreen: React.FC = () => {
           )}
         </View>
       )}
-      <View style={styles.receiptContent}>
-        <View style={styles.receiptHeader}>
-          <Text style={[styles.receiptName, { color: theme.text.primary }]}>
-            {new Date(receipt.createdAt?.toDate()).toLocaleDateString()}
-          </Text>
-          <Text style={[styles.receiptAmount, { color: theme.gold.primary }]}>
-            ${receipt.amount || '0.00'}
-          </Text>
-        </View>
-        <View style={styles.receiptDetails}>
-          <Text style={[styles.receiptCategory, { color: theme.text.secondary }]}>
-            {receipt.category || 'Uncategorized'}
-          </Text>
-          <Text style={[styles.receiptDate, { color: theme.text.tertiary }]}>
-            {receipt.vendor || 'Unknown Vendor'}
-          </Text>
-        </View>
+      <View style={styles.receiptHeader}>
+        <Text style={[styles.receiptName, { color: theme.text.primary }]}>
+          {new Date(receipt.createdAt?.toDate()).toLocaleDateString()}
+        </Text>
+        <Text style={[styles.receiptAmount, { color: theme.gold.primary }]}>
+          ${receipt.amount || '0.00'}
+        </Text>
+      </View>
+      <View style={styles.receiptDetails}>
+        <Text style={[styles.receiptCategory, { color: theme.text.secondary }]}>
+          {receipt.category || 'Uncategorized'}
+        </Text>
+        <Text style={[styles.receiptDate, { color: theme.text.tertiary }]}>
+          {receipt.vendor || 'Unknown Vendor'}
+        </Text>
       </View>
     </TouchableOpacity>
   );
@@ -784,39 +782,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  receiptContent: {
-    flex: 1,
-    marginLeft: 8,
-  },
   receiptHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flex: 1,
     marginBottom: 8,
   },
   receiptName: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
-    flex: 1,
+    marginBottom: 4,
   },
   receiptAmount: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginLeft: 12,
   },
   receiptDetails: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flex: 1,
   },
   receiptCategory: {
     fontSize: 14,
     fontWeight: '500',
-    flex: 1,
+    marginBottom: 2,
   },
   receiptDate: {
-    fontSize: 12,
-    marginLeft: 12,
+    fontSize: 14,
   },
   emptyState: {
     alignItems: 'center',
