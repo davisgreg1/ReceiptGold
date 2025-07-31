@@ -463,8 +463,8 @@ export const ReceiptsListScreen: React.FC = () => {
           </TouchableOpacity>
         </ReceiptLimitGate>
 
-        {/* Free tier upgrade prompt */}
-        {subscription?.currentTier === 'free' && (
+        {/* Free tier upgrade prompt - only show if limit not reached */}
+        {subscription?.currentTier === 'free' && remainingReceipts > 0 && (
           <View style={[styles.upgradePrompt, {
             backgroundColor: theme.gold.background,
             borderColor: theme.gold.primary,
@@ -489,7 +489,7 @@ export const ReceiptsListScreen: React.FC = () => {
               {isUpgrading ? (
                 <ActivityIndicator color="white" />
               ) : (
-                <Text style={styles.upgradeButtonText}>Upgrade for $9/month</Text>
+                <Text style={styles.upgradeButtonText}>Upgrade for $9.99/month</Text>
               )}
             </TouchableOpacity>
           </View>

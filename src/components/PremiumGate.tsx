@@ -114,7 +114,7 @@ export const ReceiptLimitGate: React.FC<ReceiptLimitGateProps> = ({
           onUpgrade?.();
         }}
       >
-        <Text style={styles.upgradeButtonText}>Upgrade for Unlimited</Text>
+        <Text style={styles.upgradeButtonText}>Upgrade for $9.99/month</Text>
       </TouchableOpacity>
 
       <UpgradePrompt
