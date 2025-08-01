@@ -16,14 +16,15 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useAuth } from '../context/AuthContext';
 import { useStripePayments } from '../hooks/useStripePayments';
 import { Ionicons } from '@expo/vector-icons';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { getAuth, updateProfile, EmailAuthProvider, updatePassword, reauthenticateWithCredential } from 'firebase/auth';
+import { getAuth, updateProfile, EmailAuthProvider, updatePassword, reauthenticateWithCredential, deleteUser } from 'firebase/auth';
 
 interface SettingsSectionProps {
   title: string;
@@ -136,6 +137,7 @@ export const SettingsScreen: React.FC = () => {
   const { subscription } = useSubscription();
   const { user, logout, refreshUser } = useAuth();
   const { handleSubscription, SUBSCRIPTION_TIERS } = useStripePayments();
+  const navigation = useNavigation();
   
   const [userData, setUserData] = React.useState<{ firstName?: string; lastName?: string; }>({});
   const [notifications, setNotifications] = React.useState(true);
@@ -143,8 +145,10 @@ export const SettingsScreen: React.FC = () => {
   const [isUpgrading, setIsUpgrading] = React.useState(false);
   const [showNameDialog, setShowNameDialog] = React.useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = React.useState(false);
+  const [showDeleteAccountDialog, setShowDeleteAccountDialog] = React.useState(false);
   const [firstName, setFirstName] = React.useState('');
   const [lastName, setLastName] = React.useState('');
+  const [deleteConfirmPassword, setDeleteConfirmPassword] = React.useState('');
 
   // Fetch user data from Firestore
   React.useEffect(() => {
@@ -387,6 +391,67 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    if (!user) return;
+    
+    // Validate password
+    if (!deleteConfirmPassword.trim()) {
+      Alert.alert('Error', 'Please enter your password to confirm account deletion');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // Re-authenticate user before deletion
+      const credential = EmailAuthProvider.credential(user.email!, deleteConfirmPassword);
+      await reauthenticateWithCredential(user, credential);
+
+      // Delete all user data from Firestore
+      const batch = writeBatch(db);
+      
+      // Delete user document
+      batch.delete(doc(db, 'users', user.uid));
+      
+      // Delete all receipts
+      const receiptsQuery = query(collection(db, 'receipts'), where('userId', '==', user.uid));
+      const receiptsSnapshot = await getDocs(receiptsQuery);
+      receiptsSnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+
+      // Delete all budgets
+      const budgetsQuery = query(collection(db, 'budgets'), where('userId', '==', user.uid));
+      const budgetsSnapshot = await getDocs(budgetsQuery);
+      budgetsSnapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+
+      // Commit the batch delete
+      await batch.commit();
+
+      // Delete the user account from Firebase Auth
+      await deleteUser(user);
+
+      Alert.alert(
+        'Account Deleted',
+        'Your account and all associated data have been permanently deleted.',
+        [{ text: 'OK' }]
+      );
+    } catch (error: any) {
+      let errorMessage = 'Failed to delete account';
+      if (error.code === 'auth/wrong-password') {
+        errorMessage = 'Incorrect password. Please try again.';
+      } else if (error.code === 'auth/requires-recent-login') {
+        errorMessage = 'Please sign out and sign back in, then try again.';
+      }
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsLoading(false);
+      setShowDeleteAccountDialog(false);
+      setDeleteConfirmPassword('');
+    }
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
       <ScrollView style={styles.content}>
@@ -553,6 +618,18 @@ export const SettingsScreen: React.FC = () => {
           >
             <Text style={[styles.signOutButtonText, { color: theme.status.error }]}>
               Sign Out
+            </Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity
+            style={[styles.deleteAccountButton, { 
+              borderColor: theme.status.error,
+              backgroundColor: theme.status.error + '10'
+            }]}
+            onPress={() => setShowDeleteAccountDialog(true)}
+          >
+            <Text style={[styles.deleteAccountButtonText, { color: theme.status.error }]}>
+              Delete Account
             </Text>
           </TouchableOpacity>
         </SettingsSection>
@@ -874,6 +951,55 @@ export const SettingsScreen: React.FC = () => {
           </View>
         </View>
       )}
+
+      {/* Delete Account Dialog */}
+      {showDeleteAccountDialog && (
+        <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
+          <View style={[styles.dialog, { backgroundColor: theme.background.secondary }]}>
+            <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>Delete Account</Text>
+            <Text style={[styles.dialogText, { color: theme.text.secondary, marginBottom: 16 }]}>
+              This action cannot be undone. All your receipts, data, and account information will be permanently deleted.
+            </Text>
+            <Text style={[styles.dialogText, { color: theme.text.secondary, marginBottom: 16 }]}>
+              Please enter your password to confirm:
+            </Text>
+            <TextInput
+              style={[styles.input, { 
+                color: theme.text.primary,
+                backgroundColor: theme.background.tertiary,
+                borderColor: theme.border.primary 
+              }]}
+              placeholder="Current password"
+              placeholderTextColor={theme.text.tertiary}
+              value={deleteConfirmPassword}
+              onChangeText={setDeleteConfirmPassword}
+              secureTextEntry
+            />
+            <View style={styles.dialogButtons}>
+              <TouchableOpacity
+                style={[styles.dialogButton, { borderColor: theme.border.primary }]}
+                onPress={() => {
+                  setShowDeleteAccountDialog(false);
+                  setDeleteConfirmPassword('');
+                }}
+              >
+                <Text style={[styles.dialogButtonText, { color: theme.text.primary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.dialogButton, { backgroundColor: theme.status.error }]}
+                onPress={handleDeleteAccount}
+                disabled={isLoading}
+              >
+                {isLoading ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={[styles.dialogButtonText, { color: 'white' }]}>Delete Account</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -1067,6 +1193,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  deleteAccountButton: {
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginHorizontal: 16,
+    marginVertical: 8,
+    alignItems: 'center',
+  },
+  deleteAccountButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
   modalOverlay: {
     position: 'absolute',
     top: 0,
@@ -1103,6 +1241,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '600',
     marginBottom: 16,
+    textAlign: 'center',
+  },
+  dialogText: {
+    fontSize: 16,
+    lineHeight: 24,
     textAlign: 'center',
   },
   input: {
