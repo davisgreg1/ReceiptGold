@@ -1,10 +1,10 @@
 // Hook for using Stripe in components
 import { useStripe } from '@stripe/stripe-react-native';
-import { Alert } from 'react-native';
 import { doc, updateDoc, getFirestore, getDoc, writeBatch, collection, query, where, getDocs } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import { stripeService, SubscriptionTierKey, SUBSCRIPTION_TIERS } from '../services/stripe';
 import { useSubscription } from '../context/SubscriptionContext';
+import { useCustomAlert } from './useCustomAlert';
 
 export const useStripePayments = () => {
   const stripe = useStripe();
@@ -14,18 +14,19 @@ export const useStripePayments = () => {
     tierId: SubscriptionTierKey,
     userEmail: string,
     userName: string,
-    customerId?: string
+    customerId?: string,
+    showAlert?: (type: 'error' | 'success' | 'warning', title: string, message: string) => void
   ): Promise<boolean> => {
     try {
       console.log("🚀 Starting subscription process for tier:", tierId);
       if (tierId === 'free') {
-        Alert.alert('Free Plan', 'You are already on the free plan!');
+        showAlert?.('warning', 'Free Plan', 'You are already on the free plan!');
         return false;
       }
 
       if (!stripe) {
         console.error('Stripe not initialized');
-        Alert.alert('Error', 'Payment system not initialized');
+        showAlert?.('error', 'Error', 'Payment system not initialized');
         return false;
       }
 
@@ -43,13 +44,13 @@ export const useStripePayments = () => {
 
       if (!subscriptionResult.success) {
         console.error('Subscription creation failed:', subscriptionResult);
-        Alert.alert('Error', subscriptionResult.error || 'Failed to start subscription');
+        showAlert?.('error', 'Error', subscriptionResult.error || 'Failed to start subscription');
         return false;
       }
 
       if (!subscriptionResult.clientSecret || !subscriptionResult.subscriptionId) {
         console.error('Backend response missing required data:', subscriptionResult);
-        Alert.alert('Error', 'Incomplete server response. Please try again.');
+        showAlert?.('error', 'Error', 'Incomplete server response. Please try again.');
         return false;
       }
 
@@ -176,17 +177,17 @@ export const useStripePayments = () => {
           console.warn('Failed to refresh receipt count after upgrade:', refreshError);
         }
         
-        Alert.alert('Success', 'Your subscription has been activated!');
+        showAlert?.('success', 'Success', 'Your subscription has been activated!');
         return true;
       } catch (error) {
         console.error('Failed to update Firestore with new subscription:', error);
-        Alert.alert('Warning', 'Payment processed but failed to update subscription status. Please contact support.');
+        showAlert?.('warning', 'Warning', 'Payment processed but failed to update subscription status. Please contact support.');
         return false;
       }
 
     } catch (error) {
       console.error('Subscription error:', error);
-      Alert.alert('Error', 'Failed to process subscription');
+      showAlert?.('error', 'Error', 'Failed to process subscription');
       return false;
     }
   };

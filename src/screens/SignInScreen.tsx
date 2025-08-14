@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -15,6 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../context/AuthContext';
 import { Logo } from '../components/Logo';
+import { CustomAlert } from '../components/CustomAlert';
+import { useCustomAlert } from '../hooks/useCustomAlert';
 
 interface SignInScreenProps {
   onNavigateToSignUp: () => void;
@@ -31,10 +32,11 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const { alertState, showError, showFirebaseError, hideAlert } = useCustomAlert();
 
   const handleSignIn = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      showError('Error', 'Please fill in all fields');
       return;
     }
 
@@ -42,7 +44,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
     try {
       await signIn(email, password);
     } catch (error: any) {
-      Alert.alert('Sign In Error', error.message);
+      showFirebaseError(error, 'Sign In Error');
     } finally {
       setLoading(false);
     }
@@ -171,6 +173,18 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
           <View style={styles.bottomSpacer} />
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      <CustomAlert
+        visible={alertState.visible}
+        type={alertState.options.type}
+        title={alertState.options.title}
+        message={alertState.options.message}
+        onClose={hideAlert}
+        primaryButtonText={alertState.options.primaryButtonText}
+        secondaryButtonText={alertState.options.secondaryButtonText}
+        onPrimaryPress={alertState.options.onPrimaryPress}
+        onSecondaryPress={alertState.options.onSecondaryPress}
+      />
     </SafeAreaView>
   );
 };

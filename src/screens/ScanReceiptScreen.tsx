@@ -4,7 +4,6 @@ import {
   View,
   TouchableOpacity,
   Text,
-  Alert,
   ActivityIndicator,
   Platform,
 } from "react-native";
@@ -28,6 +27,8 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { receiptOCRService } from "../services/ReceiptOCRService";
 import { ReceiptCategoryService, ReceiptCategory } from "../services/ReceiptCategoryService";
 import { USE_DUMMY_DATA, generateDummyReceiptData, logDummyDataStatus } from "../utils/dummyReceiptData";
+import { useCustomAlert } from '../hooks/useCustomAlert';
+import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
 
 const styles = StyleSheet.create({
   container: {
@@ -92,6 +93,7 @@ export const ScanReceiptScreen = () => {
   const { subscription, canAddReceipt, getRemainingReceipts, currentReceiptCount, refreshReceiptCount } =
     useSubscription();
   const { theme } = useTheme();
+  const { showError, showSuccess, showWarning, showFirebaseError } = useCustomAlert();
   const cameraRef = useRef<CameraView>(null);
 
   // Log dummy data status on component mount
@@ -140,15 +142,13 @@ export const ScanReceiptScreen = () => {
               user.uid,
               maxReceipts,
               () => {
-                Alert.alert(
+                showWarning(
                   "Receipt Limit Reached",
                   "You have reached your monthly receipt limit. Please upgrade your plan to add more receipts.",
-                  [
-                    {
-                      text: "OK",
-                      onPress: () => navigation.goBack(),
-                    },
-                  ]
+                  {
+                    primaryButtonText: "OK",
+                    onPrimaryPress: () => navigation.goBack(),
+                  }
                 );
               }
             );
@@ -195,10 +195,13 @@ export const ScanReceiptScreen = () => {
     const canAdd = maxReceipts === -1 || currentReceiptCount < maxReceipts;
 
     if (!canAdd) {
-      Alert.alert(
+      showWarning(
         "Monthly Limit Reached",
         "You have reached your monthly receipt limit. Please upgrade your plan or wait until next month to add more receipts.",
-        [{ text: "OK", onPress: () => navigation.goBack() }]
+        {
+          primaryButtonText: "OK",
+          onPrimaryPress: () => navigation.goBack(),
+        }
       );
     }
 
@@ -268,10 +271,9 @@ export const ScanReceiptScreen = () => {
         setCapturedImageUri(null);
         
         // Show specific error message to user
-        Alert.alert(
+        showWarning(
           "Is this a receipt?", 
-          validationError.message || "This image does not appear to be a receipt. Please try again with a clear photo of a receipt.",
-          [{ text: "OK" }]
+          validationError.message || "This image does not appear to be a receipt. Please try again with a clear photo of a receipt."
         );
         return; // Stop processing - don't upload or save anything
       }
@@ -449,10 +451,9 @@ export const ScanReceiptScreen = () => {
           console.log("✅ Fallback receipt successfully saved to Firestore");
 
           // Show OCR error but don't prevent saving
-          Alert.alert(
+          showWarning(
             "Receipt Saved",
-            "The receipt was saved successfully, but automatic data extraction failed. You can manually edit the receipt details.",
-            [{ text: "OK" }]
+            "The receipt was saved successfully, but automatic data extraction failed. You can manually edit the receipt details."
           );
         }
 
@@ -472,10 +473,9 @@ export const ScanReceiptScreen = () => {
 
         // Check if we can add more receipts after this one
         if (!canAddReceipt(currentReceiptCount)) {
-          Alert.alert(
+          showWarning(
             "Monthly Limit Reached",
-            "You have reached your monthly receipt limit. The receipt was saved successfully, but you cannot add more receipts until next month or upgrading your plan.",
-            [{ text: "OK" }]
+            "You have reached your monthly receipt limit. The receipt was saved successfully, but you cannot add more receipts until next month or upgrading your plan."
           );
         }
 
@@ -495,7 +495,7 @@ export const ScanReceiptScreen = () => {
           errorMessage += error.message || "Please try again.";
         }
 
-        Alert.alert("Error", errorMessage);
+        showError("Error", errorMessage);
       }
     } catch (error: any) {
       console.error("Capture error:", error);
@@ -610,7 +610,7 @@ export const ScanReceiptScreen = () => {
 
   const handleGallerySelect = async () => {
     if (!user) {
-      Alert.alert("Error", "You must be logged in to add receipts");
+      showError("Error", "You must be logged in to add receipts");
       return;
     }
 
@@ -654,10 +654,9 @@ export const ScanReceiptScreen = () => {
         setCapturedImageUri(null);
         
         // Show specific error message to user
-        Alert.alert(
+        showWarning(
           "Is this a receipt?", 
-          validationError.message || "This image does not appear to be a receipt. Please try again with a clear photo of a receipt.",
-          [{ text: "OK" }]
+          validationError.message || "This image does not appear to be a receipt. Please try again with a clear photo of a receipt."
         );
         return; // Stop processing - don't upload or save anything
       }
@@ -782,10 +781,13 @@ export const ScanReceiptScreen = () => {
         // Check final count and update UI
         const { canAdd: canAddMore, currentCount } = await checkReceiptLimit();
         if (!canAddMore) {
-          Alert.alert(
+          showWarning(
             "Monthly Limit Reached",
             "The receipt was saved successfully. You have now reached your monthly limit and cannot add more receipts until next month or upgrading your plan.",
-            [{ text: "OK", onPress: () => navigation.goBack() }]
+            {
+              primaryButtonText: "OK",
+              onPrimaryPress: () => navigation.goBack(),
+            }
           );
         } else {
           // Navigate back to the previous screen (receipts list)
@@ -832,10 +834,9 @@ export const ScanReceiptScreen = () => {
         };
 
         await receiptService.createReceipt(fallbackReceiptData);
-        Alert.alert(
+        showWarning(
           "Receipt Saved",
-          "The receipt was saved successfully, but automatic data extraction failed. You can manually edit the receipt details.",
-          [{ text: "OK" }]
+          "The receipt was saved successfully, but automatic data extraction failed. You can manually edit the receipt details."
         );
         navigation.goBack();
       }

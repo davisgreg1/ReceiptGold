@@ -567,7 +567,7 @@ export const ReportsScreen = () => {
               style={styles.button}
               icon="chart-bar"
             >
-              Detailed Breakdown
+              Details
             </Button>
           </View>
         </Card.Content>

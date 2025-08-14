@@ -6,7 +6,6 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   TextInput,
   RefreshControl,
 } from 'react-native';
@@ -25,6 +24,8 @@ import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { useReceiptsNavigation } from '../navigation/navigationHelpers';
 import { useFocusEffect } from '@react-navigation/native';
 import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
+import { useCustomAlert } from '../hooks/useCustomAlert';
+import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
 
 export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
@@ -32,6 +33,7 @@ export const ReceiptsListScreen: React.FC = () => {
   const { subscription, getRemainingReceipts, currentReceiptCount } = useSubscription();
   const { handleSubscription } = useStripePayments();
   const { user } = useAuth();
+  const { showError, showSuccess, showWarning, showFirebaseError } = useCustomAlert();
   const [isUpgrading, setIsUpgrading] = useState(false);
   
   interface Receipt {
@@ -86,10 +88,9 @@ export const ReceiptsListScreen: React.FC = () => {
         // If we get an index error, fall back to the basic query
         if (error?.message?.includes('requires an index')) {
           console.log('Index not ready, falling back to basic query...');
-          Alert.alert(
+          showWarning(
             'Loading Receipts',
-            'First-time setup in progress. Your receipts will be available shortly.',
-            [{ text: 'OK' }]
+            'First-time setup in progress. Your receipts will be available shortly.'
           );
           
           // Get all receipts and sort them in memory
@@ -428,11 +429,11 @@ export const ReceiptsListScreen: React.FC = () => {
       );
 
       if (!success) {
-        Alert.alert('Error', 'Failed to process payment. Please try again.');
+        showError('Error', 'Failed to process payment. Please try again.');
       }
     } catch (error) {
       console.error('Failed to upgrade subscription:', error);
-      Alert.alert(
+      showError(
         'Error',
         'Failed to process payment. Please check your payment details and try again.'
       );
@@ -444,20 +445,20 @@ export const ReceiptsListScreen: React.FC = () => {
   // Temporary debug function
   const handleDebugSubscription = async () => {
     if (!user?.uid) {
-      Alert.alert('Error', 'No user ID found');
+      showError('Error', 'No user ID found');
       return;
     }
     
     try {
       const debug = await debugSubscriptionState(user.uid);
       
-      Alert.alert(
+      showWarning(
         'Subscription Debug',
         `Current Tier: ${debug.currentTier}\nLast Reset: ${debug.lastResetDate?.toLocaleDateString()}\nCurrent Count: ${debug.currentCount}\n\nCheck console for full details.`
       );
     } catch (error) {
       console.error('Debug error:', error);
-      Alert.alert('Error', 'Failed to debug subscription state');
+      showError('Error', 'Failed to debug subscription state');
     }
   };
 
@@ -544,31 +545,30 @@ export const ReceiptsListScreen: React.FC = () => {
               <TouchableOpacity
                 style={[styles.deleteButton, { backgroundColor: theme.status.error }]}
                 onPress={() => {
-                  Alert.alert(
+                  const handleDelete = async () => {
+                    try {
+                      setLoading(true);
+                      const deletePromises = Array.from(selectedReceipts).map(id =>
+                        deleteReceiptAndImage(id)
+                      );
+                      await Promise.all(deletePromises);
+                      setSelectedReceipts(new Set());
+                      setIsSelectionMode(false);
+                      fetchReceipts();
+                    } catch (error) {
+                      console.error('Error deleting receipts:', error);
+                      showError('Error', 'Failed to delete some receipts. Please try again.');
+                    }
+                  };
+
+                  showWarning(
                     'Delete Receipts',
                     `Are you sure you want to delete ${selectedReceipts.size} receipt${selectedReceipts.size === 1 ? '' : 's'}? This action cannot be undone.`,
-                    [
-                      { text: 'Cancel', style: 'cancel' },
-                      {
-                        text: 'Delete',
-                        style: 'destructive',
-                        onPress: async () => {
-                          try {
-                            setLoading(true);
-                            const deletePromises = Array.from(selectedReceipts).map(id =>
-                              deleteReceiptAndImage(id)
-                            );
-                            await Promise.all(deletePromises);
-                            setSelectedReceipts(new Set());
-                            setIsSelectionMode(false);
-                            fetchReceipts();
-                          } catch (error) {
-                            console.error('Error deleting receipts:', error);
-                            Alert.alert('Error', 'Failed to delete some receipts. Please try again.');
-                          }
-                        },
-                      },
-                    ]
+                    {
+                      primaryButtonText: 'Delete',
+                      secondaryButtonText: 'Cancel',
+                      onPrimaryPress: handleDelete,
+                    }
                   );
                 }}
               >
@@ -630,7 +630,7 @@ export const ReceiptsListScreen: React.FC = () => {
                           user?.displayName || 'User'
                         );
                         if (!success) {
-                          Alert.alert('Error', 'Failed to process payment. Please try again.');
+                          showError('Error', 'Failed to process payment. Please try again.');
                         }
                       } finally {
                         setIsUpgrading(false);

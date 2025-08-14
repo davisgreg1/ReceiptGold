@@ -25,6 +25,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { doc, updateDoc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { getAuth, updateProfile, EmailAuthProvider, updatePassword, reauthenticateWithCredential, deleteUser } from 'firebase/auth';
+import { useCustomAlert } from '../hooks/useCustomAlert';
+import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
 
 interface SettingsSectionProps {
   title: string;
@@ -138,6 +140,7 @@ export const SettingsScreen: React.FC = () => {
   const { user, logout, refreshUser } = useAuth();
   const { handleSubscription, SUBSCRIPTION_TIERS } = useStripePayments();
   const navigation = useNavigation();
+  const { showSuccess, showError, showWarning, showFirebaseError } = useCustomAlert();
   
   const [userData, setUserData] = React.useState<{ firstName?: string; lastName?: string; }>({});
   const [notifications, setNotifications] = React.useState(true);
@@ -149,6 +152,7 @@ export const SettingsScreen: React.FC = () => {
   const [firstName, setFirstName] = React.useState('');
   const [lastName, setLastName] = React.useState('');
   const [deleteConfirmPassword, setDeleteConfirmPassword] = React.useState('');
+  const [showDeletePassword, setShowDeletePassword] = React.useState(false);
 
   // Fetch user data from Firestore
   React.useEffect(() => {
@@ -188,6 +192,9 @@ export const SettingsScreen: React.FC = () => {
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
+  const [showCurrentPassword, setShowCurrentPassword] = React.useState(false);
+  const [showNewPassword, setShowNewPassword] = React.useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [showBusinessDialog, setShowBusinessDialog] = React.useState(false);
   const [showIOSPicker, setShowIOSPicker] = React.useState(false);
@@ -242,32 +249,43 @@ export const SettingsScreen: React.FC = () => {
       await refreshUser();
       
       setShowNameDialog(false);
-      Alert.alert('Success', 'Name updated successfully');
+      showSuccess('Success', 'Name updated successfully');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update name');
+      showFirebaseError(error, 'Failed to Update Name');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handlePasswordChange = async () => {
+    console.log('handlePasswordChange called', { 
+      hasUser: !!user, 
+      currentPasswordLength: currentPassword?.length || 0,
+      newPasswordLength: newPassword?.length || 0,
+      confirmPasswordLength: confirmPassword?.length || 0
+    });
+
     if (!user || !currentPassword || !newPassword || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all password fields');
+      console.log('Missing required fields for password change');
+      showError('Error', 'Please fill in all password fields');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      Alert.alert('Error', 'New passwords do not match');
+      console.log('Passwords do not match');
+      showError('Error', 'New passwords do not match');
       return;
     }
 
     if (newPassword.length < 8) {
-      Alert.alert('Error', 'New password must be at least 8 characters');
+      console.log('Password too short');
+      showError('Error', 'New password must be at least 8 characters');
       return;
     }
 
     setIsLoading(true);
     try {
+      console.log('Starting password change process');
       const auth = getAuth();
       const credential = EmailAuthProvider.credential(
         user.email!,
@@ -275,22 +293,25 @@ export const SettingsScreen: React.FC = () => {
       );
       
       // First reauthenticate
+      console.log('Reauthenticating user');
       await reauthenticateWithCredential(auth.currentUser!, credential);
       
       // Then update password
+      console.log('Updating password');
       await updatePassword(auth.currentUser!, newPassword);
       
+      console.log('Password updated successfully');
       setShowPasswordDialog(false);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      Alert.alert('Success', 'Password updated successfully');
+      setShowCurrentPassword(false);
+      setShowNewPassword(false);
+      setShowConfirmPassword(false);
+      showSuccess('Success', 'Password updated successfully');
     } catch (error: any) {
-      if (error.code === 'auth/wrong-password') {
-        Alert.alert('Error', 'Current password is incorrect');
-      } else {
-        Alert.alert('Error', error.message || 'Failed to update password');
-      }
+      console.error('Password change error:', error);
+      showFirebaseError(error, FirebaseErrorScenarios.AUTH.PROFILE_UPDATE);
     } finally {
       setIsLoading(false);
     }
@@ -298,16 +319,32 @@ export const SettingsScreen: React.FC = () => {
 
   const handleUpgrade = async (tierId: string) => {
     if (!user?.email) {
-      Alert.alert('Error', 'You must be logged in to upgrade');
+      showError('Error', 'You must be logged in to upgrade');
       return;
     }
 
     setIsUpgrading(true);
     try {
+      const showAlert = (type: 'error' | 'success' | 'warning', title: string, message: string) => {
+        switch (type) {
+          case 'error':
+            showError(title, message);
+            break;
+          case 'success':
+            showSuccess(title, message);
+            break;
+          case 'warning':
+            showWarning(title, message);
+            break;
+        }
+      };
+      
       await handleSubscription(
         tierId as any,
         user.email,
-        user.displayName || 'User'
+        user.displayName || 'User',
+        undefined,
+        showAlert
       );
     } catch (error) {
       console.error('Failed to upgrade:', error);
@@ -383,9 +420,9 @@ export const SettingsScreen: React.FC = () => {
       });
       
       setShowBusinessDialog(false);
-      Alert.alert('Success', 'Business information updated successfully');
+      showSuccess('Success', 'Business information updated successfully');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update business information');
+      showFirebaseError(error, 'Failed to Update Business Information');
     } finally {
       setIsLoading(false);
     }
@@ -396,7 +433,7 @@ export const SettingsScreen: React.FC = () => {
     
     // Validate password
     if (!deleteConfirmPassword.trim()) {
-      Alert.alert('Error', 'Please enter your password to confirm account deletion');
+      showError('Error', 'Please enter your password to confirm account deletion');
       return;
     }
 
@@ -432,23 +469,17 @@ export const SettingsScreen: React.FC = () => {
       // Delete the user account from Firebase Auth
       await deleteUser(user);
 
-      Alert.alert(
+      showSuccess(
         'Account Deleted',
-        'Your account and all associated data have been permanently deleted.',
-        [{ text: 'OK' }]
+        'Your account and all associated data have been permanently deleted.'
       );
     } catch (error: any) {
-      let errorMessage = 'Failed to delete account';
-      if (error.code === 'auth/wrong-password') {
-        errorMessage = 'Incorrect password. Please try again.';
-      } else if (error.code === 'auth/requires-recent-login') {
-        errorMessage = 'Please sign out and sign back in, then try again.';
-      }
-      Alert.alert('Error', errorMessage);
+      showFirebaseError(error, 'Failed to Delete Account');
     } finally {
       setIsLoading(false);
       setShowDeleteAccountDialog(false);
       setDeleteConfirmPassword('');
+      setShowDeletePassword(false);
     }
   };
 
@@ -898,42 +929,78 @@ export const SettingsScreen: React.FC = () => {
         <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
           <View style={[styles.dialog, { backgroundColor: theme.background.secondary }]}>
             <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>Change Password</Text>
-            <TextInput
-              style={[styles.input, { 
-                color: theme.text.primary,
-                backgroundColor: theme.background.tertiary,
-                borderColor: theme.border.primary 
-              }]}
-              placeholder="Current password"
-              placeholderTextColor={theme.text.tertiary}
-              value={currentPassword}
-              onChangeText={setCurrentPassword}
-              secureTextEntry
-            />
-            <TextInput
-              style={[styles.input, { 
-                color: theme.text.primary,
-                backgroundColor: theme.background.tertiary,
-                borderColor: theme.border.primary 
-              }]}
-              placeholder="New password"
-              placeholderTextColor={theme.text.tertiary}
-              value={newPassword}
-              onChangeText={setNewPassword}
-              secureTextEntry
-            />
-            <TextInput
-              style={[styles.input, { 
-                color: theme.text.primary,
-                backgroundColor: theme.background.tertiary,
-                borderColor: theme.border.primary 
-              }]}
-              placeholder="Confirm new password"
-              placeholderTextColor={theme.text.tertiary}
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry
-            />
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                style={[styles.passwordInput, { 
+                  color: theme.text.primary,
+                  backgroundColor: theme.background.tertiary,
+                  borderColor: theme.border.primary 
+                }]}
+                placeholder="Current password"
+                placeholderTextColor={theme.text.tertiary}
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
+                secureTextEntry={!showCurrentPassword}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggle}
+                onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+              >
+                <Ionicons
+                  name={showCurrentPassword ? 'eye-off' : 'eye'}
+                  size={20}
+                  color={theme.text.tertiary}
+                />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                style={[styles.passwordInput, { 
+                  color: theme.text.primary,
+                  backgroundColor: theme.background.tertiary,
+                  borderColor: theme.border.primary 
+                }]}
+                placeholder="New password"
+                placeholderTextColor={theme.text.tertiary}
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry={!showNewPassword}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggle}
+                onPress={() => setShowNewPassword(!showNewPassword)}
+              >
+                <Ionicons
+                  name={showNewPassword ? 'eye-off' : 'eye'}
+                  size={20}
+                  color={theme.text.tertiary}
+                />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                style={[styles.passwordInput, { 
+                  color: theme.text.primary,
+                  backgroundColor: theme.background.tertiary,
+                  borderColor: theme.border.primary 
+                }]}
+                placeholder="Confirm new password"
+                placeholderTextColor={theme.text.tertiary}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry={!showConfirmPassword}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggle}
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+              >
+                <Ionicons
+                  name={showConfirmPassword ? 'eye-off' : 'eye'}
+                  size={20}
+                  color={theme.text.tertiary}
+                />
+              </TouchableOpacity>
+            </View>
             <View style={styles.dialogButtons}>
               <TouchableOpacity
                 style={[styles.dialogButton, { borderColor: theme.border.primary }]}
@@ -942,6 +1009,9 @@ export const SettingsScreen: React.FC = () => {
                   setCurrentPassword('');
                   setNewPassword('');
                   setConfirmPassword('');
+                  setShowCurrentPassword(false);
+                  setShowNewPassword(false);
+                  setShowConfirmPassword(false);
                 }}
               >
                 <Text style={[styles.dialogButtonText, { color: theme.text.primary }]}>Cancel</Text>
@@ -973,24 +1043,37 @@ export const SettingsScreen: React.FC = () => {
             <Text style={[styles.dialogText, { color: theme.text.secondary, marginBottom: 16 }]}>
               Please enter your password to confirm:
             </Text>
-            <TextInput
-              style={[styles.input, { 
-                color: theme.text.primary,
-                backgroundColor: theme.background.tertiary,
-                borderColor: theme.border.primary 
-              }]}
-              placeholder="Current password"
-              placeholderTextColor={theme.text.tertiary}
-              value={deleteConfirmPassword}
-              onChangeText={setDeleteConfirmPassword}
-              secureTextEntry
-            />
+            <View style={styles.passwordInputContainer}>
+              <TextInput
+                style={[styles.passwordInput, { 
+                  color: theme.text.primary,
+                  backgroundColor: theme.background.tertiary,
+                  borderColor: theme.border.primary 
+                }]}
+                placeholder="Current password"
+                placeholderTextColor={theme.text.tertiary}
+                value={deleteConfirmPassword}
+                onChangeText={setDeleteConfirmPassword}
+                secureTextEntry={!showDeletePassword}
+              />
+              <TouchableOpacity
+                style={styles.passwordToggle}
+                onPress={() => setShowDeletePassword(!showDeletePassword)}
+              >
+                <Ionicons
+                  name={showDeletePassword ? 'eye-off' : 'eye'}
+                  size={20}
+                  color={theme.text.tertiary}
+                />
+              </TouchableOpacity>
+            </View>
             <View style={styles.dialogButtons}>
               <TouchableOpacity
                 style={[styles.dialogButton, { borderColor: theme.border.primary }]}
                 onPress={() => {
                   setShowDeleteAccountDialog(false);
                   setDeleteConfirmPassword('');
+                  setShowDeletePassword(false);
                 }}
               >
                 <Text style={[styles.dialogButtonText, { color: theme.text.primary }]}>Cancel</Text>
@@ -1010,6 +1093,7 @@ export const SettingsScreen: React.FC = () => {
           </View>
         </View>
       )}
+      
     </SafeAreaView>
   );
 };
@@ -1283,5 +1367,23 @@ const styles = StyleSheet.create({
   dialogButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  passwordInputContainer: {
+    position: 'relative',
+    marginBottom: 12,
+  },
+  passwordInput: {
+    height: 48,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingRight: 48, // Make room for the eye icon
+    fontSize: 16,
+  },
+  passwordToggle: {
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    padding: 4,
   },
 });

@@ -8,6 +8,7 @@ import { StripeWrapper } from './src/components/StripeWrapper';
 import { AppSplashScreen } from './src/screens/SplashScreen';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { AuthNavigator } from './src/navigation/AuthNavigator';
+import { CustomAlertProvider } from './src/components/CustomAlert';
 
 const AppContent: React.FC = () => {
   const [splashFinished, setSplashFinished] = useState(false);
@@ -44,7 +45,9 @@ export default function App() {
         <ThemeProvider>
           <AuthProvider>
             <SubscriptionProvider>
-              <AppContent />
+              <CustomAlertProvider>
+                <AppContent />
+              </CustomAlertProvider>
             </SubscriptionProvider>
           </AuthProvider>
         </ThemeProvider>
