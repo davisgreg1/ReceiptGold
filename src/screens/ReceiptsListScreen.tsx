@@ -562,7 +562,9 @@ export const ReceiptsListScreen: React.FC = () => {
               colors={[theme.gold.primary]}
             />
           }
-          contentContainerStyle={{ paddingBottom: 100 }}
+          contentContainerStyle={{ 
+            paddingBottom: 100
+          }}
           showsVerticalScrollIndicator={false}
           getItemLayout={(data, index) => ({
             length: 100, // Approximate height of receipt card
@@ -574,16 +576,13 @@ export const ReceiptsListScreen: React.FC = () => {
           windowSize={10}
         />
 
-        {/* Free tier upgrade prompt - only show if limit not reached */}
+        {/* Free tier upgrade prompt - positioned below FlatList */}
         {subscription?.currentTier === 'free' && remainingReceipts > 0 && (
           <View style={[styles.upgradePrompt, {
             backgroundColor: theme.gold.background,
             borderColor: theme.gold.primary,
-            position: 'absolute',
-            bottom: 90,
-            left: 20,
-            right: 20,
-            zIndex: 1,
+            marginTop: 16,
+            marginHorizontal: 0,
           }]}>
             <Text style={[styles.upgradeTitle, { color: theme.gold.primary }]}>
               ✨ Unlock More Receipts
