@@ -1,3 +1,16 @@
+/**
+ * ReportsScreen - Enhanced with accurate data handling and real-time updates
+ * 
+ * Key improvements:
+ * - Uses createdAt field (primary) with date fallback for backward compatibility
+ * - Properly filters out deleted receipts using status field
+ * - Handles Firestore index issues with fallback queries
+ * - Real-time updates when receipts are deleted/modified
+ * - Better loading states and error handling
+ * - Manual refresh capability
+ * - Enhanced empty states with contextual messaging
+ */
+
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { View, StyleSheet, ScrollView, Dimensions } from "react-native";
 import {
@@ -25,14 +38,17 @@ import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import { format } from "date-fns";
 import type { StackNavigationProp } from "@react-navigation/stack";
+import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
 
 interface Receipt {
   amount: number;
   category: string;
-  date: Timestamp;
+  date?: Timestamp; // Optional for backward compatibility
+  createdAt: Timestamp; // Primary date field
   businessId?: string;
   description?: string;
   id: string;
+  status: string;
 }
 
 type RootStackParamList = {
@@ -47,6 +63,7 @@ export const ReportsScreen = () => {
   const navigation = useNavigation<StackNavigationProp<RootStackParamList>>();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedDateRange, setSelectedDateRange] = useState<
     "week" | "month" | "year"
@@ -55,8 +72,12 @@ export const ReportsScreen = () => {
   // Calculate business percentage
   const businessPercentage = useMemo(() => {
     if (receipts.length === 0) return 0;
-    const businessReceipts = receipts.filter((r) => r.businessId);
-    return Math.round((businessReceipts.length / receipts.length) * 100);
+    const totalAmount = receipts.reduce((sum, r) => sum + r.amount, 0);
+    if (totalAmount === 0) return 0;
+    const businessAmount = receipts
+      .filter((r) => r.businessId)
+      .reduce((sum, r) => sum + r.amount, 0);
+    return Math.round((businessAmount / totalAmount) * 100);
   }, [receipts]);
 
   // Calculate tax categories
@@ -103,29 +124,60 @@ export const ReportsScreen = () => {
 
       try {
         const receiptsRef = collection(db, "receipts");
-        const q = query(
-          receiptsRef,
-          where("userId", "==", user.uid),
-          where("date", ">=", dateRangeFilter.startDate),
-          where("date", "<=", dateRangeFilter.endDate)
-        );
+        
+        // First try the optimized query with indexes
+        let querySnapshot;
+        try {
+          const q = query(
+            receiptsRef,
+            where("userId", "==", user.uid),
+            where("status", "!=", "deleted"),
+            where("createdAt", ">=", dateRangeFilter.startDate),
+            where("createdAt", "<=", dateRangeFilter.endDate)
+          );
+          querySnapshot = await getDocs(q);
+        } catch (error: any) {
+          // If we get an index error, fall back to basic query and filter in memory
+          if (error?.message?.includes('requires an index')) {
+            console.log('Index not ready for reports, falling back to basic query...');
+            const basicQuery = query(
+              receiptsRef,
+              where("userId", "==", user.uid)
+            );
+            const basicSnapshot = await getDocs(basicQuery);
+            
+            // Filter in memory
+            const docs = basicSnapshot.docs.filter(doc => {
+              const data = doc.data();
+              if (data.status === 'deleted') return false;
+              
+              const createdAt = data.createdAt;
+              if (!createdAt) return false;
+              
+              return createdAt >= dateRangeFilter.startDate && 
+                     createdAt <= dateRangeFilter.endDate;
+            });
+            
+            querySnapshot = { docs };
+          } else {
+            throw error;
+          }
+        }
 
-        const querySnapshot = await getDocs(q);
         const fetchedReceipts: Receipt[] = [];
 
-        querySnapshot.forEach((doc) => {
+        querySnapshot.docs.forEach((doc) => {
           const data = doc.data();
-          // Filter out deleted receipts
-          if (data.status !== 'deleted') {
-            fetchedReceipts.push({
-              id: doc.id,
-              amount: data.amount,
-              category: data.category,
-              date: data.date,
-              businessId: data.businessId,
-              description: data.description,
-            });
-          }
+          fetchedReceipts.push({
+            id: doc.id,
+            amount: data.amount || 0,
+            category: data.category || 'Uncategorized',
+            date: data.date, // Keep for backward compatibility
+            createdAt: data.createdAt,
+            businessId: data.businessId,
+            description: data.description,
+            status: data.status || 'active',
+          });
         });
 
         setReceipts(fetchedReceipts);
@@ -144,44 +196,91 @@ export const ReportsScreen = () => {
   const refreshData = useCallback(async () => {
     if (!user) return;
 
+    // Set refreshing state if we're not in initial loading
+    if (!loading) {
+      setRefreshing(true);
+    }
+
     try {
       const receiptsRef = collection(db, "receipts");
-      const q = query(
-        receiptsRef,
-        where("userId", "==", user.uid),
-        where("date", ">=", dateRangeFilter.startDate),
-        where("date", "<=", dateRangeFilter.endDate)
-      );
+      
+      // First try the optimized query with indexes
+      let querySnapshot;
+      try {
+        const q = query(
+          receiptsRef,
+          where("userId", "==", user.uid),
+          where("status", "!=", "deleted"),
+          where("createdAt", ">=", dateRangeFilter.startDate),
+          where("createdAt", "<=", dateRangeFilter.endDate)
+        );
+        querySnapshot = await getDocs(q);
+      } catch (error: any) {
+        // If we get an index error, fall back to basic query and filter in memory
+        if (error?.message?.includes('requires an index')) {
+          console.log('Index not ready for reports refresh, falling back to basic query...');
+          const basicQuery = query(
+            receiptsRef,
+            where("userId", "==", user.uid)
+          );
+          const basicSnapshot = await getDocs(basicQuery);
+          
+          // Filter in memory
+          const docs = basicSnapshot.docs.filter(doc => {
+            const data = doc.data();
+            if (data.status === 'deleted') return false;
+            
+            const createdAt = data.createdAt;
+            if (!createdAt) return false;
+            
+            return createdAt >= dateRangeFilter.startDate && 
+                   createdAt <= dateRangeFilter.endDate;
+          });
+          
+          querySnapshot = { docs };
+        } else {
+          throw error;
+        }
+      }
 
-      const querySnapshot = await getDocs(q);
       const fetchedReceipts: Receipt[] = [];
 
-      querySnapshot.forEach((doc) => {
+      querySnapshot.docs.forEach((doc) => {
         const data = doc.data();
-        // Filter out deleted receipts
-        if (data.status !== 'deleted') {
-          fetchedReceipts.push({
-            id: doc.id,
-            amount: data.amount,
-            category: data.category,
-            date: data.date,
-            businessId: data.businessId,
-            description: data.description,
-          });
-        }
+        fetchedReceipts.push({
+          id: doc.id,
+          amount: data.amount || 0,
+          category: data.category || 'Uncategorized',
+          date: data.date, // Keep for backward compatibility
+          createdAt: data.createdAt,
+          businessId: data.businessId,
+          description: data.description,
+          status: data.status || 'active',
+        });
       });
 
       setReceipts(fetchedReceipts);
     } catch (error) {
       console.error("Error refreshing receipts:", error);
+    } finally {
+      setRefreshing(false);
     }
   }, [user, dateRangeFilter]);
 
   useFocusEffect(
     useCallback(() => {
+      console.log('Reports screen focused, refreshing data...');
       refreshData();
     }, [refreshData])
   );
+
+  // Also refresh when user changes (in case of logout/login)
+  useEffect(() => {
+    if (user) {
+      console.log('User changed, refreshing reports data...');
+      refreshData();
+    }
+  }, [user, refreshData]);
 
   const generateBasicReport = () => {
     const totalAmount = receipts.reduce(
@@ -224,9 +323,12 @@ export const ReportsScreen = () => {
   };
 
   const calculateTrends = () => {
-    // Group receipts by month
+    // Group receipts by month using createdAt (fallback to date for backward compatibility)
     const monthly = receipts.reduce((acc, receipt) => {
-      const date = receipt.date.toDate();
+      const timestamp = receipt.createdAt || receipt.date;
+      if (!timestamp) return acc;
+      
+      const date = timestamp.toDate();
       const month = format(date, "yyyy-MM");
       acc[month] = (acc[month] || 0) + receipt.amount;
       return acc;
@@ -245,13 +347,19 @@ export const ReportsScreen = () => {
     try {
       const rows = [
         ["Date", "Amount", "Category", "Business ID", "Description"],
-        ...receipts.map((r) => [
-          format(r.date.toDate(), "yyyy-MM-dd"),
-          r.amount.toFixed(2),
-          r.category,
-          r.businessId || "",
-          r.description || "",
-        ]),
+        ...receipts.map((r) => {
+          // Use createdAt, fallback to date for backward compatibility
+          const timestamp = r.createdAt || r.date;
+          const dateString = timestamp ? format(timestamp.toDate(), "yyyy-MM-dd") : "N/A";
+          
+          return [
+            dateString,
+            r.amount.toFixed(2),
+            r.category,
+            r.businessId || "",
+            r.description || "",
+          ];
+        }),
       ];
 
       const csvContent = rows
@@ -272,7 +380,16 @@ export const ReportsScreen = () => {
   if (loading) {
     return (
       <View style={styles.container}>
-        <ActivityIndicator size="large" />
+        <Card style={styles.card}>
+          <Card.Content>
+            <View style={{ alignItems: 'center', padding: 20 }}>
+              <ActivityIndicator size="large" />
+              <Text style={{ marginTop: 16, textAlign: 'center' }}>
+                Loading your financial reports...
+              </Text>
+            </View>
+          </Card.Content>
+        </Card>
       </View>
     );
   }
@@ -299,11 +416,35 @@ export const ReportsScreen = () => {
     return (
       <View style={styles.emptyContainer}>
         <Text style={styles.emptyIcon}>📊</Text>
-        <Text style={styles.emptyTitle}>No Receipts Yet</Text>
-        <Text style={styles.emptyDescription}>
-          Add your first receipt to start tracking your expenses and generate
-          detailed reports.
+        <Text style={styles.emptyTitle}>
+          No Receipts for {selectedDateRange === 'week' ? 'This Week' : 
+                          selectedDateRange === 'month' ? 'This Month' : 
+                          'This Year'}
         </Text>
+        <Text style={styles.emptyDescription}>
+          {receipts.length === 0 && selectedDateRange === 'month' 
+            ? "Add your first receipt to start tracking your expenses and generate detailed reports."
+            : `Try selecting a different time range or add more receipts for the selected ${selectedDateRange}.`
+          }
+        </Text>
+        
+        {/* Date Range Selector */}
+        <Card style={[styles.card, { width: '100%', marginBottom: 16 }]}>
+          <Card.Content>
+            <SegmentedButtons
+              value={selectedDateRange}
+              onValueChange={(value) =>
+                setSelectedDateRange(value as typeof selectedDateRange)
+              }
+              buttons={[
+                { value: "week", label: "Week" },
+                { value: "month", label: "Month" },
+                { value: "year", label: "Year" },
+              ]}
+            />
+          </Card.Content>
+        </Card>
+
         <Button
           mode="contained"
           onPress={() => {
@@ -327,7 +468,21 @@ export const ReportsScreen = () => {
   return (
     <ScrollView style={styles.container}>
       <Card style={styles.card}>
-        <Card.Title title="Date Range" />
+        <Card.Title 
+          title="Date Range" 
+          right={(props) => (
+            <Button
+              {...props}
+              mode="text"
+              onPress={refreshData}
+              icon={refreshing ? "loading" : "refresh"}
+              disabled={loading || refreshing}
+              loading={refreshing}
+            >
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </Button>
+          )}
+        />
         <Card.Content>
           <SegmentedButtons
             value={selectedDateRange}
@@ -361,9 +516,14 @@ export const ReportsScreen = () => {
             ).toFixed(2)}
           </Text>
 
-          {/* Daily Average */}
+          {/* Daily Average - more accurate based on date range */}
           <Text style={styles.metric}>
-            Daily Average: ${(basicReport.totalAmount / 30).toFixed(2)}
+            {selectedDateRange === 'week' ? 'Daily Average: $' : 
+             selectedDateRange === 'month' ? 'Daily Average: $' : 
+             'Monthly Average: $'}
+            {selectedDateRange === 'year' 
+              ? (basicReport.totalAmount / 12).toFixed(2)
+              : (basicReport.totalAmount / (selectedDateRange === 'week' ? 7 : 30)).toFixed(2)}
           </Text>
 
           <Text style={styles.sectionTitle}>Category Breakdown:</Text>
@@ -376,7 +536,9 @@ export const ReportsScreen = () => {
               ).toFixed(1);
               return (
                 <View key={category} style={styles.categoryRow}>
-                  <Text style={styles.categoryItem}>{category}</Text>
+                  <Text style={styles.categoryItem}>
+                    {ReceiptCategoryService.getCategoryDisplayName(category as any)}
+                  </Text>
                   <View style={styles.categoryDetails}>
                     <Text style={styles.categoryAmount}>
                       ${amount.toFixed(2)}
@@ -394,7 +556,7 @@ export const ReportsScreen = () => {
               style={styles.button}
               icon="file-download"
             >
-              Export to CSV
+              Export CSV
             </Button>
             <Button
               mode="outlined"
@@ -418,24 +580,26 @@ export const ReportsScreen = () => {
           <Text style={styles.sectionTitle}>Business vs Personal Split</Text>
           {receipts.length > 0 && (
             <View style={styles.splitContainer}>
-              <View style={[styles.splitBar, { flex: businessPercentage }]}>
-                <Text style={styles.splitText}>
-                  Business {businessPercentage}%
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.splitBar,
-                  {
-                    flex: 100 - businessPercentage,
-                    backgroundColor: colors.surfaceVariant,
-                  },
-                ]}
-              >
-                <Text style={styles.splitText}>
-                  Personal {100 - businessPercentage}%
-                </Text>
-              </View>
+              {businessPercentage > 0 && (
+                <View style={[styles.splitBar, styles.businessBar, { flex: businessPercentage }]}>
+                  <Text style={styles.splitText}>
+                    Business {businessPercentage}%
+                  </Text>
+                </View>
+              )}
+              {businessPercentage < 100 && (
+                <View
+                  style={[
+                    styles.splitBar,
+                    styles.personalBar,
+                    { flex: 100 - businessPercentage },
+                  ]}
+                >
+                  <Text style={styles.splitText}>
+                    Personal {100 - businessPercentage}%
+                  </Text>
+                </View>
+              )}
             </View>
           )}
 
@@ -443,7 +607,9 @@ export const ReportsScreen = () => {
           <View style={styles.taxCategories}>
             {Object.entries(taxCategories).map(([category, amount]) => (
               <View key={category} style={styles.taxCategory}>
-                <Text style={styles.taxCategoryName}>{category}</Text>
+                <Text style={styles.taxCategoryName} numberOfLines={2}>
+                  {ReceiptCategoryService.getCategoryDisplayName(category as any)}
+                </Text>
                 <Text style={styles.taxCategoryAmount}>
                   ${amount.toFixed(2)}
                 </Text>
@@ -614,10 +780,12 @@ const styles = StyleSheet.create({
   },
   buttonContainer: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "space-around",
     marginTop: 16,
+    paddingHorizontal: 4,
   },
   button: {
+    flex: 1,
     marginHorizontal: 4,
   },
   splitContainer: {
@@ -630,7 +798,12 @@ const styles = StyleSheet.create({
   splitBar: {
     justifyContent: "center",
     alignItems: "center",
+  },
+  businessBar: {
     backgroundColor: "#4CAF50",
+  },
+  personalBar: {
+    backgroundColor: "#9E9E9E",
   },
   splitText: {
     color: "white",
@@ -643,18 +816,24 @@ const styles = StyleSheet.create({
   taxCategory: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingVertical: 8,
+    alignItems: "flex-start",
+    paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#eee",
   },
   taxCategoryName: {
     fontSize: 16,
     color: "#333",
+    flex: 1,
+    marginRight: 12,
+    lineHeight: 20,
   },
   taxCategoryAmount: {
     fontSize: 16,
     color: "#333",
     fontWeight: "bold",
+    minWidth: 80,
+    textAlign: "right",
   },
   chart: {
     marginVertical: 8,

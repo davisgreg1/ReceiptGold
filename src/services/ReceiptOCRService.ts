@@ -47,6 +47,8 @@ interface OpenAIReceiptResponse {
         price: number;
     }> | null;
     paymentMethod?: string | null;
+    category?: string | null;
+    categoryConfidence?: number | null;
 }
 
 const logDebug = (message: string, data?: any): void => {
@@ -303,7 +305,9 @@ export const analyzeReceipt = async (
       "price": number
     }
   ] or null,
-  "paymentMethod": "string or null"
+  "paymentMethod": "string or null",
+  "category": "string or null",
+  "categoryConfidence": number (0.0 to 1.0) or null
 }
 
 Guidelines:
@@ -316,7 +320,21 @@ Guidelines:
 - For dates, use YYYY-MM-DD format
 - For times, use HH:MM 24-hour format
 - If information is not clearly visible or present, use null
-- Items array should only include line items with prices, not totals or taxes`
+- Items array should only include line items with prices, not totals or taxes
+
+CATEGORY CLASSIFICATION:
+Based on the merchant name, items purchased, and context, classify the receipt into one of these categories:
+- "groceries": Supermarkets, grocery stores, food markets, produce stores
+- "restaurant": Restaurants, cafes, bars, fast food, dining establishments
+- "entertainment": Movies, concerts, shows, events, recreational activities
+- "shopping": Retail stores, clothing, electronics, general merchandise
+- "travel": Hotels, flights, car rentals, travel-related expenses
+- "transportation": Gas stations, parking, public transit, ride-sharing
+- "utilities": Electric, water, gas, internet, phone bills, utility services
+- "healthcare": Pharmacies, medical services, health-related purchases
+- "other": If none of the above categories clearly apply
+
+Set categoryConfidence based on how certain you are about the category classification (1.0 = very certain, 0.0 = uncertain)`
                             },
                             {
                                 type: "image_url",
@@ -392,10 +410,53 @@ Guidelines:
             paymentMethod: parsedData.paymentMethod || undefined,
         };
 
-        // Determine category
-        const { category, confidence } = await ReceiptCategoryService.determineCategory(receiptData);
-        receiptData.category = category;
-        receiptData.categoryConfidence = confidence;
+        // Determine category using OpenAI's classification first
+        let finalCategory: ReceiptCategory = 'other';
+        let finalCategoryConfidence = 0;
+
+        if (parsedData.category && parsedData.categoryConfidence) {
+            // Validate that OpenAI returned a valid category
+            const validCategories: ReceiptCategory[] = [
+                'groceries', 'restaurant', 'entertainment', 'shopping', 
+                'travel', 'transportation', 'utilities', 'healthcare', 'other'
+            ];
+            
+            if (validCategories.includes(parsedData.category as ReceiptCategory)) {
+                finalCategory = parsedData.category as ReceiptCategory;
+                finalCategoryConfidence = parsedData.categoryConfidence;
+                
+                console.log(`OpenAI classified receipt as '${finalCategory}' with ${Math.round(finalCategoryConfidence * 100)}% confidence`);
+                
+                // Save to merchant categories for future reference if confidence is high
+                if (receiptData.merchantName && finalCategoryConfidence > 0.7) {
+                    await ReceiptCategoryService.updateMerchantCategory(
+                        receiptData.merchantName, 
+                        finalCategory,
+                        finalCategoryConfidence
+                    );
+                }
+            } else {
+                console.warn(`OpenAI returned invalid category: ${parsedData.category}, falling back to keyword-based classification`);
+            }
+        }
+
+        // Fallback to existing keyword-based classification if OpenAI didn't provide a good result
+        if (finalCategoryConfidence < 0.5) {
+            console.log('OpenAI category confidence too low, using fallback classification');
+            const fallbackResult = await ReceiptCategoryService.determineCategory(receiptData);
+            
+            // Use fallback if it has higher confidence, otherwise stick with OpenAI result
+            if (fallbackResult.confidence > finalCategoryConfidence) {
+                finalCategory = fallbackResult.category;
+                finalCategoryConfidence = fallbackResult.confidence;
+                console.log(`Using fallback classification: '${finalCategory}' with ${Math.round(finalCategoryConfidence * 100)}% confidence`);
+            }
+        }
+
+        receiptData.category = finalCategory;
+        receiptData.categoryConfidence = finalCategoryConfidence;
+
+        console.log(`Final receipt categorization: '${finalCategory}' (confidence: ${Math.round(finalCategoryConfidence * 100)}%)`);
 
         logDebug("Extracted receipt data:", receiptData);
 

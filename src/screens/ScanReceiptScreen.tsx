@@ -57,14 +57,6 @@ const styles = StyleSheet.create({
     minWidth: 200,
     marginTop: 12,
   },
-  limitContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-    marginHorizontal: 20,
-    borderRadius: 12,
-  },
   captureButton: {
     paddingHorizontal: 24,
     paddingVertical: 12,
@@ -84,18 +76,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 12,
     paddingHorizontal: 20,
-  },
-  limitTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    textAlign: "center",
-    marginBottom: 8,
-  },
-  limitMessage: {
-    fontSize: 16,
-    textAlign: "center",
-    marginBottom: 24,
-    opacity: 0.8,
   },
   ocrStatus: {
     color: "white",
@@ -289,7 +269,7 @@ export const ScanReceiptScreen = () => {
         
         // Show specific error message to user
         Alert.alert(
-          "Invalid Image", 
+          "Is this a receipt?", 
           validationError.message || "This image does not appear to be a receipt. Please try again with a clear photo of a receipt.",
           [{ text: "OK" }]
         );
@@ -581,10 +561,15 @@ export const ScanReceiptScreen = () => {
         ]}
       >
         <View
-          style={[
-            styles.limitContainer,
-            { backgroundColor: theme.background.secondary },
-          ]}
+          style={{
+            flex: 1,
+            justifyContent: "center",
+            alignItems: "center",
+            padding: 20,
+            marginHorizontal: 20,
+            borderRadius: 12,
+            backgroundColor: theme.background.secondary,
+          }}
         >
           <ActivityIndicator size="large" color={theme.gold.primary} />
           <Text style={[styles.text, { color: theme.text.secondary }]}>
@@ -607,46 +592,19 @@ export const ScanReceiptScreen = () => {
     remaining,
   });
 
+  // If user can't add more receipts, redirect to receipts list where they'll see the limit prompt
   if (!canAdd) {
-    const remaining = getRemainingReceipts(currentReceiptCount);
+    useEffect(() => {
+      navigation.goBack();
+    }, [navigation]);
+    
     return (
-      <SafeAreaView
-        style={[
-          styles.container,
-          { backgroundColor: theme.background.primary },
-        ]}
-      >
-        <View
-          style={[
-            styles.limitContainer,
-            {
-              backgroundColor: theme.background.secondary,
-              borderColor: theme.border.primary,
-              borderWidth: 1,
-            },
-          ]}
-        >
-          <Text style={[styles.limitTitle, { color: theme.text.primary }]}>
-            Monthly Receipt Limit Reached
-          </Text>
-          <Text style={[styles.limitMessage, { color: theme.text.secondary }]}>
-            {remaining === 0
-              ? "You've used all your receipts for this month. Upgrade your plan for more storage or wait until next month to add more receipts."
-              : `You have ${remaining} receipt${
-                  remaining === 1 ? "" : "s"
-                } remaining this month. Upgrade your plan for more storage.`}
-          </Text>
-          <TouchableOpacity
-            style={[
-              styles.captureButton,
-              { backgroundColor: theme.gold.primary },
-            ]}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.captureText}>Back to Receipts</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <View style={[styles.container, { backgroundColor: theme.background.primary, justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={theme.gold.primary} />
+        <Text style={{ color: theme.text.primary, marginTop: 16, fontSize: 16 }}>
+          Redirecting to receipts...
+        </Text>
+      </View>
     );
   }
 
@@ -697,7 +655,7 @@ export const ScanReceiptScreen = () => {
         
         // Show specific error message to user
         Alert.alert(
-          "Invalid Image", 
+          "Is this a receipt?", 
           validationError.message || "This image does not appear to be a receipt. Please try again with a clear photo of a receipt.",
           [{ text: "OK" }]
         );
