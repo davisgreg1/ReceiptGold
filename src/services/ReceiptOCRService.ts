@@ -1,20 +1,12 @@
 import { Platform } from 'react-native';
-import DocumentIntelligence, {
-    isUnexpected,
-    DocumentIntelligenceClient,
-    AnalyzeResultOutput,
-    DocumentFieldOutput
-} from "@azure-rest/ai-document-intelligence";
 import { ReceiptCategoryService } from './ReceiptCategoryService';
-import { AzureKeyCredential } from "@azure/core-auth";
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 
-const endpoint = process.env.EXPO_PUBLIC_AZURE_FORM_RECOGNIZER_ENDPOINT;
-const apiKey = process.env.EXPO_PUBLIC_AZURE_FORM_RECOGNIZER_API_KEY;
+const openaiApiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
 
-if (!endpoint || !apiKey) {
-    throw new Error("Azure Form Recognizer credentials not found in environment variables");
+if (!openaiApiKey) {
+    throw new Error("OpenAI API key not found in environment variables");
 }
 
 import { ReceiptCategory } from './ReceiptCategoryService';
@@ -38,8 +30,24 @@ export interface ReceiptData {
     categoryConfidence?: number;
 }
 
-// Create client instance
-const client: DocumentIntelligenceClient = DocumentIntelligence(endpoint, new AzureKeyCredential(apiKey));
+interface OpenAIReceiptResponse {
+    isReceipt: boolean;
+    confidence?: number;
+    merchantName?: string | null;
+    merchantAddress?: string | null;
+    merchantPhone?: string | null;
+    transactionDate?: string | null;
+    transactionTime?: string | null;
+    total?: number | null;
+    subtotal?: number | null;
+    tax?: number | null;
+    items?: Array<{
+        description: string;
+        quantity?: number | null;
+        price: number;
+    }> | null;
+    paymentMethod?: string | null;
+}
 
 const logDebug = (message: string, data?: any): void => {
     console.log(`[OCR Service] ${message}`, data ? data : '');
@@ -47,17 +55,13 @@ const logDebug = (message: string, data?: any): void => {
 
 const logError = (message: string, error: any): void => {
     console.error(`[OCR Service Error] ${message}:`, error);
-    if (error?.response) {
-        console.error('Response data:', error.response.data);
-        console.error('Response status:', error.response.status);
-    }
 };
 
 const validateImageUri = (uri: string): void => {
     if (!uri) {
         throw new Error("No image URI provided");
     }
-    
+
     // For Android, we'll be more permissive since we'll normalize the URI later
     if (Platform.OS === 'android') {
         if (!uri.includes('file:') && !uri.includes('content:')) {
@@ -69,37 +73,22 @@ const validateImageUri = (uri: string): void => {
             throw new Error("Invalid image URI format");
         }
     }
-    
+
     logDebug("Image URI validation passed", { uri });
 };
 
-// Helper function to safely get field content
-const getFieldContent = (field: DocumentFieldOutput | undefined): string => {
-    return field?.content || field?.valueString || '';
-};
-
-// Helper function to safely parse number fields
-const getNumberField = (field: DocumentFieldOutput | undefined): number | undefined => {
-    if (field?.valueNumber !== undefined) {
-        return field.valueNumber;
-    }
-    if (field?.content) {
-        const value = parseFloat(field.content);
-        return isNaN(value) ? undefined : value;
-    }
-    return undefined;
-};
-
-// Helper function to safely parse dates
+// Helper function to parse dates from OpenAI response
 const parseDate = (dateString: string): Date | undefined => {
     try {
-        // First try parsing as ISO string
-        const date = new Date(dateString);
-        if (!isNaN(date.getTime())) {
-            return date;
+        // If it's already in ISO format with time, parse it directly
+        if (dateString.includes('T') || dateString.includes(':')) {
+            const date = new Date(dateString);
+            if (!isNaN(date.getTime())) {
+                return date;
+            }
         }
 
-        // If that fails, try parsing common date formats
+        // For date-only strings, create the date in local timezone to avoid timezone shifts
         const formats = [
             // MM/DD/YYYY
             /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/,
@@ -116,19 +105,36 @@ const parseDate = (dateString: string): Date | undefined => {
             if (match) {
                 const [_, part1, part2, part3] = match;
                 // Check if year is first or last in the format
-                const year = part3.length === 4 ? part3 : part1;
-                const month = part3.length === 4 ? part1 : part2;
-                const day = part3.length === 4 ? part2 : part3;
+                let year, month, day;
                 
-                const parsed = new Date(
-                    parseInt(year),
-                    parseInt(month) - 1,
-                    parseInt(day)
-                );
-                
+                if (part3.length === 4) {
+                    // Year is last (MM/DD/YYYY or MM-DD-YYYY)
+                    year = parseInt(part3);
+                    month = parseInt(part1) - 1; // Month is 0-indexed
+                    day = parseInt(part2);
+                } else {
+                    // Year is first (YYYY/MM/DD or YYYY-MM-DD)
+                    year = parseInt(part1);
+                    month = parseInt(part2) - 1; // Month is 0-indexed
+                    day = parseInt(part3);
+                }
+
+                // Create date in local timezone to avoid timezone conversion issues
+                const parsed = new Date(year, month, day);
+
                 if (!isNaN(parsed.getTime())) {
                     return parsed;
                 }
+            }
+        }
+
+        // If no specific format matches, try parsing as is but create in local timezone
+        const isoMatch = dateString.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+        if (isoMatch) {
+            const [_, year, month, day] = isoMatch;
+            const parsed = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+            if (!isNaN(parsed.getTime())) {
+                return parsed;
             }
         }
 
@@ -148,7 +154,7 @@ export type ImageSource = 'camera' | 'gallery';
 export const pickImage = async (source: ImageSource = 'gallery'): Promise<string | null> => {
     try {
         // Request appropriate permission
-        const { status } = source === 'gallery' 
+        const { status } = source === 'gallery'
             ? await ImagePicker.requestMediaLibraryPermissionsAsync()
             : await ImagePicker.requestCameraPermissionsAsync();
 
@@ -159,7 +165,7 @@ export const pickImage = async (source: ImageSource = 'gallery'): Promise<string
         // Launch picker or camera
         const result = source === 'gallery'
             ? await ImagePicker.launchImageLibraryAsync({
-                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                mediaTypes: ['images'],
                 allowsEditing: false,
                 quality: 1,
                 aspect: [2, 3], // Receipt-like aspect ratio
@@ -171,18 +177,15 @@ export const pickImage = async (source: ImageSource = 'gallery'): Promise<string
             });
 
         if (!result.canceled && result.assets?.[0]?.uri) {
-            // Process the image for optimal OCR
-            const processedImage = await ImageManipulator.manipulateAsync(
-                result.assets[0].uri,
-                [
-                    // Resize if the image is too large
-                    { resize: { width: 1200 } }, // Keep aspect ratio, set max width
-                ],
-                {
-                    compress: 0.8, // Good balance of quality and file size
-                    format: ImageManipulator.SaveFormat.JPEG,
-                }
-            );
+            // Process the image for optimal OCR using the new API
+            const context = ImageManipulator.ImageManipulator.manipulate(result.assets[0].uri);
+            context.resize({ width: 1200 }); // Keep aspect ratio, set max width
+            const renderedImage = await context.renderAsync();
+            const processedImage = await renderedImage.saveAsync({
+                compress: 0.8, // Good balance of quality and file size
+                format: ImageManipulator.SaveFormat.JPEG,
+                base64: false,
+            });
 
             return processedImage.uri;
         }
@@ -206,8 +209,8 @@ export const analyzeReceipt = async (
 ): Promise<ReceiptData> => {
     try {
         validateImageUri(imageUri);
-        logDebug("Starting receipt analysis...", { imageUri });
-        
+        logDebug("Starting receipt analysis with OpenAI...", { imageUri });
+
         // Notify analysis start
         progressCallback?.onStart?.();
 
@@ -221,19 +224,15 @@ export const analyzeReceipt = async (
                 .replace(/file:\/\/+file:\//, 'file://') // Handle file://file:/ case
                 .replace(/file:\/([^\/])/, 'file://$1') // Ensure double slash after file:
                 .replace(/([^:])\/+/g, '$1/'); // Remove duplicate slashes except after colon
-            
+
             // If still no file:// prefix, add it
             if (!normalizedUri.startsWith('file://')) {
                 normalizedUri = `file://${normalizedUri}`;
             }
-            
-            logDebug("Normalized URI for Android", { 
-                originalUri: imageUri, 
+
+            logDebug("Normalized URI for Android", {
+                originalUri: imageUri,
                 normalizedUri,
-                steps: [
-                    { step: 'initial', uri: imageUri },
-                    { step: 'remove_duplicates', uri: normalizedUri }
-                ]
             });
         }
 
@@ -250,9 +249,9 @@ export const analyzeReceipt = async (
         logDebug("File info", fileInfo);
 
         // Validate file size
-        const maxSize = 4 * 1024 * 1024; // 4MB
+        const maxSize = 20 * 1024 * 1024; // 20MB (OpenAI limit)
         if (fileInfo.size && fileInfo.size > maxSize) {
-            throw new Error("Image file is too large (max 4MB)");
+            throw new Error("Image file is too large (max 20MB)");
         }
 
         logDebug("Converting image to base64...");
@@ -267,148 +266,130 @@ export const analyzeReceipt = async (
             throw new Error("Failed to read image data");
         }
 
-        console.log("Converting image data for Azure...");
+        console.log("Sending to OpenAI Vision API...");
 
-        // Convert base64 to bytes for Azure
-        const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+        // Call OpenAI Vision API
+        const response = await fetch('https://api.openai.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${openaiApiKey}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                model: "gpt-4o",
+                messages: [
+                    {
+                        role: "user",
+                        content: [
+                            {
+                                type: "text",
+                                text: `First, determine if this image contains a receipt, invoice, or purchase document. Then analyze and extract the following information in JSON format. Return ONLY the JSON object, no other text:
 
-        console.log("Sending to Azure Document Intelligence...");
+{
+  "isReceipt": boolean,
+  "confidence": number (0.0 to 1.0),
+  "merchantName": "string or null",
+  "merchantAddress": "string or null", 
+  "merchantPhone": "string or null",
+  "transactionDate": "YYYY-MM-DD format or null",
+  "transactionTime": "HH:MM format or null",
+  "total": number or null,
+  "subtotal": number or null,
+  "tax": number or null,
+  "items": [
+    {
+      "description": "string",
+      "quantity": number or null,
+      "price": number
+    }
+  ] or null,
+  "paymentMethod": "string or null"
+}
 
-        // Start the analysis using the official pattern
-        let initialResponse;
-        try {
-            initialResponse = await client
-                .path("/documentModels/{modelId}:analyze", "prebuilt-receipt")
-                .post({
-                    contentType: "application/octet-stream",
-                    body: bytes,
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/octet-stream',
-                        'User-Agent': `ReceiptGold/${Platform.OS}`
+Guidelines:
+- First determine if this is actually a receipt, invoice, or purchase document
+- Set isReceipt to true only if you can clearly identify it as a receipt/invoice/purchase document
+- Set confidence to your certainty level (1.0 = definitely a receipt, 0.0 = definitely not a receipt)
+- If isReceipt is false, set all other fields to null
+- Extract exact text as it appears on the receipt
+- For numbers, include only the numeric value (no currency symbols)  
+- For dates, use YYYY-MM-DD format
+- For times, use HH:MM 24-hour format
+- If information is not clearly visible or present, use null
+- Items array should only include line items with prices, not totals or taxes`
+                            },
+                            {
+                                type: "image_url",
+                                image_url: {
+                                    url: `data:image/jpeg;base64,${base64}`
+                                }
+                            }
+                        ]
                     }
-                });
-        } catch (error: unknown) {
-            console.error('Initial API call error:', error);
-            if (Platform.OS === 'android') {
-                console.error('Android API call details:', {
-                    message: error instanceof Error ? error.message : 'Unknown error',
-                    name: error instanceof Error ? error.name : 'Unknown',
-                    stack: error instanceof Error ? error.stack : undefined
-                });
-            }
-            throw new Error('Failed to connect to Azure service. Please check your internet connection and try again.');
-        }
-
-        if (isUnexpected(initialResponse)) {
-            throw new Error(initialResponse.body?.error?.message || 'Analysis request failed');
-        }
-
-        console.log("Analysis started, waiting for results...");
-
-        // Get the operation location from headers
-        const operationLocation = initialResponse.headers["operation-location"];
-        if (!operationLocation) {
-            throw new Error("No operation location found in response headers");
-        }
-
-        console.log("Operation location:", operationLocation);
-
-        // Poll for results using the operation location directly
-        let attempts = 0;
-        const maxAttempts = 30;
-        let analyzeResult: AnalyzeResultOutput | undefined;
-
-        while (attempts < maxAttempts) {
-            attempts++;
-            console.log(`Polling attempt ${attempts}/${maxAttempts}...`);
-
-            // Wait before polling
-            await new Promise(resolve => setTimeout(resolve, 2000));
-
-            // Check the operation status using the operation location URL directly
-            const statusResponse = await fetch(operationLocation, {
-                method: 'GET',
-                headers: {
-                    'Ocp-Apim-Subscription-Key': apiKey,
-                    'Accept': 'application/json',
-                    'Content-Type': 'application/json',
-                },
-            }).catch(error => {
-                console.error('Network error:', error);
-                if (Platform.OS === 'android') {
-                    // Log more details about the error on Android
-                    console.error('Android network error details:', {
-                        message: error.message,
-                        code: error.code,
-                        name: error.name,
-                        stack: error.stack,
-                    });
-                }
-                throw new Error('Network request failed. Please check your internet connection and try again.');
-            });
-
-            if (!statusResponse.ok) {
-                console.error('Status response not OK:', statusResponse.status, statusResponse.statusText);
-                throw new Error(`Status check failed: ${statusResponse.statusText} (${statusResponse.status})`);
-            }
-
-            const statusData = await statusResponse.json();
-            console.log(`Status check ${attempts}:`, statusData.status);
-
-            if (statusData.status === "succeeded") {
-                analyzeResult = statusData.analyzeResult;
-                console.log("Analysis completed successfully!");
-                break;
-            } else if (statusData.status === "failed") {
-                const errorMsg = statusData.error?.message || 'Document analysis failed';
-                console.error('Analysis failed with error:', errorMsg);
-                throw new Error(`Document analysis failed: ${errorMsg}`);
-            }
-
-            // Continue polling if status is "running" or "notStarted"
-        }
-
-        if (!analyzeResult) {
-            throw new Error("Analysis timed out or failed to complete");
-        }
-
-        const documents = analyzeResult?.documents;
-        const document = documents?.[0];
-
-        if (!document) {
-            throw new Error("No receipt data found");
-        }
-
-        logDebug("Document found:", {
-            docType: document.docType,
-            confidence: document.confidence ?? "<undefined>"
+                ],
+                max_tokens: 2000,
+                temperature: 0.1
+            })
+        }).catch(error => {
+            console.error('OpenAI API error:', error);
+            throw new Error('Failed to connect to OpenAI service. Please check your internet connection and try again.');
         });
 
-        const fields = document.fields || {};
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            console.error('OpenAI API response error:', response.status, response.statusText, errorData);
+            throw new Error(`OpenAI API error: ${response.statusText} (${response.status})`);
+        }
 
-        // Extract receipt data
+        const data = await response.json();
+        console.log("OpenAI response received");
+
+        if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+            throw new Error("Invalid response from OpenAI API");
+        }
+
+        const content = data.choices[0].message.content;
+        console.log("Raw OpenAI response:", content);
+
+        // Parse the JSON response
+        let parsedData: OpenAIReceiptResponse;
+        try {
+            // Clean the response to extract just the JSON
+            const jsonMatch = content.match(/\{[\s\S]*\}/);
+            const jsonString = jsonMatch ? jsonMatch[0] : content;
+            parsedData = JSON.parse(jsonString) as OpenAIReceiptResponse;
+        } catch (parseError) {
+            console.error('Error parsing OpenAI response:', parseError);
+            console.error('Raw content:', content);
+            throw new Error("Could not parse receipt data from image. Please try again with a clearer photo.");
+        }
+
+        // Validate that this is actually a receipt
+        if (!parsedData.isReceipt || (parsedData.confidence && parsedData.confidence < 0.7)) {
+            const confidenceText = parsedData.confidence ? ` (confidence: ${Math.round(parsedData.confidence * 100)}%)` : '';
+            throw new Error(`This image does not appear to be a receipt${confidenceText}. Please try again with a receipt, invoice, or purchase document.`);
+        }
+
+        console.log(`Receipt detected with ${Math.round((parsedData.confidence || 1) * 100)}% confidence`);
+
+        // Convert the parsed data to our ReceiptData format
         const receiptData: ReceiptData = {
-            merchantName: getFieldContent(fields.MerchantName),
-            merchantAddress: getFieldContent(fields.MerchantAddress),
-            merchantPhone: getFieldContent(fields.MerchantPhoneNumber),
-            transactionDate: fields.TransactionDate?.content
-                ? parseDate(fields.TransactionDate.content)
-                : undefined,
-            total: getNumberField(fields.Total),
-            subtotal: getNumberField(fields.Subtotal),
-            tax: getNumberField(fields.TotalTax),
-            items: fields.Items?.valueArray
-                ? fields.Items.valueArray.map((item: any) => {
-                    const itemFields = item.valueObject || {};
-                    return {
-                        description: getFieldContent(itemFields.Description),
-                        quantity: getNumberField(itemFields.Quantity),
-                        price: getNumberField(itemFields.TotalPrice) || 0,
-                    };
-                }).filter((item: any) => item.description && item.price > 0)
-                : undefined,
-            paymentMethod: getFieldContent(fields.PaymentMethod),
+            merchantName: parsedData.merchantName || undefined,
+            merchantAddress: parsedData.merchantAddress || undefined,
+            merchantPhone: parsedData.merchantPhone || undefined,
+            transactionDate: parsedData.transactionDate ? parseDate(parsedData.transactionDate) : undefined,
+            transactionTime: parsedData.transactionTime || undefined,
+            total: typeof parsedData.total === 'number' ? parsedData.total : undefined,
+            subtotal: typeof parsedData.subtotal === 'number' ? parsedData.subtotal : undefined,
+            tax: typeof parsedData.tax === 'number' ? parsedData.tax : undefined,
+            items: Array.isArray(parsedData.items) ? parsedData.items
+                .filter((item: any) => item && item.description && typeof item.price === 'number' && item.price > 0)
+                .map((item: any) => ({
+                    description: item.description,
+                    quantity: typeof item.quantity === 'number' ? item.quantity : undefined,
+                    price: item.price
+                })) : undefined,
+            paymentMethod: parsedData.paymentMethod || undefined,
         };
 
         // Determine category
@@ -417,10 +398,10 @@ export const analyzeReceipt = async (
         receiptData.categoryConfidence = confidence;
 
         logDebug("Extracted receipt data:", receiptData);
-        
+
         // Notify success
         progressCallback?.onSuccess?.();
-        
+
         return receiptData;
 
     } catch (error: any) {
@@ -428,11 +409,11 @@ export const analyzeReceipt = async (
 
         // Provide more descriptive error messages
         let finalError: Error;
-        if (error.message?.includes("image data")) {
-            finalError = new Error("Failed to process the image. Please try taking the photo again.");
-        } else if (error.message?.includes("No receipt data found")) {
+        if (error.message?.includes("does not appear to be a receipt")) {
+            finalError = error; // Use the specific non-receipt error message
+        } else if (error.message?.includes("image data") || error.message?.includes("parse receipt data")) {
             finalError = new Error("Could not detect a receipt in the image. Please try again with a clearer photo.");
-        } else if (error.name === "RestError" || error.code) {
+        } else if (error.message?.includes("connect to OpenAI") || error.message?.includes("OpenAI API")) {
             finalError = new Error("Please check your internet connection and try again.");
         } else {
             finalError = error;

@@ -258,13 +258,52 @@ export const ScanReceiptScreen = () => {
         { compress: 0.8, format: SaveFormat.JPEG }
       );
 
+      // FIRST: Analyze the image to validate it's a receipt BEFORE uploading
+      setIsAnalyzing(true);
+      setOcrStatus("Validating receipt...");
+      console.log("Validating image as receipt with OCR...");
+
+      let ocrData;
+      let receiptData;
+      try {
+        // Use real OCR service to validate and analyze receipt
+        ocrData = await receiptOCRService.analyzeReceipt(optimizedImage.uri);
+        console.log("Receipt validation successful:", ocrData);
+        setOcrStatus("Receipt validated! Uploading...");
+
+        // Get the receipt category based on the OCR data
+        let category: ReceiptCategory = 'other';
+        const result = await ReceiptCategoryService.determineCategory(ocrData);
+        category = result.category;
+        console.log('Determined category:', { 
+          merchantName: ocrData.merchantName, 
+          category,
+          confidence: result.confidence 
+        });
+
+      } catch (validationError: any) {
+        console.error("Receipt validation failed:", validationError);
+        setIsAnalyzing(false);
+        setShowScanning(false);
+        setCapturedImageUri(null);
+        
+        // Show specific error message to user
+        Alert.alert(
+          "Invalid Image", 
+          validationError.message || "This image does not appear to be a receipt. Please try again with a clear photo of a receipt.",
+          [{ text: "OK" }]
+        );
+        return; // Stop processing - don't upload or save anything
+      }
+
+      // ONLY if validation passes, proceed with upload
       // Generate a unique filename with timestamp
       const timestamp = Date.now();
       const filename = `receipts/${user.uid}/${timestamp}.jpg`;
       const storageRef = ref(storage, filename);
 
       console.log("🚀 Starting receipt upload process for user:", user.uid);
-      setOcrStatus("Preparing upload...");
+      setOcrStatus("Uploading to cloud...");
 
       // Convert image to blob with proper path handling
       const uri =
@@ -294,25 +333,19 @@ export const ScanReceiptScreen = () => {
         const downloadURL = await getDownloadURL(storageRef);
         console.log("🚀 Upload completed, download URL:", downloadURL);
 
-        // Analyze receipt with OCR using the new function-based approach
-        setIsAnalyzing(true);
-        setOcrStatus("Analyzing receipt data...");
-        console.log("Analyzing receipt with OCR...");
+        // Use the already-analyzed OCR data from validation step
+        setOcrStatus("Processing complete!");
 
         try {
           let receiptData;
 
           if (USE_DUMMY_DATA) {
+            console.log("🚀 ~ handleCapture ~ USE_DUMMY_DATA:", USE_DUMMY_DATA)
             // Use dummy data instead of OCR
             console.log("🎭 Using dummy data instead of OCR analysis");
-            setOcrStatus("Generating dummy data...");
-            
-            // Add a small delay to simulate processing
-            await new Promise(resolve => setTimeout(resolve, 1000));
             
             const dummyData = generateDummyReceiptData();
             console.log("Generated dummy data:", dummyData);
-            setOcrStatus("Processing complete!");
 
             // Create receipt record with dummy data
             receiptData = {
@@ -327,19 +360,15 @@ export const ScanReceiptScreen = () => {
               ...dummyData, // Spread all the dummy data
             };
           } else {
-            // Use real OCR service
-            const ocrData = await receiptOCRService.analyzeReceipt(uri);
-            console.log("OCR Analysis result:", ocrData);
-            setOcrStatus("Processing complete!");
+            // Use the already-analyzed OCR data (no need to re-analyze)
+            console.log("Using pre-validated OCR data:", ocrData);
 
-            // Get the receipt category based on the OCR data
-            let category: ReceiptCategory = 'other';
-            const result = await ReceiptCategoryService.determineCategory(ocrData);
-            category = result.category;
-            console.log('Determined category:', { 
+            // Category was already determined in validation step
+            const category = ocrData.category || 'other';
+            console.log('Using determined category:', { 
               merchantName: ocrData.merchantName, 
               category,
-              confidence: result.confidence 
+              confidence: ocrData.categoryConfidence 
             });
 
             // Create receipt record in Firestore with OCR data - ensure no undefined values
@@ -651,9 +680,31 @@ export const ScanReceiptScreen = () => {
       setShowScanning(true);
       setScanningError(null);
 
-      console.log("Gallery image selected, analyzing...");
-      setOcrStatus("Analyzing receipt...");
+      console.log("Gallery image selected, validating...");
+      setOcrStatus("Validating receipt...");
 
+      // FIRST: Validate the image is a receipt BEFORE uploading
+      let ocrData;
+      try {
+        ocrData = await receiptOCRService.analyzeReceipt(imageUri);
+        console.log("Receipt validation successful:", ocrData);
+        setOcrStatus("Receipt validated! Uploading...");
+      } catch (validationError: any) {
+        console.error("Receipt validation failed:", validationError);
+        setIsAnalyzing(false);
+        setShowScanning(false);
+        setCapturedImageUri(null);
+        
+        // Show specific error message to user
+        Alert.alert(
+          "Invalid Image", 
+          validationError.message || "This image does not appear to be a receipt. Please try again with a clear photo of a receipt.",
+          [{ text: "OK" }]
+        );
+        return; // Stop processing - don't upload or save anything
+      }
+
+      // ONLY if validation passes, proceed with upload
       // Generate a unique filename with timestamp
       const timestamp = Date.now();
       const filename = `receipts/${user.uid}/${timestamp}.jpg`;
@@ -707,21 +758,15 @@ export const ScanReceiptScreen = () => {
             ...dummyData, // Spread all the dummy data
           };
         } else {
-          // Analyze the receipt with real OCR
-          const ocrData = await receiptOCRService.analyzeReceipt(imageUri);
-          if (!ocrData) {
-            console.error("Failed to analyze receipt");
-            setIsAnalyzing(false);
-            setOcrStatus("");
-            return;
-          }
+          // Use the already-analyzed OCR data from validation step
+          console.log("Using pre-validated OCR data:", ocrData);
 
-          // Get the receipt category based on the OCR data
-          const result = await ReceiptCategoryService.determineCategory(ocrData);
-          console.log('Determined category:', { 
+          // Category was already determined in validation step
+          const category = ocrData.category || 'other';
+          console.log('Using determined category:', { 
             merchantName: ocrData.merchantName, 
-            category: result.category,
-            confidence: result.confidence 
+            category,
+            confidence: ocrData.categoryConfidence 
           });
 
           // Create receipt record in Firestore with OCR data
@@ -749,9 +794,9 @@ export const ScanReceiptScreen = () => {
               deductible: true,
               deductionPercentage: 100,
               taxYear: new Date().getFullYear(),
-              category: result.category,
+              category: category,
             },
-            category: result.category,
+            category: category,
             tags: ["ocr-processed"],
             extractedData: {
               vendor: ocrData.merchantName || "",
