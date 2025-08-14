@@ -12,6 +12,7 @@ import { SettingsScreen } from "../screens/SettingsScreen";
 import { ScanReceiptScreen } from "../screens/ScanReceiptScreen";
 import { ReceiptDetailScreen } from "../screens/ReceiptDetailScreen";
 import { EditReceiptScreen } from "../screens/EditReceiptScreen";
+import { DetailedBreakdownScreen } from "../screens/DetailedBreakdownScreen";
 import { Receipt } from "../types/receipt";
 
 // Tab Navigator Types
@@ -177,8 +178,8 @@ const ReportsStackNavigator = () => (
     />
     <ReportsStack.Screen
       name="CategoryReport"
-      component={ReportsScreen}
-      options={{ title: "Category Report" }}
+      component={DetailedBreakdownScreen}
+      options={{ title: "Detailed Breakdown" }}
     />
   </ReportsStack.Navigator>
 );

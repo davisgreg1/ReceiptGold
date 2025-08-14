@@ -19,11 +19,11 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useStripePayments } from '../hooks/useStripePayments';
 import { useAuth } from '../context/AuthContext';
-import { ReceiptLimitGate } from '../components/PremiumGate';
 import { db } from '../config/firebase';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { useReceiptsNavigation } from '../navigation/navigationHelpers';
 import { useFocusEffect } from '@react-navigation/native';
+import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
 
 export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
@@ -58,6 +58,7 @@ export const ReceiptsListScreen: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [isUpgradePromptDismissed, setIsUpgradePromptDismissed] = useState(false);
+  const [isLimitReachedPromptDismissed, setIsLimitReachedPromptDismissed] = useState(false);
   
   const fetchReceipts = useCallback(async () => {
     if (!user?.uid) {
@@ -305,7 +306,7 @@ export const ReceiptsListScreen: React.FC = () => {
         </View>
         <View style={styles.receiptDetails}>
           <Text style={[styles.receiptCategory, { color: theme.text.secondary }]}>
-            {receipt.category || 'Uncategorized'}
+            {receipt.category ? ReceiptCategoryService.getCategoryDisplayName(receipt.category as any) : 'Uncategorized'}
           </Text>
           <Text style={[styles.receiptDate, { color: theme.text.tertiary }]}>
             {receipt.vendor || 'Unknown Vendor'}
@@ -552,13 +553,70 @@ export const ReceiptsListScreen: React.FC = () => {
         <FlatList
           data={[
             ...filteredReceipts,
-            // Add upgrade prompt as last item for free users
+            // Add limit reached prompt for users who have reached their limit
+            ...(remainingReceipts === 0 && !isLimitReachedPromptDismissed 
+              ? [{ isLimitReachedPrompt: true }] 
+              : []
+            ),
+            // Add upgrade prompt as last item for free users with remaining receipts
             ...(subscription?.currentTier === 'free' && remainingReceipts > 0 && !isUpgradePromptDismissed 
               ? [{ isUpgradePrompt: true }] 
               : []
             )
           ]}
           renderItem={({ item }) => {
+            // Check if this is the limit reached prompt item
+            if ('isLimitReachedPrompt' in item) {
+              return (
+                <View style={[styles.limitReachedPromptCard, {
+                  backgroundColor: theme.background.secondary,
+                  borderColor: theme.border.primary,
+                }]}>
+                  <TouchableOpacity
+                    style={styles.limitReachedPromptClose}
+                    onPress={() => setIsLimitReachedPromptDismissed(true)}
+                  >
+                    <Ionicons name="close" size={24} color={theme.text.secondary} />
+                  </TouchableOpacity>
+                  <View style={styles.limitReachedPromptIcon}>
+                    <Ionicons name="warning" size={48} color="#ff6b35" />
+                  </View>
+                  <Text style={[styles.limitReachedPromptTitle, { color: "#ff6b35" }]}>
+                    🚫 Monthly Limit Reached
+                  </Text>
+                  <Text style={[styles.limitReachedPromptDescription, { color: theme.text.secondary }]}>
+                    You've used all your receipts for this month. Upgrade your plan for unlimited storage or wait until next month.
+                  </Text>
+                  <TouchableOpacity 
+                    style={[styles.limitReachedPromptButton, { 
+                      backgroundColor: "#ff6b35",
+                    }]}
+                    onPress={async () => {
+                      setIsUpgrading(true);
+                      try {
+                        const success = await handleSubscription(
+                          'growth',
+                          user?.email || '',
+                          user?.displayName || 'User'
+                        );
+                        if (!success) {
+                          Alert.alert('Error', 'Failed to process payment. Please try again.');
+                        }
+                      } finally {
+                        setIsUpgrading(false);
+                      }
+                    }}
+                    disabled={isUpgrading}
+                  >
+                    {isUpgrading ? (
+                      <ActivityIndicator size="small" color="white" />
+                    ) : (
+                      <Text style={styles.limitReachedPromptButtonText}>Upgrade Now</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              );
+            }
             // Check if this is the upgrade prompt item
             if ('isUpgradePrompt' in item) {
               return (
@@ -610,7 +668,11 @@ export const ReceiptsListScreen: React.FC = () => {
             const receipt = item as Receipt;
             return renderReceiptItem({ item: receipt });
           }}
-          keyExtractor={(item) => 'isUpgradePrompt' in item ? 'upgrade-prompt' : (item as Receipt).id}
+          keyExtractor={(item) => {
+            if ('isLimitReachedPrompt' in item) return 'limit-reached-prompt';
+            if ('isUpgradePrompt' in item) return 'upgrade-prompt';
+            return (item as Receipt).id;
+          }}
           ListHeaderComponent={ListHeaderComponent}
           ListEmptyComponent={ListEmptyComponent}
           refreshControl={
@@ -637,23 +699,21 @@ export const ReceiptsListScreen: React.FC = () => {
       </View>
 
       {/* Floating Action Button - Always Visible */}
-      <ReceiptLimitGate currentReceiptCount={currentReceiptCount}>
-        <TouchableOpacity
-          style={[styles.fab, { 
-            backgroundColor: theme.gold.primary,
-            shadowColor: theme.text.primary,
-          }]}
-          onPress={() => {
-            // Check again right before navigation
-            const maxReceipts = subscription?.limits?.maxReceipts || 10;
-            if (checkReceiptLimit(currentReceiptCount, maxReceipts, handleUpgrade)) {
-              navigation.navigate('ScanReceipt');
-            }
-          }}
-        >
-          <Ionicons name="camera" size={28} color="white" />
-        </TouchableOpacity>
-      </ReceiptLimitGate>
+      <TouchableOpacity
+        style={[styles.fab, { 
+          backgroundColor: theme.gold.primary,
+          shadowColor: theme.text.primary,
+        }]}
+        onPress={() => {
+          // Check again right before navigation
+          const maxReceipts = subscription?.limits?.maxReceipts || 10;
+          if (checkReceiptLimit(currentReceiptCount, maxReceipts, handleUpgrade)) {
+            navigation.navigate('ScanReceipt');
+          }
+        }}
+      >
+        <Ionicons name="camera" size={28} color="white" />
+      </TouchableOpacity>
     </SafeAreaView>
   );
 };
@@ -931,6 +991,55 @@ const styles = StyleSheet.create({
     borderRadius: 24,
   },
   upgradePromptButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  limitReachedPromptCard: {
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 2,
+    marginBottom: 12,
+    position: 'relative',
+  },
+  limitReachedPromptClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    padding: 8,
+    zIndex: 1,
+  },
+  limitReachedPromptIcon: {
+    alignSelf: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 107, 53, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  limitReachedPromptTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  limitReachedPromptDescription: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  limitReachedPromptButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  limitReachedPromptButtonText: {
     color: 'white',
     fontSize: 14,
     fontWeight: '600',

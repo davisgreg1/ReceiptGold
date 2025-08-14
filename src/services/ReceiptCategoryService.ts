@@ -129,7 +129,36 @@ export class ReceiptCategoryService {
         return itemsCategory;
     }
 
-    static async updateMerchantCategory(merchantName: string, category: ReceiptCategory) {
-        await this.saveMerchantCategory(merchantName, category, 1.0); // User-set categories have 100% confidence
+    static async updateMerchantCategory(merchantName: string, category: ReceiptCategory, confidence: number = 1.0) {
+        await this.saveMerchantCategory(merchantName, category, confidence);
+    }
+
+    static async getAvailableCategories(): Promise<ReceiptCategory[]> {
+        return [
+            'groceries',
+            'restaurant', 
+            'entertainment',
+            'shopping',
+            'travel',
+            'transportation',
+            'utilities',
+            'healthcare',
+            'other'
+        ];
+    }
+
+    static getCategoryDisplayName(category: ReceiptCategory): string {
+        const displayNames: Record<ReceiptCategory, string> = {
+            groceries: 'Groceries',
+            restaurant: 'Restaurant & Dining',
+            entertainment: 'Entertainment',
+            shopping: 'Shopping',
+            travel: 'Travel',
+            transportation: 'Transportation',
+            utilities: 'Utilities',
+            healthcare: 'Healthcare',
+            other: 'Other'
+        };
+        return displayNames[category] || 'Other';
     }
 }
