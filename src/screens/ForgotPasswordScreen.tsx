@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -14,6 +13,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../context/AuthContext';
 import { Logo } from '../components/Logo';
+import { useCustomAlert } from '../hooks/useCustomAlert';
+import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
 
 interface ForgotPasswordScreenProps {
   onNavigateToSignIn: () => void;
@@ -24,13 +25,14 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
 }) => {
   const { theme } = useTheme();
   const { resetPassword } = useAuth();
+  const { showError, showSuccess, showFirebaseError } = useCustomAlert();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
 
   const handleResetPassword = async () => {
     if (!email) {
-      Alert.alert('Error', 'Please enter your email address');
+      showError('Error', 'Please enter your email address');
       return;
     }
 
@@ -38,18 +40,16 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
     try {
       await resetPassword(email);
       setSent(true);
-      Alert.alert(
+      showSuccess(
         'Reset Email Sent',
         'Check your email for password reset instructions',
-        [
-          {
-            text: 'OK',
-            onPress: () => onNavigateToSignIn(),
-          },
-        ]
+        {
+          primaryButtonText: 'OK',
+          onPrimaryPress: () => onNavigateToSignIn(),
+        }
       );
     } catch (error: any) {
-      Alert.alert('Reset Password Error', error.message);
+      showFirebaseError(error, FirebaseErrorScenarios.AUTH.PASSWORD_RESET);
     } finally {
       setLoading(false);
     }

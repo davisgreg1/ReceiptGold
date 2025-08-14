@@ -5,7 +5,6 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -15,6 +14,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../context/AuthContext';
 import { Logo } from '../components/Logo';
+import { CustomAlert } from '../components/CustomAlert';
+import { useCustomAlert } from '../hooks/useCustomAlert';
 
 interface SignUpScreenProps {
   onNavigateToSignIn: () => void;
@@ -31,29 +32,30 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const { alertState, showError, showSuccess, showFirebaseError, hideAlert } = useCustomAlert();
 
   const handleSignUp = async () => {
     if (!email || !password || !confirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields');
+      showError('Error', 'Please fill in all fields');
       return;
     }
 
     if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
+      showError('Error', 'Passwords do not match');
       return;
     }
 
     if (password.length < 6) {
-      Alert.alert('Error', 'Password must be at least 6 characters');
+      showError('Error', 'Password must be at least 6 characters');
       return;
     }
 
     setLoading(true);
     try {
       await signUp(email, password);
-      Alert.alert('Success', 'Account created successfully!');
+      showSuccess('Success', 'Account created successfully!');
     } catch (error: any) {
-      Alert.alert('Sign Up Error', error.message);
+      showFirebaseError(error, 'Sign Up Error');
     } finally {
       setLoading(false);
     }
@@ -208,6 +210,18 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
           <View style={styles.bottomSpacer} />
         </ScrollView>
       </KeyboardAvoidingView>
+      
+      <CustomAlert
+        visible={alertState.visible}
+        type={alertState.options.type}
+        title={alertState.options.title}
+        message={alertState.options.message}
+        onClose={hideAlert}
+        primaryButtonText={alertState.options.primaryButtonText}
+        secondaryButtonText={alertState.options.secondaryButtonText}
+        onPrimaryPress={alertState.options.onPrimaryPress}
+        onSecondaryPress={alertState.options.onSecondaryPress}
+      />
     </SafeAreaView>
   );
 };

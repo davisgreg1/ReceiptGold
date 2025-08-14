@@ -445,7 +445,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   statItem: {
-    width: "48%",
+    width: "49%",
     alignItems: "center",
     marginBottom: 16,
   },
@@ -480,7 +480,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   trendChip: {
-    height: 28,
+    height: 35,
   },
   categoryStats: {
     marginBottom: 8,
@@ -498,6 +498,7 @@ const styles = StyleSheet.create({
   progressBar: {
     height: 6,
     marginVertical: 8,
+    borderRadius: 3,
   },
   percentageText: {
     fontSize: 12,

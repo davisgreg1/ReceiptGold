@@ -7,7 +7,6 @@ import {
   TextInput,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,6 +17,8 @@ import { receiptService } from '../services/firebaseService';
 import { format } from 'date-fns';
 import { CategoryPicker } from '../components/CategoryPicker';
 import { ReceiptCategory } from '../services/ReceiptCategoryService';
+import { useCustomAlert } from '../hooks/useCustomAlert';
+import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
 
 const styles = StyleSheet.create({
   container: {
@@ -146,6 +147,7 @@ type EditReceiptScreenProps = NativeStackScreenProps<RootStackParamList, 'EditRe
 export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, navigation }) => {
   const { receipt } = route.params;
   const { theme } = useTheme();
+  const { showError, showSuccess, showFirebaseError } = useCustomAlert();
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -178,7 +180,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       
       // Validate required fields
       if (!formData.vendor || !formData.amount) {
-        Alert.alert('Error', 'Vendor and amount are required');
+        showError('Error', 'Vendor and amount are required');
         return;
       }
 
@@ -214,14 +216,17 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       // Update the receipt with only the changed fields
       await receiptService.updateReceipt(receipt.receiptId, updatedReceipt);
       
-      Alert.alert(
+      showSuccess(
         'Success',
         'Receipt updated successfully',
-        [{ text: 'OK', onPress: () => navigation.goBack() }]
+        {
+          primaryButtonText: 'OK',
+          onPrimaryPress: () => navigation.goBack(),
+        }
       );
     } catch (error) {
       console.error('Error updating receipt:', error);
-      Alert.alert('Error', 'Failed to update receipt. Please try again.');
+      showFirebaseError(error, FirebaseErrorScenarios.FIRESTORE.UPDATE);
     } finally {
       setLoading(false);
     }
