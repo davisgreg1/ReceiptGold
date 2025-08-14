@@ -363,6 +363,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           });
           
           // Refresh receipt count when subscription is loaded
+          console.log("🔄 Subscription loaded, triggering receipt count refresh");
           refreshReceiptCount();
         } else {
           setSubscription({
