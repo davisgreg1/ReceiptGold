@@ -53,11 +53,17 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets={true}
         >
+          {/* Flexible spacer */}
+          <View style={styles.topSpacer} />
+          
           {/* Logo and Header */}
           <View style={styles.header}>
             <Logo size={80} />
@@ -160,6 +166,9 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
               </Text>
             </TouchableOpacity>
           </View>
+          
+          {/* Bottom spacer for keyboard */}
+          <View style={styles.bottomSpacer} />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -175,13 +184,17 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
     paddingHorizontal: 24,
     paddingVertical: 32,
+    minHeight: '100%',
+  },
+  topSpacer: {
+    flex: 1,
+    minHeight: 20,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 48,
+    marginBottom: 32,
   },
   title: {
     fontSize: 32,
@@ -196,7 +209,10 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   form: {
-    marginBottom: 32,
+    marginBottom: 24,
+  },
+  bottomSpacer: {
+    height: 20,
   },
   inputContainer: {
     marginBottom: 20,

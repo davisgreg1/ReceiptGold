@@ -462,6 +462,16 @@ export const SettingsScreen: React.FC = () => {
             value={user?.email || 'Not signed in'}
           />
           <SettingsRow
+            label="Member Since"
+            value={user?.metadata?.creationTime ? 
+              new Date(user.metadata.creationTime).toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              }) : 'Unknown'
+            }
+          />
+          <SettingsRow
             label="Name"
             value={user?.displayName || 'Not set'}
             onPress={() => {
