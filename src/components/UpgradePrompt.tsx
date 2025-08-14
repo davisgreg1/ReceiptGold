@@ -190,7 +190,7 @@ const getBenefits = (tier: SubscriptionTier): string[] => {
   switch (tier) {
     case 'starter':
       return [
-        'Unlimited receipt generation',
+        '50 receipt generations',
         'LLC-specific expense categories',
         'Educational content',
         'Basic compliance features',
