@@ -423,7 +423,7 @@ export const ReportsScreen = () => {
         </Text>
         <Text style={styles.emptyDescription}>
           {receipts.length === 0 && selectedDateRange === 'month' 
-            ? "Add your first receipt to start tracking your expenses and generate detailed reports."
+            ? "Add receipts to start tracking expenses and generate reports."
             : `Try selecting a different time range or add more receipts for the selected ${selectedDateRange}.`
           }
         </Text>
@@ -455,7 +455,7 @@ export const ReportsScreen = () => {
           style={styles.button}
           icon="plus"
         >
-          Add Your First Receipt
+          Add Receipt
         </Button>
       </View>
     );
@@ -785,8 +785,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   button: {
-    flex: 1,
     marginHorizontal: 4,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   splitContainer: {
     flexDirection: "row",
