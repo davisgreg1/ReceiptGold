@@ -70,26 +70,35 @@ export const useStripePayments = () => {
         
         // Create a batch for atomic updates
         const batch = writeBatch(db);
+        let receiptsExcludedCount = 0;
         
         if (currentTier !== tierId) {
-          // This is a tier change, so reset monthly count by excluding current receipts
+          // This is a tier change, so reset monthly count by excluding ALL existing receipts
           console.log(`🔄 Tier change detected: ${currentTier} → ${tierId}, resetting monthly count...`);
           
-          // Get current month's receipts
-          const startOfMonth = new Date();
-          startOfMonth.setDate(1);
-          startOfMonth.setHours(0, 0, 0, 0);
-          
+          // Get ALL existing receipts for this user (not just current month)
           const receiptsQuery = query(
             collection(db, "receipts"),
-            where("userId", "==", auth.currentUser.uid),
-            where("createdAt", ">=", startOfMonth)
+            where("userId", "==", auth.currentUser.uid)
           );
           
           const receiptsSnapshot = await getDocs(receiptsQuery);
-          console.log(`📝 Found ${receiptsSnapshot.docs.length} receipts to mark as excluded from new tier count`);
+          receiptsExcludedCount = receiptsSnapshot.docs.length;
+          console.log(`📝 Found ${receiptsExcludedCount} receipts to mark as excluded from new tier count`);
           
-          // Mark all current month's receipts as excluded from the new tier's count
+          // Log details about each receipt being excluded
+          receiptsSnapshot.docs.forEach((receiptDoc, index) => {
+            const data = receiptDoc.data();
+            console.log(`Receipt ${index + 1} to exclude:`, {
+              id: receiptDoc.id.substring(0, 8),
+              createdAt: data.createdAt?.toDate(),
+              vendor: data.vendor,
+              amount: data.amount,
+              currentlyExcluded: data.excludeFromMonthlyCount
+            });
+          });
+          
+          // Mark ALL existing receipts as excluded from the new tier's count
           receiptsSnapshot.docs.forEach((receiptDoc) => {
             batch.update(doc(db, "receipts", receiptDoc.id), {
               excludeFromMonthlyCount: true,
@@ -115,6 +124,12 @@ export const useStripePayments = () => {
           }
         };
         
+        if (currentTier !== tierId) {
+          console.log(`🔄 MONTHLY COUNT RESET: Upgrading from ${currentTier} to ${tierId}, setting lastMonthlyCountResetAt to:`, now);
+        } else {
+          console.log(`📝 No tier change, keeping existing lastMonthlyCountResetAt:`, currentSub.data()?.lastMonthlyCountResetAt);
+        }
+        
         console.log(`📝 Updating subscription with data:`, {
           currentTier: subscriptionUpdateData.currentTier,
           status: subscriptionUpdateData.status,
@@ -130,6 +145,9 @@ export const useStripePayments = () => {
         try {
           await batch.commit();
           console.log('✅ Subscription activated and Firestore updated successfully');
+          if (currentTier !== tierId) {
+            console.log(`✅ Successfully excluded ${receiptsExcludedCount} receipts from monthly count`);
+          }
         } catch (batchError) {
           console.error('❌ Failed to commit batch update:', batchError);
           const errorMessage = batchError instanceof Error ? batchError.message : 'Unknown error';
@@ -138,8 +156,22 @@ export const useStripePayments = () => {
         
         // Refresh the receipt count to reflect the reset
         try {
-          await refreshReceiptCount();
-          console.log('🔄 Receipt count refreshed after upgrade');
+          if (currentTier !== tierId) {
+            // For tier changes, add extra delay and retry to ensure Firestore propagation
+            console.log('🔄 Waiting longer for Firestore propagation after tier change...');
+            await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
+            
+            await refreshReceiptCount();
+            console.log('🔄 Initial receipt count refresh after tier upgrade');
+            
+            // Wait a bit more and refresh again to be extra sure
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            await refreshReceiptCount();
+            console.log('🔄 Second receipt count refresh after tier upgrade');
+          } else {
+            await refreshReceiptCount();
+            console.log('🔄 Receipt count refreshed after subscription update');
+          }
         } catch (refreshError) {
           console.warn('Failed to refresh receipt count after upgrade:', refreshError);
         }

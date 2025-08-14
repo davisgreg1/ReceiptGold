@@ -16,6 +16,8 @@ import { useTheme } from '../theme/ThemeProvider';
 import { Text } from '../components/Text';
 import { receiptService } from '../services/firebaseService';
 import { format } from 'date-fns';
+import { CategoryPicker } from '../components/CategoryPicker';
+import { ReceiptCategory } from '../services/ReceiptCategoryService';
 
 const styles = StyleSheet.create({
   container: {
@@ -360,6 +362,17 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
               placeholderTextColor={theme.text.secondary}
             />
           </View>
+
+          <CategoryPicker
+            selectedCategory={formData.category as ReceiptCategory}
+            onCategorySelect={(category) => setFormData(prev => ({
+              ...prev,
+              category
+            }))}
+            label="Category"
+            aiSuggestedCategory={receipt.category as ReceiptCategory}
+            aiConfidence={0.85} // You can get this from AI response if available
+          />
         </View>
 
         {/* Tax Information */}
@@ -385,24 +398,16 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
               <Text style={[styles.label, { color: theme.text.primary }]}>Tax Deductible</Text>
             </TouchableOpacity>
 
-            <View style={styles.row}>
-              <Text style={[styles.label, { color: theme.text.primary }]}>Category</Text>
-              <TextInput
-                style={[styles.input, { 
-                  backgroundColor: theme.background.primary,
-                  color: theme.text.primary,
-                  borderColor: theme.border.primary,
-                  borderWidth: 1,
-                }]}
-                value={formData.tax.category}
-                onChangeText={(text) => setFormData(prev => ({
-                  ...prev,
-                  tax: { ...prev.tax, category: text }
-                }))}
-                placeholder="Enter tax category"
-                placeholderTextColor={theme.text.secondary}
-              />
-            </View>
+            <CategoryPicker
+              selectedCategory={formData.tax.category as ReceiptCategory}
+              onCategorySelect={(category) => setFormData(prev => ({
+                ...prev,
+                tax: { ...prev.tax, category }
+              }))}
+              label="Tax Category"
+              aiSuggestedCategory={receipt.category as ReceiptCategory}
+              aiConfidence={0.8} // You can get this from AI response if available
+            />
 
             <View style={styles.row}>
               <Text style={[styles.label, { color: theme.text.primary }]}>Deduction %</Text>

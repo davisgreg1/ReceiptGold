@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { deleteReceiptAndImage } from '../utils/deleteReceipt';
 import { getMonthlyReceiptCount } from '../utils/getMonthlyReceipts';
 import { checkReceiptLimit } from '../utils/navigationGuards';
+import { debugSubscriptionState } from '../utils/debugSubscription';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../context/SubscriptionContext';
@@ -28,7 +29,7 @@ import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
 export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
   const navigation = useReceiptsNavigation();
-  const { subscription, getRemainingReceipts } = useSubscription();
+  const { subscription, getRemainingReceipts, currentReceiptCount } = useSubscription();
   const { handleSubscription } = useStripePayments();
   const { user } = useAuth();
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -48,7 +49,6 @@ export const ReceiptsListScreen: React.FC = () => {
   // State for receipts and loading
   const [receipts, setReceipts] = useState<Array<Receipt>>([]);
   const [filteredReceipts, setFilteredReceipts] = useState<Array<Receipt>>([]);
-  const [currentReceiptCount, setCurrentReceiptCount] = useState(0);
   const [activeReceiptCount, setActiveReceiptCount] = useState(0);
   const [historicalUsage, setHistoricalUsage] = useState<{ month: string; count: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,13 +194,11 @@ export const ReceiptsListScreen: React.FC = () => {
       setReceipts(receiptData);
       setFilteredReceipts(receiptData);
       setActiveReceiptCount(receiptData.length);
-      setCurrentReceiptCount(monthlyCount);
       setHistoricalUsage(historicalUsageData);
     } catch (error) {
       console.error('Error fetching receipts:', error);
       setReceipts([]);
       setFilteredReceipts([]);
-      setCurrentReceiptCount(0);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -443,6 +441,26 @@ export const ReceiptsListScreen: React.FC = () => {
     }
   };
 
+  // Temporary debug function
+  const handleDebugSubscription = async () => {
+    if (!user?.uid) {
+      Alert.alert('Error', 'No user ID found');
+      return;
+    }
+    
+    try {
+      const debug = await debugSubscriptionState(user.uid);
+      
+      Alert.alert(
+        'Subscription Debug',
+        `Current Tier: ${debug.currentTier}\nLast Reset: ${debug.lastResetDate?.toLocaleDateString()}\nCurrent Count: ${debug.currentCount}\n\nCheck console for full details.`
+      );
+    } catch (error) {
+      console.error('Debug error:', error);
+      Alert.alert('Error', 'Failed to debug subscription state');
+    }
+  };
+
   const maxReceipts = subscription?.limits?.maxReceipts || 10;
   const remainingReceipts = getRemainingReceipts(currentReceiptCount);
 
@@ -481,6 +499,18 @@ export const ReceiptsListScreen: React.FC = () => {
               )}
             </View>
           </View>
+
+          {/* Temporary Debug Button - Remove in production */}
+          {__DEV__ && (
+            <TouchableOpacity
+              style={[styles.selectButton, { marginTop: 8, backgroundColor: theme.gold.primary + '20' }]}
+              onPress={handleDebugSubscription}
+            >
+              <Text style={[styles.selectButtonText, { color: theme.gold.primary }]}>
+                Debug Subscription
+              </Text>
+            </TouchableOpacity>
+          )}
 
           {/* Search Bar */}
           {showSearch && (
