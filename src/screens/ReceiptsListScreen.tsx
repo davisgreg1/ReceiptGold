@@ -57,6 +57,7 @@ export const ReceiptsListScreen: React.FC = () => {
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearch, setShowSearch] = useState(false);
+  const [isUpgradePromptDismissed, setIsUpgradePromptDismissed] = useState(false);
   
   const fetchReceipts = useCallback(async () => {
     if (!user?.uid) {
@@ -299,7 +300,7 @@ export const ReceiptsListScreen: React.FC = () => {
             {new Date(receipt.createdAt?.toDate()).toLocaleDateString()}
           </Text>
           <Text style={[styles.receiptAmount, { color: theme.gold.primary }]}>
-            ${receipt.amount || '0.00'}
+            ${(receipt.amount || 0).toFixed(2)}
           </Text>
         </View>
         <View style={styles.receiptDetails}>
@@ -549,9 +550,67 @@ export const ReceiptsListScreen: React.FC = () => {
 
         {/* Receipts FlatList */}
         <FlatList
-          data={filteredReceipts}
-          renderItem={renderReceiptItem}
-          keyExtractor={(item) => item.id}
+          data={[
+            ...filteredReceipts,
+            // Add upgrade prompt as last item for free users
+            ...(subscription?.currentTier === 'free' && remainingReceipts > 0 && !isUpgradePromptDismissed 
+              ? [{ isUpgradePrompt: true }] 
+              : []
+            )
+          ]}
+          renderItem={({ item }) => {
+            // Check if this is the upgrade prompt item
+            if ('isUpgradePrompt' in item) {
+              return (
+                <View style={[styles.upgradePromptCard, {
+                  backgroundColor: theme.gold.background,
+                  borderColor: theme.gold.primary,
+                }]}>
+                  <TouchableOpacity
+                    style={styles.upgradePromptClose}
+                    onPress={() => setIsUpgradePromptDismissed(true)}
+                  >
+                    <Ionicons name="close" size={20} color={theme.text.secondary} />
+                  </TouchableOpacity>
+                  
+                  <View style={styles.upgradePromptIcon}>
+                    <Ionicons name="sparkles" size={24} color={theme.gold.primary} />
+                  </View>
+                  
+                  <Text style={[styles.upgradePromptTitle, { color: theme.gold.primary }]}>
+                    ✨ Unlock More Receipts
+                  </Text>
+                  
+                  <Text style={[styles.upgradePromptDescription, { color: theme.text.secondary }]}>
+                    Get 50 receipts per month with our Starter Plan. Never worry about running out of space for your receipts again!
+                  </Text>
+                  
+                  <TouchableOpacity
+                    style={[styles.upgradePromptButton, { 
+                      backgroundColor: theme.gold.primary,
+                      opacity: isUpgrading ? 0.7 : 1,
+                    }]}
+                    onPress={handleUpgrade}
+                    disabled={isUpgrading}
+                  >
+                    {isUpgrading ? (
+                      <ActivityIndicator color="white" size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="arrow-up" size={16} color="white" style={{ marginRight: 8 }} />
+                        <Text style={styles.upgradePromptButtonText}>Upgrade Now</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              );
+            }
+
+            // Regular receipt item
+            const receipt = item as Receipt;
+            return renderReceiptItem({ item: receipt });
+          }}
+          keyExtractor={(item) => 'isUpgradePrompt' in item ? 'upgrade-prompt' : (item as Receipt).id}
           ListHeaderComponent={ListHeaderComponent}
           ListEmptyComponent={ListEmptyComponent}
           refreshControl={
@@ -575,40 +634,6 @@ export const ReceiptsListScreen: React.FC = () => {
           maxToRenderPerBatch={5}
           windowSize={10}
         />
-
-        {/* Free tier upgrade prompt - positioned below FlatList */}
-        {subscription?.currentTier === 'free' && remainingReceipts > 0 && (
-          <View style={[styles.upgradePrompt, {
-            backgroundColor: theme.gold.background,
-            borderColor: theme.gold.primary,
-            marginTop: 16,
-            marginHorizontal: 0,
-          }]}>
-            <Text style={[styles.upgradeTitle, { color: theme.gold.primary }]}>
-              ✨ Unlock More Receipts
-            </Text>
-            <Text style={[styles.upgradeText, { color: theme.text.secondary }]}>
-              Upgrade to Starter Plan for 50 receipts/month and more features
-            </Text>
-            <TouchableOpacity
-              style={[
-                styles.upgradeButton,
-                { 
-                  backgroundColor: theme.gold.primary,
-                  opacity: isUpgrading ? 0.6 : 1,
-                }
-              ]}
-              onPress={handleUpgrade}
-              disabled={isUpgrading}
-            >
-              {isUpgrading ? (
-                <ActivityIndicator color="white" />
-              ) : (
-                <Text style={styles.upgradeButtonText}>Upgrade for $9.99/month</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        )}
       </View>
 
       {/* Floating Action Button - Always Visible */}
@@ -859,6 +884,55 @@ const styles = StyleSheet.create({
   upgradeButtonText: {
     color: 'white',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  upgradePromptCard: {
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 2,
+    marginBottom: 12,
+    position: 'relative',
+  },
+  upgradePromptClose: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    padding: 8,
+    zIndex: 1,
+  },
+  upgradePromptIcon: {
+    alignSelf: 'center',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  upgradePromptTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  upgradePromptDescription: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  upgradePromptButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  upgradePromptButtonText: {
+    color: 'white',
+    fontSize: 14,
     fontWeight: '600',
   },
   fab: {
