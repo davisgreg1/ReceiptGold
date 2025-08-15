@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
 import Svg, { Circle, Rect, Text, Polygon } from "react-native-svg";
 import { useTheme } from "../theme/ThemeProvider";
+import { BrandText, BodyText } from '../components/Typography';
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -183,29 +184,31 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
         <ReceiptGoldLogo />
       </Animated.View>
 
-      <Animated.Text
-        style={[
-          styles.appName,
-          {
-            color: theme.gold.primary,
-            opacity: fadeAnim,
-          },
-        ]}
-      >
-        ReceiptGold
-      </Animated.Text>
+      <Animated.View style={{ opacity: fadeAnim }}>
+        <BrandText 
+          color="gold"
+          style={{
+            fontSize: 36,
+            letterSpacing: 1,
+          }}
+        >
+          ReceiptGold
+        </BrandText>
+      </Animated.View>
 
-      <Animated.Text
-        style={[
-          styles.tagline,
-          {
-            color: theme.text.secondary,
-            opacity: fadeAnim,
-          },
-        ]}
-      >
-        Premium Receipt Management
-      </Animated.Text>
+      <Animated.View style={{ opacity: fadeAnim }}>
+        <BodyText
+          size="large"
+          color="secondary"
+          style={{
+            fontWeight: '300',
+            letterSpacing: 0.5,
+            marginTop: 8,
+          }}
+        >
+          Premium Receipt Management
+        </BodyText>
+      </Animated.View>
     </SafeAreaView>
   );
 };

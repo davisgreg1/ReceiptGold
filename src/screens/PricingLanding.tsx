@@ -14,6 +14,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription, SubscriptionTier } from "../context/SubscriptionContext";
 import { useAuth } from "../context/AuthContext";
 import { useStripePayments } from "../hooks/useStripePayments";
+import { HeadingText, BodyText, ButtonText, BrandText } from '../components/Typography';
 
 const { width, height } = Dimensions.get("window");
 
@@ -172,21 +173,43 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
   const PricingCard: React.FC<PricingCardProps> = ({ tier, index }) => {
     const isSelected = selectedTier === tier.id;
     const isCurrentTier = subscription?.currentTier === tier.id;
-    const cardScale = tier.popular ? 1.02 : 1;
+    const cardScale = tier.popular ? 1.0 : 1;
+    const cardAnimValue = new Animated.Value(1);
+
+    React.useEffect(() => {
+      // Stagger the entrance animation
+      Animated.timing(cardAnimValue, {
+        toValue: 1,
+        duration: 600 + index * 150,
+        useNativeDriver: true,
+      }).start();
+    }, [index]);
 
     return (
       <Animated.View
         style={[
           styles.cardContainer,
           {
-            transform: [{ scale: isSelected ? scaleAnim : cardScale }],
-            // marginTop: tier.popular ? -10 : 0,
+            transform: [
+              { scale: isSelected ? scaleAnim : cardScale },
+              { 
+                translateY: cardAnimValue.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [50, 0],
+                })
+              },
+            ],
+            opacity: cardAnimValue,
           },
         ]}
       >
         {tier.popular && (
-          <View style={styles.popularBadge}>
-            <Text style={styles.popularText}>Most Popular</Text>
+          <View style={styles.popularBadgeContainer}>
+            <View style={[styles.popularBadge, { backgroundColor: theme.gold.primary }]}>
+              <BodyText size="small" color="inverse" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+                ⭐ MOST POPULAR
+              </BodyText>
+            </View>
           </View>
         )}
 
@@ -194,6 +217,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
           style={[
             styles.card,
             (isSelected || isCurrentTier) && styles.selectedCard,
+            tier.popular && styles.popularCard,
             {
               backgroundColor: tier.popular
                 ? theme.gold.background
@@ -204,31 +228,52 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
             },
           ]}
           onPress={() => handleTierSelect(tier)}
-          activeOpacity={0.9}
+          activeOpacity={0.95}
           disabled={isCurrentTier}
         >
           <View
             style={[
               styles.iconContainer,
-              { backgroundColor: tier.gradientStart },
+              { 
+                backgroundColor: tier.gradientStart,
+                shadowColor: tier.gradientStart,
+              },
             ]}
           >
             <Text style={styles.iconText}>{tier.icon}</Text>
           </View>
 
-          <Text style={[styles.tierName, { color: theme.text.primary }]}>{tier.name}</Text>
-          <Text style={[styles.tierDescription, { color: theme.text.secondary }]}>{tier.description}</Text>
+          <HeadingText size="small" color="primary" align="center" style={styles.tierNameSpacing}>
+            {tier.name}
+          </HeadingText>
+          <BodyText size="medium" color="secondary" align="center" style={styles.descriptionSpacing}>
+            {tier.description}
+          </BodyText>
 
           <View style={styles.priceContainer}>
-            <Text style={[styles.price, { color: theme.text.primary }]}>${tier.price}</Text>
-            <Text style={[styles.period, { color: theme.text.secondary }]}>/{tier.period}</Text>
+            <View style={styles.priceWrapper}>
+              <BodyText size="small" color="secondary" style={styles.currency}>$</BodyText>
+              <HeadingText size="large" color="primary" style={styles.priceNumber}>
+                {tier.price.toString().split('.')[0]}
+              </HeadingText>
+              <BodyText size="small" color="secondary" style={styles.cents}>
+                .{tier.price.toString().split('.')[1] || '00'}
+              </BodyText>
+            </View>
+            <BodyText size="small" color="tertiary" style={styles.period}>
+              per {tier.period}
+            </BodyText>
           </View>
 
           <View style={styles.featuresContainer}>
             {tier.features.map((feature: string, idx: number) => (
               <View key={idx} style={styles.featureItem}>
-                <Text style={[styles.checkmark, { color: theme.status.success }]}>✓</Text>
-                <Text style={[styles.featureText, { color: theme.text.primary }]}>{feature}</Text>
+                <View style={[styles.checkmarkContainer, { backgroundColor: theme.status.success + '20' }]}>
+                  <Text style={[styles.checkmark, { color: theme.status.success }]}>✓</Text>
+                </View>
+                <BodyText size="medium" color="primary" style={styles.featureText}>
+                  {feature}
+                </BodyText>
               </View>
             ))}
           </View>
@@ -239,29 +284,51 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
               {
                 backgroundColor: isCurrentTier 
                   ? theme.status.success 
-                  : (isSelected ? "#10B981" : tier.gradientStart),
+                  : (isSelected ? theme.gold.primary : tier.gradientStart),
                 shadowColor: isCurrentTier 
                   ? theme.status.success 
-                  : (isSelected ? "#10B981" : tier.gradientStart),
-                opacity: isCurrentTier ? 0.7 : 1,
+                  : (isSelected ? theme.gold.primary : tier.gradientStart),
+                opacity: isCurrentTier ? 0.8 : 1,
               },
             ]}
             disabled={isSelecting || isCurrentTier}
             onPress={() => handleTierSelect(tier)}
           >
+            {/* Button gradient overlay */}
+            <View style={[
+              styles.buttonGradient,
+              {
+                backgroundColor: isCurrentTier 
+                  ? theme.status.success + '10' 
+                  : (isSelected ? theme.gold.primary + '10' : tier.gradientStart + '10'),
+              }
+            ]} />
+            
             {isSelecting && selectedTier === tier.id ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color="white" />
-                <Text style={[styles.buttonText, { color: 'white' }]}>Upgrading...</Text>
+                <ButtonText size="medium" color="inverse" style={{ marginLeft: 8, fontWeight: '700' }}>
+                  Upgrading...
+                </ButtonText>
               </View>
             ) : isCurrentTier ? (
-              <Text style={[styles.buttonText, { color: 'white' }]}>Current Plan ✓</Text>
+              <View style={styles.currentPlanContainer}>
+                <Text style={styles.checkIcon}>✓</Text>
+                <ButtonText size="medium" color="inverse" style={{ fontWeight: '700' }}>
+                  Current Plan
+                </ButtonText>
+              </View>
             ) : isSelected ? (
-              <Text style={[styles.buttonText, { color: 'white' }]}>Selected ✓</Text>
+              <View style={styles.selectedContainer}>
+                <Text style={styles.sparkleIcon}>✨</Text>
+                <ButtonText size="medium" color="inverse" style={{ fontWeight: '700' }}>
+                  Selected
+                </ButtonText>
+              </View>
             ) : (
-              <Text style={[styles.buttonText, { color: 'white' }]}>
-                {subscription?.currentTier === 'free' ? `Choose ${tier.name}` : `Upgrade to ${tier.name}`}
-              </Text>
+              <ButtonText size="medium" color="inverse" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+                {subscription?.currentTier === 'free' ? `Get ${tier.name}` : `Upgrade Now`}
+              </ButtonText>
             )}
           </TouchableOpacity>
         </TouchableOpacity>
@@ -276,17 +343,38 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* Decorative background elements */}
+        {/* Enhanced decorative background elements */}
         <View style={[styles.bgCircle, styles.bgCircle1, { backgroundColor: theme.gold.primary }]} />
         <View style={[styles.bgCircle, styles.bgCircle2, { backgroundColor: theme.gold.muted }]} />
         <View style={[styles.bgCircle, styles.bgCircle3, { backgroundColor: theme.gold.rich }]} />
+        <View style={[styles.bgCircle, styles.bgCircle4, { backgroundColor: theme.gold.primary }]} />
+        
+        {/* Subtle gradient overlay */}
+        <View style={[styles.gradientOverlay, { 
+          backgroundColor: `${theme.gold.primary}05`
+        }]} />
 
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.gold.primary }]}>Choose Your Plan</Text>
-          <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
-            Streamline your LLC expenses and maximize your tax savings with the perfect plan for your business
-          </Text>
+          <HeadingText size="large" color="gold" align="center" style={styles.mainTitle}>
+            Choose Your Perfect Plan
+          </HeadingText>
+          <BodyText size="large" color="secondary" align="center" style={styles.headerSubtitle}>
+            Streamline your LLC expenses and maximize your tax savings with the perfect plan for your business growth
+          </BodyText>
+          
+          {/* Trust indicators */}
+          <View style={styles.trustIndicators}>
+            <BodyText size="small" color="tertiary" style={styles.trustItem}>
+              💎 Premium Quality
+            </BodyText>
+            <BodyText size="small" color="tertiary" style={styles.trustItem}>
+              🔒 Bank-Level Security
+            </BodyText>
+            <BodyText size="small" color="tertiary" style={styles.trustItem}>
+              ⚡ Lightning Fast
+            </BodyText>
+          </View>
         </View>
 
         {/* Pricing Cards */}
@@ -299,9 +387,22 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
         {/* Footer */}
         <View style={styles.footer}>
           <View style={styles.benefits}>
-            <Text style={[styles.benefit, { color: theme.text.tertiary }]}>• No setup fees</Text>
-            <Text style={[styles.benefit, { color: theme.text.tertiary }]}>• Cancel anytime</Text>
-            <Text style={[styles.benefit, { color: theme.text.tertiary }]}>• Tax deductible</Text>
+            <View style={styles.benefitItem}>
+              <Text style={styles.benefitIcon}>✨</Text>
+              <BodyText size="small" color="tertiary" style={styles.benefitText}>No setup fees</BodyText>
+            </View>
+            <View style={styles.benefitItem}>
+              <Text style={styles.benefitIcon}>🔄</Text>
+              <BodyText size="small" color="tertiary" style={styles.benefitText}>Cancel anytime</BodyText>
+            </View>
+            <View style={styles.benefitItem}>
+              <Text style={styles.benefitIcon}>�</Text>
+              <BodyText size="small" color="tertiary" style={styles.benefitText}>Tax deductible</BodyText>
+            </View>
+            <View style={styles.benefitItem}>
+              <Text style={styles.benefitIcon}>🏆</Text>
+              <BodyText size="small" color="tertiary" style={styles.benefitText}>Premium support</BodyText>
+            </View>
           </View>
         </View>
       </ScrollView>
@@ -324,179 +425,268 @@ const styles = StyleSheet.create({
   bgCircle: {
     position: "absolute",
     borderRadius: 200,
-    opacity: 0.1,
+    opacity: 0.08,
   },
   bgCircle1: {
-    width: 300,
-    height: 300,
-    top: -100,
-    right: -100,
+    width: 400,
+    height: 400,
+    top: -150,
+    right: -150,
   },
   bgCircle2: {
-    width: 250,
-    height: 250,
-    bottom: -50,
-    left: -80,
+    width: 350,
+    height: 350,
+    bottom: -100,
+    left: -120,
   },
   bgCircle3: {
-    width: 200,
-    height: 200,
+    width: 250,
+    height: 250,
     top: height * 0.4,
-    left: width * 0.7,
+    left: width * 0.75,
+  },
+  bgCircle4: {
+    width: 180,
+    height: 180,
+    bottom: height * 0.2,
+    right: width * 0.1,
+  },
+  gradientOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1,
   },
   header: {
     alignItems: "center",
-    marginBottom: 40,
+    marginBottom: 48,
     zIndex: 10,
-  },
-  title: {
-    fontSize: 32,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginBottom: 16,
-    lineHeight: 40,
-  },
-  subtitle: {
-    fontSize: 16,
-    textAlign: "center",
-    lineHeight: 24,
     paddingHorizontal: 10,
   },
-  cardsContainer: {
+  mainTitle: {
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    marginBottom: 16,
+  },
+  headerSubtitle: {
+    lineHeight: 28,
+    marginBottom: 32,
+    paddingHorizontal: 16,
+  },
+  trustIndicators: {
+    flexDirection: 'row',
     gap: 20,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+  },
+  trustItem: {
+    fontWeight: '600',
+    letterSpacing: 0.3,
+  },
+  cardsContainer: {
+    gap: 24,
     zIndex: 10,
+    marginBottom: 20,
   },
   cardContainer: {
     position: "relative",
   },
-  popularBadge: {
+  popularBadgeContainer: {
     position: "absolute",
-    top: -12,
-    left: "50%",
-    marginLeft: -60,
-    backgroundColor: "#8B5CF6",
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
+    top: -30,
+    left: 0,
+    right: 0,
+    alignItems: "center",
     zIndex: 10,
-    shadowColor: "#8B5CF6",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
   },
-  popularText: {
-    fontSize: 14,
-    fontWeight: "600",
+  popularBadge: {
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    borderRadius: 25,
+    shadowColor: "#FFD700",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+    alignItems: "center",
+    justifyContent: "center",
   },
   card: {
+    borderRadius: 24,
+    padding: 32,
+    borderWidth: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+    position: "relative",
+  },
+  selectedCard: {
+    borderWidth: 3,
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  popularCard: {
+    borderWidth: 3,
+    shadowColor: "#FFD700",
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
+    marginVertical: 4,
+  },
+  iconContainer: {
+    width: 64,
+    height: 64,
     borderRadius: 20,
-    padding: 24,
-    borderWidth: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 24,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
-    elevation: 0,
-  },
-  selectedCard: {
-    borderWidth: 2,
-    shadowOpacity: 0.25,
-    elevation: 5,
-  },
-  iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 12,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
+    elevation: 4,
+    alignSelf: "center",
   },
   iconText: {
-    fontSize: 24,
+    fontSize: 28,
   },
-  tierName: {
-    fontSize: 24,
-    fontWeight: "bold",
+  tierNameSpacing: {
     marginBottom: 8,
+    fontWeight: '700',
   },
-  tierDescription: {
-    fontSize: 16,
-    marginBottom: 24,
+  descriptionSpacing: {
+    marginBottom: 32,
+    lineHeight: 22,
+    paddingHorizontal: 8,
   },
   priceContainer: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    marginBottom: 24,
+    alignItems: "center",
+    marginBottom: 32,
   },
-  price: {
-    fontSize: 48,
-    fontWeight: "bold",
+  priceWrapper: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 4,
+  },
+  currency: {
+    marginTop: 8,
+    marginRight: 2,
+    fontWeight: '600',
+  },
+  priceNumber: {
+    fontWeight: '800',
+    fontSize: 56,
+    lineHeight: 60,
+  },
+  cents: {
+    marginTop: 8,
+    marginLeft: 2,
+    fontWeight: '600',
   },
   period: {
-    fontSize: 16,
-    marginLeft: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    fontWeight: '500',
   },
   featuresContainer: {
-    marginBottom: 24,
-    gap: 12,
+    marginBottom: 32,
+    gap: 16,
   },
   featureItem: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
+    paddingVertical: 2,
+  },
+  checkmarkContainer: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 1,
   },
   checkmark: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "bold",
   },
   featureText: {
-    fontSize: 16,
     flex: 1,
+    lineHeight: 22,
+    fontWeight: '500',
   },
   button: {
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
+    borderRadius: 16,
+    paddingVertical: 20,
+    paddingHorizontal: 32,
     alignItems: "center",
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 6,
+    position: "relative",
+    overflow: "hidden",
   },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: "600",
+  buttonGradient: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 16,
   },
-  loadingContainer: {
+  currentPlanContainer: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
+  selectedContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  checkIcon: {
+    fontSize: 16,
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  sparkleIcon: {
+    fontSize: 16,
+  },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
   footer: {
     alignItems: "center",
-    marginTop: 40,
+    marginTop: 48,
     zIndex: 10,
-  },
-  guarantee: {
-    fontSize: 16,
-    textAlign: "center",
-    marginBottom: 16,
+    paddingTop: 32,
   },
   benefits: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: 20,
+    gap: 24,
   },
-  benefit: {
-    fontSize: 14,
+  benefitItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  benefitIcon: {
+    fontSize: 16,
+  },
+  benefitText: {
+    fontWeight: '500',
+    letterSpacing: 0.2,
   },
 });
 

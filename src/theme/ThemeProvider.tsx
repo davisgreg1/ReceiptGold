@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useColorScheme } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { typography } from "./typography";
 
 export type ThemeMode = "light" | "dark";
 
@@ -42,6 +43,7 @@ export const darkTheme = {
     warning: "#FF9500",
     info: "#007AFF",
   },
+  typography,
 };
 
 export const lightTheme = {
@@ -82,6 +84,7 @@ export const lightTheme = {
     warning: "#FF9500",
     info: "#007AFF",
   },
+  typography,
 };
 
 export type Theme = typeof darkTheme;
