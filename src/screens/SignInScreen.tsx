@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { Logo } from '../components/Logo';
 import { CustomAlert } from '../components/CustomAlert';
 import { useCustomAlert } from '../hooks/useCustomAlert';
+import { Typography, DisplayText, BodyText, ButtonText, BrandText } from '../components/Typography';
 
 interface SignInScreenProps {
   onNavigateToSignUp: () => void;
@@ -69,20 +70,24 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
           {/* Logo and Header */}
           <View style={styles.header}>
             <Logo size={80} />
-            <Text style={[styles.title, { color: theme.gold.primary }]}>
+            <DisplayText size="medium" color="gold" align="center">
               Welcome Back
-            </Text>
-            <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
-              Sign in to your ReceiptGold account
-            </Text>
+            </DisplayText>
+            <BodyText size="large" color="secondary" align="center" style={styles.subtitle}>
+              Sign in to your{' '}
+              <BrandText size="small" color="gold">
+                ReceiptGold
+              </BrandText>
+              {' '}account
+            </BodyText>
           </View>
 
           {/* Form */}
           <View style={styles.form}>
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text.primary }]}>
+              <Typography variant="ui-label" color="primary">
                 Email
-              </Text>
+              </Typography>
               <TextInput
                 style={[
                   styles.input,
@@ -103,9 +108,9 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text.primary }]}>
+              <Typography variant="ui-label" color="primary">
                 Password
-              </Text>
+              </Typography>
               <View style={styles.passwordContainer}>
                 <TextInput
                   style={[
@@ -142,30 +147,30 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
               onPress={handleSignIn}
               disabled={loading}
             >
-              <Text style={[styles.signInButtonText, { color: theme.text.inverse }]}>
+              <ButtonText color="inverse">
                 {loading ? 'Signing In...' : 'Sign In'}
-              </Text>
+              </ButtonText>
             </TouchableOpacity>
 
             <TouchableOpacity
               style={styles.forgotPasswordButton}
               onPress={onNavigateToForgotPassword}
             >
-              <Text style={[styles.forgotPasswordText, { color: theme.gold.primary }]}>
+              <Typography variant="body-small" color="gold">
                 Forgot your password?
-              </Text>
+              </Typography>
             </TouchableOpacity>
           </View>
 
           {/* Sign Up Link */}
           <View style={styles.signUpContainer}>
-            <Text style={[styles.signUpText, { color: theme.text.secondary }]}>
+            <BodyText size="medium" color="secondary">
               Don't have an account?{' '}
-            </Text>
+            </BodyText>
             <TouchableOpacity onPress={onNavigateToSignUp}>
-              <Text style={[styles.signUpLink, { color: theme.gold.primary }]}>
+              <Typography variant="body-medium" color="gold" style={{ fontWeight: '600' }}>
                 Create Account
-              </Text>
+              </Typography>
             </TouchableOpacity>
           </View>
           

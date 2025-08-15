@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { Logo } from '../components/Logo';
 import { CustomAlert } from '../components/CustomAlert';
 import { useCustomAlert } from '../hooks/useCustomAlert';
+import { DisplayText, BodyText, ButtonText, BrandText } from '../components/Typography';
 
 interface SignUpScreenProps {
   onNavigateToSignIn: () => void;
@@ -80,20 +81,24 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
           {/* Logo and Header */}
           <View style={styles.header}>
             <Logo size={80} />
-            <Text style={[styles.title, { color: theme.gold.primary }]}>
+            <DisplayText size="medium" color="gold" style={{ marginTop: 24, marginBottom: 8 }}>
               Create Account
-            </Text>
-            <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
-              Join ReceiptGold and start managing your receipts
-            </Text>
+            </DisplayText>
+            <BodyText size="large" color="secondary" align="center">
+              Join{' '}
+              <BrandText size="small" color="gold">
+                ReceiptGold
+              </BrandText>
+              {' '}and start managing your receipts
+            </BodyText>
           </View>
 
           {/* Form */}
           <View style={styles.form}>
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text.primary }]}>
+              <BodyText size="medium" color="primary" style={{ marginBottom: 8 }}>
                 Email
-              </Text>
+              </BodyText>
               <TextInput
                 style={[
                   styles.input,
@@ -114,9 +119,9 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text.primary }]}>
+              <BodyText size="medium" color="primary" style={{ marginBottom: 8 }}>
                 Password
-              </Text>
+              </BodyText>
               <View style={styles.passwordContainer}>
                 <TextInput
                   style={[
@@ -149,9 +154,9 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
             </View>
 
             <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text.primary }]}>
+              <BodyText size="medium" color="primary" style={{ marginBottom: 8 }}>
                 Confirm Password
-              </Text>
+              </BodyText>
               <View style={styles.passwordContainer}>
                 <TextInput
                   style={[
@@ -188,21 +193,21 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
               onPress={handleSignUp}
               disabled={loading}
             >
-              <Text style={[styles.signUpButtonText, { color: theme.text.inverse }]}>
+              <ButtonText size="large" color="inverse">
                 {loading ? 'Creating Account...' : 'Create Account'}
-              </Text>
+              </ButtonText>
             </TouchableOpacity>
           </View>
 
           {/* Sign In Link */}
           <View style={styles.signInContainer}>
-            <Text style={[styles.signInText, { color: theme.text.secondary }]}>
+            <BodyText size="medium" color="secondary">
               Already have an account?{' '}
-            </Text>
+            </BodyText>
             <TouchableOpacity onPress={onNavigateToSignIn}>
-              <Text style={[styles.signInLink, { color: theme.gold.primary }]}>
+              <BodyText size="medium" color="gold" style={{ fontWeight: '600' }}>
                 Sign In
-              </Text>
+              </BodyText>
             </TouchableOpacity>
           </View>
           
@@ -247,18 +252,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 32,
   },
-  title: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginTop: 24,
-    marginBottom: 8,
-    letterSpacing: 0.5,
-  },
-  subtitle: {
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 24,
-  },
   form: {
     marginBottom: 24,
   },
@@ -267,11 +260,6 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     marginBottom: 20,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
   },
   input: {
     height: 56,
@@ -312,22 +300,10 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
   },
-  signUpButtonText: {
-    fontSize: 18,
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
   signInContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 'auto',
-  },
-  signInText: {
-    fontSize: 16,
-  },
-  signInLink: {
-    fontSize: 16,
-    fontWeight: '600',
   },
 });

@@ -11,6 +11,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
 import { useHomeNavigation, useTabNavigation, navigationHelpers } from "../navigation/navigationHelpers";
+import { BrandText, HeadingText, BodyText, ButtonText } from '../components/Typography';
 import PricingLanding from "./PricingLanding";
 
 export const HomeScreen: React.FC = () => {
@@ -42,9 +43,9 @@ export const HomeScreen: React.FC = () => {
       style={[styles.container, { backgroundColor: theme.background.primary }]}
     >
       <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.gold.primary }]}>
+        <BrandText size="large" color="gold">
           ReceiptGold
-        </Text>
+        </BrandText>
         {/* <View style={styles.headerButtons}>
           <TouchableOpacity
             onPress={handleLogout}
@@ -59,7 +60,7 @@ export const HomeScreen: React.FC = () => {
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.welcomeSection}>
-          <Text style={[styles.welcomeText, { color: theme.text.primary }]}>
+          <HeadingText size="large" color="primary">
             Welcome back
             {user?.displayName
               ? `, ${(user as any).displayName?.split(' ')[0] || user?.email?.split('@')[0] || ''}`
@@ -67,26 +68,26 @@ export const HomeScreen: React.FC = () => {
                 ? `, ${user.email?.split('@')[0] || ''}`
                 : ''}
             !
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
+          </HeadingText>
+          <BodyText size="large" color="secondary">
             Manage your receipts and maximize your tax savings
-          </Text>
+          </BodyText>
         </View>
 
         {/* Quick Actions */}
         <View style={styles.quickActions}>
-          <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
+          <HeadingText size="medium" color="primary">
             Quick Actions
-          </Text>
+          </HeadingText>
           <View style={styles.actionButtons}>
             <TouchableOpacity
               style={[styles.actionButton, { backgroundColor: theme.gold.primary }]}
               onPress={() => navigationHelpers.switchToReceiptsTab(tabNavigation)}
             >
               <Text style={styles.actionButtonIcon}>📄</Text>
-              <Text style={[styles.actionButtonText, { color: theme.text.inverse }]}>
+              <ButtonText size="medium" color="inverse">
                 Scan Receipt
-              </Text>
+              </ButtonText>
             </TouchableOpacity>
             
             <TouchableOpacity
@@ -94,9 +95,9 @@ export const HomeScreen: React.FC = () => {
               onPress={() => navigationHelpers.switchToReportsTab(tabNavigation)}
             >
               <Text style={styles.actionButtonIcon}>📊</Text>
-              <Text style={[styles.actionButtonText, { color: theme.text.primary }]}>
+              <ButtonText size="medium" color="primary">
                 View Reports
-              </Text>
+              </ButtonText>
             </TouchableOpacity>
           </View>
         </View>
@@ -118,11 +119,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 20,
     paddingBottom: 10,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "bold",
-    letterSpacing: 1,
   },
   themeToggle: {
     width: 40,
@@ -157,27 +153,14 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 10,
   },
-  welcomeText: {
-    fontSize: 24,
-    fontWeight: "600",
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    marginBottom: 20,
-  },
   quickActions: {
     paddingHorizontal: 20,
     marginBottom: 30,
   },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
   actionButtons: {
     flexDirection: "row",
     gap: 12,
+    marginTop: 16,
   },
   actionButton: {
     flex: 1,
@@ -191,23 +174,9 @@ const styles = StyleSheet.create({
     fontSize: 24,
     marginBottom: 8,
   },
-  actionButtonText: {
-    fontSize: 14,
-    fontWeight: "600",
-    textAlign: "center",
-  },
   placeholder: {
     alignItems: "center",
     marginBottom: 40,
-  },
-  placeholderText: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 20,
-  },
-  placeholderSubtext: {
-    fontSize: 14,
-    marginBottom: 4,
   },
   card: {
     borderRadius: 12,
@@ -215,26 +184,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 20,
   },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: 16,
-  },
   statsRow: {
     flexDirection: "row",
     justifyContent: "space-around",
   },
   stat: {
     alignItems: "center",
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 12,
-    textTransform: "uppercase",
-    letterSpacing: 1,
   },
 });
