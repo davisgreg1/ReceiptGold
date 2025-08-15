@@ -26,6 +26,7 @@ import { receiptService } from "../services/firebaseService";
 import * as ImageManipulator from "expo-image-manipulator";
 import { receiptOCRService } from "../services/ReceiptOCRService";
 import { ReceiptCategoryService, ReceiptCategory } from "../services/ReceiptCategoryService";
+import { taxDeductibleService } from "../services/TaxDeductibleService";
 import { USE_DUMMY_DATA, generateDummyReceiptData, logDummyDataStatus } from "../utils/dummyReceiptData";
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
@@ -264,6 +265,14 @@ export const ScanReceiptScreen = () => {
           confidence: result.confidence 
         });
 
+        // Analyze tax deductibility using AI
+        setOcrStatus("Analyzing tax deductibility...");
+        const taxAnalysis = await taxDeductibleService.determineTaxDeductibility(ocrData, category);
+        console.log('Tax deductible analysis:', taxAnalysis);
+
+        // Add tax analysis to OCR data for later use
+        (ocrData as any).taxAnalysis = taxAnalysis;
+
       } catch (validationError: any) {
         console.error("Receipt validation failed:", validationError);
         setIsAnalyzing(false);
@@ -375,8 +384,8 @@ export const ScanReceiptScreen = () => {
                 ? `Receipt from ${ocrData.merchantName}`
                 : "Scanned Receipt",
               tax: {
-                deductible: true,
-                deductionPercentage: 100,
+                deductible: (ocrData as any).taxAnalysis?.isDeductible ?? true,
+                deductionPercentage: (ocrData as any).taxAnalysis?.suggestedPercentage ?? 100,
                 taxYear: new Date().getFullYear(),
                 category,
               },
@@ -748,8 +757,8 @@ export const ScanReceiptScreen = () => {
               ? `Receipt from ${ocrData.merchantName}`
               : "Scanned Receipt",
             tax: {
-              deductible: true,
-              deductionPercentage: 100,
+              deductible: (ocrData as any).taxAnalysis?.isDeductible ?? true,
+              deductionPercentage: (ocrData as any).taxAnalysis?.suggestedPercentage ?? 100,
               taxYear: new Date().getFullYear(),
               category: category,
             },

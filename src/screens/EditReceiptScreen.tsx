@@ -147,7 +147,7 @@ type EditReceiptScreenProps = NativeStackScreenProps<RootStackParamList, 'EditRe
 export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, navigation }) => {
   const { receipt } = route.params;
   const { theme } = useTheme();
-  const { showError, showSuccess, showFirebaseError } = useCustomAlert();
+  const { showError, showSuccess, showFirebaseError, hideAlert } = useCustomAlert();
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -221,7 +221,10 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         'Receipt updated successfully',
         {
           primaryButtonText: 'OK',
-          onPrimaryPress: () => navigation.goBack(),
+          onPrimaryPress: () => {
+            hideAlert();
+            navigation.goBack();
+          },
         }
       );
     } catch (error) {

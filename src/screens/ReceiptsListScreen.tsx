@@ -26,6 +26,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
+import { ReceiptsLoadingAnimation } from '../components/ReceiptsLoadingAnimation';
+import { Receipt as FirebaseReceipt } from '../services/firebaseService';
 
 export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
@@ -33,7 +35,7 @@ export const ReceiptsListScreen: React.FC = () => {
   const { subscription, getRemainingReceipts, currentReceiptCount } = useSubscription();
   const { handleSubscription } = useStripePayments();
   const { user } = useAuth();
-  const { showError, showSuccess, showWarning, showFirebaseError } = useCustomAlert();
+  const { showError, showSuccess, showWarning, showFirebaseError, hideAlert } = useCustomAlert();
   const [isUpgrading, setIsUpgrading] = useState(false);
   
   interface Receipt {
@@ -265,8 +267,40 @@ export const ReceiptsListScreen: React.FC = () => {
           }
           setSelectedReceipts(newSelected);
         } else {
-          navigation.navigate('ReceiptDetail', {
-            receiptId: receipt.id
+          // Get the image URL from either the images array or imageUrl field
+          const imageUrl = (receipt as any).images?.[0]?.url || receipt.imageUrl || '';
+          
+          // Convert the local receipt format to the format expected by EditReceipt
+          const firebaseReceipt: FirebaseReceipt = {
+            receiptId: receipt.id,
+            userId: receipt.userId,
+            vendor: receipt.vendor || 'Unknown Vendor',
+            amount: receipt.amount || 0,
+            currency: 'USD', // Default currency
+            date: receipt.date?.toDate ? receipt.date.toDate() : new Date(),
+            description: '', // Default description
+            category: receipt.category || 'business_expense',
+            subcategory: '',
+            tags: [],
+            images: imageUrl ? [{
+              url: imageUrl,
+              size: 0,
+              uploadedAt: receipt.createdAt?.toDate ? receipt.createdAt.toDate() : new Date()
+            }] : [],
+            tax: {
+              deductible: (receipt as any).tax?.deductible ?? true,
+              deductionPercentage: (receipt as any).tax?.deductionPercentage ?? 100,
+              taxYear: (receipt as any).tax?.taxYear ?? new Date().getFullYear(),
+              category: (receipt as any).tax?.category ?? 'business'
+            },
+            status: 'processed' as const,
+            processingErrors: [],
+            createdAt: receipt.createdAt?.toDate ? receipt.createdAt.toDate() : new Date(),
+            updatedAt: receipt.createdAt?.toDate ? receipt.createdAt.toDate() : new Date()
+          };
+          
+          navigation.navigate('EditReceipt', {
+            receipt: firebaseReceipt as any
           });
         }
       }}
@@ -326,7 +360,7 @@ export const ReceiptsListScreen: React.FC = () => {
         borderColor: theme.border.primary,
         marginBottom: 16,
       }]}>
-        {loading ? (
+        {refreshing ? (
           <ActivityIndicator size="small" color={theme.gold.primary} />
         ) : (
           <>
@@ -442,28 +476,35 @@ export const ReceiptsListScreen: React.FC = () => {
     }
   };
 
-  // Temporary debug function
-  const handleDebugSubscription = async () => {
-    if (!user?.uid) {
-      showError('Error', 'No user ID found');
-      return;
-    }
-    
-    try {
-      const debug = await debugSubscriptionState(user.uid);
-      
-      showWarning(
-        'Subscription Debug',
-        `Current Tier: ${debug.currentTier}\nLast Reset: ${debug.lastResetDate?.toLocaleDateString()}\nCurrent Count: ${debug.currentCount}\n\nCheck console for full details.`
-      );
-    } catch (error) {
-      console.error('Debug error:', error);
-      showError('Error', 'Failed to debug subscription state');
-    }
-  };
-
   const maxReceipts = subscription?.limits?.maxReceipts || 10;
   const remainingReceipts = getRemainingReceipts(currentReceiptCount);
+
+  // Show loading animation when initially loading receipts (but not when refreshing)
+  if (loading && !refreshing) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
+        <ReceiptsLoadingAnimation />
+        
+        {/* Floating Action Button - Always Visible */}
+        <TouchableOpacity
+          style={[styles.fab, { 
+            backgroundColor: theme.gold.primary,
+            shadowColor: theme.text.primary,
+            opacity: 0.7, // Slightly dimmed during loading
+          }]}
+          onPress={() => {
+            // Check again right before navigation
+            const maxReceipts = subscription?.limits?.maxReceipts || 10;
+            if (checkReceiptLimit(currentReceiptCount, maxReceipts, handleUpgrade)) {
+              navigation.navigate('ScanReceipt');
+            }
+          }}
+        >
+          <Ionicons name="camera" size={28} color="white" />
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
@@ -500,18 +541,6 @@ export const ReceiptsListScreen: React.FC = () => {
               )}
             </View>
           </View>
-
-          {/* Temporary Debug Button - Remove in production */}
-          {__DEV__ && (
-            <TouchableOpacity
-              style={[styles.selectButton, { marginTop: 8, backgroundColor: theme.gold.primary + '20' }]}
-              onPress={handleDebugSubscription}
-            >
-              <Text style={[styles.selectButtonText, { color: theme.gold.primary }]}>
-                Debug Subscription
-              </Text>
-            </TouchableOpacity>
-          )}
 
           {/* Search Bar */}
           {showSearch && (
@@ -555,9 +584,13 @@ export const ReceiptsListScreen: React.FC = () => {
                       setSelectedReceipts(new Set());
                       setIsSelectionMode(false);
                       fetchReceipts();
+                      hideAlert(); // Dismiss the alert after successful deletion
                     } catch (error) {
                       console.error('Error deleting receipts:', error);
+                      hideAlert(); // Dismiss the confirmation alert first
                       showError('Error', 'Failed to delete some receipts. Please try again.');
+                    } finally {
+                      setLoading(false);
                     }
                   };
 

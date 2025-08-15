@@ -49,6 +49,12 @@ interface Receipt {
   description?: string;
   id: string;
   status: string;
+  tax?: {
+    deductible: boolean;
+    deductionPercentage: number;
+    taxYear: number;
+    category: string;
+  };
 }
 
 type RootStackParamList = {
@@ -74,20 +80,39 @@ export const ReportsScreen = () => {
     if (receipts.length === 0) return 0;
     const totalAmount = receipts.reduce((sum, r) => sum + r.amount, 0);
     if (totalAmount === 0) return 0;
+    
+    // Debug logging
+    console.log('=== BUSINESS PERCENTAGE DEBUG ===');
+    console.log('Total receipts:', receipts.length);
+    console.log('Sample receipt tax data:', receipts.slice(0, 3).map(r => ({ 
+      id: r.id, 
+      amount: r.amount, 
+      tax: r.tax,
+      hasDeductible: r.tax?.deductible 
+    })));
+    
     const businessAmount = receipts
-      .filter((r) => r.businessId)
+      .filter((r) => r.tax?.deductible === true)
       .reduce((sum, r) => sum + r.amount, 0);
+      
+    console.log('Business receipts found:', receipts.filter(r => r.tax?.deductible === true).length);
+    console.log('Business amount:', businessAmount);
+    console.log('Total amount:', totalAmount);
+    console.log('================================');
+    
     return Math.round((businessAmount / totalAmount) * 100);
   }, [receipts]);
 
-  // Calculate tax categories
+  // Calculate tax categories (only include tax-deductible receipts)
   const taxCategories = useMemo(() => {
-    return receipts.reduce((acc, receipt) => {
-      const category = receipt.category;
-      if (!acc[category]) acc[category] = 0;
-      acc[category] += receipt.amount;
-      return acc;
-    }, {} as Record<string, number>);
+    return receipts
+      .filter((receipt) => receipt.tax?.deductible === true)
+      .reduce((acc, receipt) => {
+        const category = receipt.category;
+        if (!acc[category]) acc[category] = 0;
+        acc[category] += receipt.amount;
+        return acc;
+      }, {} as Record<string, number>);
   }, [receipts]);
 
   // Screen dimensions for the chart
@@ -177,6 +202,7 @@ export const ReportsScreen = () => {
             businessId: data.businessId,
             description: data.description,
             status: data.status || 'active',
+            tax: data.tax || undefined, // Include tax data for deductible analysis
           });
         });
 
@@ -256,6 +282,7 @@ export const ReportsScreen = () => {
           businessId: data.businessId,
           description: data.description,
           status: data.status || 'active',
+          tax: data.tax || undefined, // Include tax data for deductible analysis
         });
       });
 
@@ -579,28 +606,78 @@ export const ReportsScreen = () => {
         <Card.Content>
           <Text style={styles.sectionTitle}>Business vs Personal Split</Text>
           {receipts.length > 0 && (
-            <View style={styles.splitContainer}>
+            <>
+              {/* Modern Split Visualization */}
+              <View style={styles.modernSplitContainer}>
+                <View style={styles.splitVisualization}>
+                  <View 
+                    style={[
+                      styles.modernBusinessBar, 
+                      { width: `${businessPercentage}%` }
+                    ]} 
+                  />
+                  <View 
+                    style={[
+                      styles.modernPersonalBar, 
+                      { width: `${100 - businessPercentage}%` }
+                    ]} 
+                  />
+                </View>
+              </View>
+
+              {/* Split Stats Cards */}
+              <View style={styles.splitStatsContainer}>
+                <View style={[styles.splitStatCard, styles.businessStatCard]}>
+                  <View style={styles.statIconContainer}>
+                    <Text style={styles.businessIcon}>💼</Text>
+                  </View>
+                  <View style={styles.statContent}>
+                    <Text style={styles.statLabel}>Business</Text>
+                    <Text style={styles.statPercentage}>{businessPercentage}%</Text>
+                    <Text style={styles.statAmount}>
+                      ${receipts
+                        .filter((r) => r.tax?.deductible === true)
+                        .reduce((sum, r) => sum + r.amount, 0)
+                        .toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={[styles.splitStatCard, styles.personalStatCard]}>
+                  <View style={styles.statIconContainer}>
+                    <Text style={styles.personalIcon}>👤</Text>
+                  </View>
+                  <View style={styles.statContent}>
+                    <Text style={styles.statLabel}>Personal</Text>
+                    <Text style={styles.statPercentage}>{100 - businessPercentage}%</Text>
+                    <Text style={styles.statAmount}>
+                      ${receipts
+                        .filter((r) => !r.tax?.deductible)
+                        .reduce((sum, r) => sum + r.amount, 0)
+                        .toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Tax Savings Insight */}
               {businessPercentage > 0 && (
-                <View style={[styles.splitBar, styles.businessBar, { flex: businessPercentage }]}>
-                  <Text style={styles.splitText}>
-                    Business {businessPercentage}%
-                  </Text>
+                <View style={styles.taxSavingsCard}>
+                  <Text style={styles.taxSavingsIcon}>💰</Text>
+                  <View style={styles.taxSavingsContent}>
+                    <Text style={styles.taxSavingsTitle}>Potential Tax Savings</Text>
+                    <Text style={styles.taxSavingsAmount}>
+                      ${(receipts
+                        .filter((r) => r.tax?.deductible === true)
+                        .reduce((sum, r) => sum + r.amount, 0) * 0.25).toFixed(2)}
+                    </Text>
+                    <Text style={styles.taxSavingsSubtext}>
+                      Estimated at 25% tax rate
+                    </Text>
+                  </View>
                 </View>
               )}
-              {businessPercentage < 100 && (
-                <View
-                  style={[
-                    styles.splitBar,
-                    styles.personalBar,
-                    { flex: 100 - businessPercentage },
-                  ]}
-                >
-                  <Text style={styles.splitText}>
-                    Personal {100 - businessPercentage}%
-                  </Text>
-                </View>
-              )}
-            </View>
+            </>
           )}
 
           <Text style={styles.sectionTitle}>Tax Categories</Text>
@@ -841,5 +918,122 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     borderRadius: 16,
     alignSelf: "center",
+  },
+  // Modern Split UI Styles
+  modernSplitContainer: {
+    marginVertical: 16,
+  },
+  splitVisualization: {
+    flexDirection: "row",
+    height: 8,
+    borderRadius: 4,
+    overflow: "hidden",
+    backgroundColor: "#f0f0f0",
+    marginBottom: 16,
+  },
+  modernBusinessBar: {
+    backgroundColor: "#4CAF50",
+    height: "100%",
+    borderRadius: 4,
+  },
+  modernPersonalBar: {
+    backgroundColor: "#9E9E9E",
+    height: "100%",
+    borderRadius: 4,
+  },
+  splitStatsContainer: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 16,
+  },
+  splitStatCard: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  businessStatCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#4CAF50",
+  },
+  personalStatCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#9E9E9E",
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#f8f9fa",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  businessIcon: {
+    fontSize: 20,
+  },
+  personalIcon: {
+    fontSize: 20,
+  },
+  statContent: {
+    flex: 1,
+  },
+  statLabel: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 4,
+    fontWeight: "500",
+  },
+  statPercentage: {
+    fontSize: 24,
+    fontWeight: "bold",
+    color: "#333",
+    marginBottom: 4,
+  },
+  statAmount: {
+    fontSize: 16,
+    color: "#4CAF50",
+    fontWeight: "600",
+  },
+  taxSavingsCard: {
+    flexDirection: "row",
+    backgroundColor: "#E8F5E8",
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#4CAF50",
+    marginBottom: 8,
+  },
+  taxSavingsIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  taxSavingsContent: {
+    flex: 1,
+  },
+  taxSavingsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#2E7D32",
+    marginBottom: 4,
+  },
+  taxSavingsAmount: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#1B5E20",
+    marginBottom: 2,
+  },
+  taxSavingsSubtext: {
+    fontSize: 12,
+    color: "#4CAF50",
   },
 });
