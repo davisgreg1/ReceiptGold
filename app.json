@@ -51,7 +51,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "your-project-id-here"
+        "projectId": "receiptgold"
       },
       "FREE_TIER_MAX_RECEIPTS": "10",
       "STARTER_TIER_MAX_RECEIPTS": "50",
@@ -81,6 +81,31 @@
         "expo-image-picker",
         {
           "photosPermission": "The app accesses your photos to let you select a receipt."
+        }
+      ],
+      [
+        "@react-native-firebase/app",
+        {
+          "android": {
+            "googleServicesFile": "./google-services.json"
+          },
+          "ios": {
+            "googleServicesPlist": "./GoogleService-Info.plist"
+          }
+        }
+      ],
+      [
+        "@react-native-firebase/messaging",
+        {
+          "android": {
+            "requestPermission": true,
+            "authorizationOptions": ["alert", "badge", "sound"],
+            "notificationBackgroundColor": "#FFD700"
+          },
+          "ios": {
+            "requestPermission": true,
+            "authorizationOptions": ["alert", "badge", "sound"]
+          }
         }
       ]
     ]

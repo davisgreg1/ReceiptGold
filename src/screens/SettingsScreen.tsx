@@ -17,6 +17,8 @@ import {
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
+import { SettingsStackParamList } from '../navigation/AppNavigator';
 import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useAuth } from '../context/AuthContext';
@@ -139,11 +141,10 @@ export const SettingsScreen: React.FC = () => {
   const { subscription } = useSubscription();
   const { user, logout, refreshUser } = useAuth();
   const { handleSubscription, SUBSCRIPTION_TIERS } = useStripePayments();
-  const navigation = useNavigation();
+  const navigation = useNavigation<StackNavigationProp<SettingsStackParamList>>();
   const { showSuccess, showError, showWarning, showFirebaseError } = useCustomAlert();
   
   const [userData, setUserData] = React.useState<{ firstName?: string; lastName?: string; }>({});
-  const [notifications, setNotifications] = React.useState(true);
   const [emailUpdates, setEmailUpdates] = React.useState(true);
   const [isUpgrading, setIsUpgrading] = React.useState(false);
   const [showNameDialog, setShowNameDialog] = React.useState(false);
@@ -353,21 +354,6 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleNotificationChange = async (value: boolean) => {
-    if (!user) return;
-    setNotifications(value);
-    try {
-      await updateDoc(doc(db, 'users', user.uid), {
-        notificationSettings: {
-          enabled: value,
-          emailUpdates,
-        },
-      });
-    } catch (error) {
-      console.error('Failed to update notification settings:', error);
-    }
-  };
-
   const handleThemeChange = async (isDark: boolean) => {
     if (!user) return;
     const newTheme = isDark ? 'dark' : 'light';
@@ -390,7 +376,6 @@ export const SettingsScreen: React.FC = () => {
     try {
       await updateDoc(doc(db, 'users', user.uid), {
         notificationSettings: {
-          enabled: notifications,
           emailUpdates: value,
         },
       });
@@ -581,11 +566,10 @@ export const SettingsScreen: React.FC = () => {
         {/* Notifications Section */}
         <SettingsSection title="Notifications">
           <SettingsRow
-            label="Push Notifications"
-            isSwitch
-            switchValue={notifications}
-            onSwitchChange={handleNotificationChange}
-            description="Receive notifications about receipts and important updates"
+            label="Notification Settings"
+            onPress={() => navigation.navigate('Notifications')}
+            rightElement={<Ionicons name="chevron-forward" size={20} color={theme.text.secondary} />}
+            description="Manage push notifications, quiet hours, and notification types"
           />
           <SettingsRow
             label="Email Updates"

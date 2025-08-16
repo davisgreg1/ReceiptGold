@@ -13,6 +13,7 @@ import { ScanReceiptScreen } from "../screens/ScanReceiptScreen";
 import { ReceiptDetailScreen } from "../screens/ReceiptDetailScreen";
 import { EditReceiptScreen } from "../screens/EditReceiptScreen";
 import { DetailedBreakdownScreen } from "../screens/DetailedBreakdownScreen";
+import { NotificationSettingsScreen } from "../screens/NotificationSettingsScreen";
 import { Receipt } from "../types/receipt";
 
 // Tab Navigator Types
@@ -206,7 +207,7 @@ const SettingsStackNavigator = () => (
     />
     <SettingsStack.Screen
       name="Notifications"
-      component={() => <PlaceholderScreen title="Notifications" />}
+      component={NotificationSettingsScreen}
       options={{ title: "Notifications" }}
     />
     <SettingsStack.Screen
