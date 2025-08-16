@@ -15,6 +15,7 @@
     "@expo/metro-runtime": "~5.0.4",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "^8.4.2",
+    "@react-native-community/netinfo": "^11.4.1",
     "@react-native-firebase/app": "^23.0.1",
     "@react-native-firebase/messaging": "^23.0.1",
     "@react-native-picker/picker": "^2.11.1",
@@ -30,6 +31,7 @@
     "expo": "~53.0.20",
     "expo-camera": "~16.1.11",
     "expo-constants": "~17.1.7",
+    "expo-dev-client": "~5.2.4",
     "expo-device": "~7.1.4",
     "expo-file-system": "^18.1.11",
     "expo-image-manipulator": "^13.1.7",
@@ -59,8 +61,7 @@
     "react-native-vector-icons": "^10.3.0",
     "react-native-vision-camera": "^4.7.1",
     "react-native-web": "^0.20.0",
-    "stripe": "^18.3.0",
-    "expo-dev-client": "~5.2.4"
+    "stripe": "^18.3.0"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
