@@ -13,6 +13,7 @@ import { InAppNotificationProvider } from './src/components/InAppNotificationPro
 import { NotificationSettingsProvider } from './src/context/NotificationSettingsContext';
 import { useNotificationSettings } from './src/context/NotificationSettingsContext';
 import { NotificationService } from './src/services/ExpoNotificationService';
+import { useReceiptSync } from './src/services/ReceiptSyncService';
 
 const AppContent: React.FC = () => {
   const [splashFinished, setSplashFinished] = useState(false);
@@ -30,13 +31,49 @@ const AppContent: React.FC = () => {
     userEmail: user?.email
   });
 
+  // Sync receipts globally for logged-in users
+  const { syncing, syncError } = useReceiptSync();
+
   if (showSplash) {
     return <AppSplashScreen onFinish={() => setSplashFinished(true)} />;
   }
 
+  // Sync status banner
+  const SyncBanner = () => {
+    if (syncing) {
+      return (
+        <StatusBanner message="Syncing receipts..." color="#FFD700" />
+      );
+    }
+    if (syncError) {
+      return (
+        <StatusBanner message={syncError} color="#FF4D4F" />
+      );
+    }
+    return null;
+  };
+
+  // Simple status banner component
+  const StatusBanner = ({ message, color }: { message: string; color: string }) => (
+    <div style={{
+      width: '100%',
+      backgroundColor: color,
+      color: '#222',
+      padding: 8,
+      textAlign: 'center',
+      fontWeight: 'bold',
+      position: 'absolute',
+      top: 0,
+      zIndex: 9999,
+    }}>
+      {message}
+    </div>
+  );
+
   return (
     <>
       <StatusBar style={themeMode === 'dark' ? 'light' : 'dark'} />
+      <SyncBanner />
       <NotificationInitializer />
       {user ? <AppNavigator /> : <AuthNavigator />}
     </>

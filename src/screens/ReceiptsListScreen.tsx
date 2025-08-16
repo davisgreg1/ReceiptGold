@@ -19,6 +19,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useStripePayments } from '../hooks/useStripePayments';
 import { useAuth } from '../context/AuthContext';
+import { useReceiptSync } from '../services/ReceiptSyncService';
 import { db } from '../config/firebase';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { useReceiptsNavigation } from '../navigation/navigationHelpers';
@@ -38,21 +39,13 @@ export const ReceiptsListScreen: React.FC = () => {
   const { showError, showSuccess, showWarning, showFirebaseError, hideAlert } = useCustomAlert();
   const [isUpgrading, setIsUpgrading] = useState(false);
   
-  interface Receipt {
-    id: string;
-    date: any; // Firebase Timestamp
-    createdAt: any; // Firebase Timestamp
-    status: string;
-    vendor: string;
-    amount: number;
-    category: string;
-    userId: string;
-    imageUrl: string;
-  }
+  // Sync status from global sync hook
+  const { syncing, syncError } = useReceiptSync();
+  // Receipt type is imported from firebaseService
   
   // State for receipts and loading
-  const [receipts, setReceipts] = useState<Array<Receipt>>([]);
-  const [filteredReceipts, setFilteredReceipts] = useState<Array<Receipt>>([]);
+  const [receipts, setReceipts] = useState<Array<FirebaseReceipt>>([]);
+  const [filteredReceipts, setFilteredReceipts] = useState<Array<FirebaseReceipt>>([]);
   const [activeReceiptCount, setActiveReceiptCount] = useState(0);
   const [historicalUsage, setHistoricalUsage] = useState<{ month: string; count: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,10 +107,20 @@ export const ReceiptsListScreen: React.FC = () => {
       }
       
       // Convert the docs to receipt data
-      const receiptData = receiptDocs.map(doc => ({
-        id: doc.id,
-        ...(doc.data() as Omit<Receipt, 'id'>)
-      })) as Receipt[];
+      const receiptData = receiptDocs.map(doc => {
+        const data = doc.data();
+        // Normalize Firestore Timestamp to JS Date
+        const createdAt = data.createdAt instanceof Date ? data.createdAt : (data.createdAt?.toDate?.() || new Date());
+        const updatedAt = data.updatedAt instanceof Date ? data.updatedAt : (data.updatedAt?.toDate?.() || new Date());
+        const date = data.date instanceof Date ? data.date : (data.date?.toDate?.() || new Date());
+        return {
+          ...data,
+          receiptId: data.receiptId || doc.id,
+          createdAt,
+          updatedAt,
+          date,
+        };
+      }) as FirebaseReceipt[];
       
       // Get monthly usage count using our utility function
       const monthlyCount = await getMonthlyReceiptCount(user.uid);
@@ -186,7 +189,7 @@ export const ReceiptsListScreen: React.FC = () => {
         monthlyUsageCount: monthlyCount,
         historical: historicalUsageData,
         receipts: receiptData.map(r => ({
-          id: r.id,
+          receiptId: r.receiptId,
           date: r.date,
           status: r.status,
           vendor: r.vendor
@@ -194,8 +197,8 @@ export const ReceiptsListScreen: React.FC = () => {
       });
       
       // Update all states
-      setReceipts(receiptData);
-      setFilteredReceipts(receiptData);
+  setReceipts(receiptData);
+  setFilteredReceipts(receiptData);
       setActiveReceiptCount(receiptData.length);
       setHistoricalUsage(historicalUsageData);
     } catch (error) {
@@ -227,7 +230,7 @@ export const ReceiptsListScreen: React.FC = () => {
       receipt.vendor?.toLowerCase().includes(query.toLowerCase()) ||
       receipt.category?.toLowerCase().includes(query.toLowerCase()) ||
       receipt.amount?.toString().includes(query) ||
-      new Date(receipt.createdAt?.toDate()).toLocaleDateString().includes(query)
+  receipt.createdAt.toLocaleDateString().includes(query)
     );
     
     setFilteredReceipts(filtered);
@@ -255,29 +258,29 @@ export const ReceiptsListScreen: React.FC = () => {
   }, [receipts, searchQuery, filterReceipts]);
 
   // Render receipt item for FlatList
-  const renderReceiptItem = ({ item: receipt }: { item: Receipt }) => (
+  const renderReceiptItem = ({ item: receipt }: { item: FirebaseReceipt }) => (
     <TouchableOpacity
       onPress={() => {
         if (isSelectionMode) {
           const newSelected = new Set(selectedReceipts);
-          if (newSelected.has(receipt.id)) {
-            newSelected.delete(receipt.id);
+          if (newSelected.has(receipt.receiptId)) {
+            newSelected.delete(receipt.receiptId);
           } else {
-            newSelected.add(receipt.id);
+            newSelected.add(receipt.receiptId);
           }
           setSelectedReceipts(newSelected);
         } else {
           // Get the image URL from either the images array or imageUrl field
-          const imageUrl = (receipt as any).images?.[0]?.url || receipt.imageUrl || '';
+          const imageUrl = receipt.images?.[0]?.url || '';
           
           // Convert the local receipt format to the format expected by EditReceipt
           const firebaseReceipt: FirebaseReceipt = {
-            receiptId: receipt.id,
+            receiptId: receipt.receiptId,
             userId: receipt.userId,
             vendor: receipt.vendor || 'Unknown Vendor',
             amount: receipt.amount || 0,
             currency: 'USD', // Default currency
-            date: receipt.date?.toDate ? receipt.date.toDate() : new Date(),
+            date: receipt.date,
             description: '', // Default description
             category: receipt.category || 'business_expense',
             subcategory: '',
@@ -285,7 +288,7 @@ export const ReceiptsListScreen: React.FC = () => {
             images: imageUrl ? [{
               url: imageUrl,
               size: 0,
-              uploadedAt: receipt.createdAt?.toDate ? receipt.createdAt.toDate() : new Date()
+              uploadedAt: receipt.createdAt
             }] : [],
             tax: {
               deductible: (receipt as any).tax?.deductible ?? true,
@@ -295,8 +298,8 @@ export const ReceiptsListScreen: React.FC = () => {
             },
             status: 'processed' as const,
             processingErrors: [],
-            createdAt: receipt.createdAt?.toDate ? receipt.createdAt.toDate() : new Date(),
-            updatedAt: receipt.createdAt?.toDate ? receipt.createdAt.toDate() : new Date()
+            createdAt: receipt.createdAt,
+            updatedAt: receipt.updatedAt
           };
           
           navigation.navigate('EditReceipt', {
@@ -307,23 +310,23 @@ export const ReceiptsListScreen: React.FC = () => {
       onLongPress={() => {
         if (!isSelectionMode) {
           setIsSelectionMode(true);
-          setSelectedReceipts(new Set([receipt.id]));
+          setSelectedReceipts(new Set([receipt.receiptId]));
         }
       }}
       style={[
         styles.receiptCard,
         {
           backgroundColor: theme.background.secondary,
-          borderColor: selectedReceipts.has(receipt.id) 
+          borderColor: selectedReceipts.has(receipt.receiptId) 
             ? theme.gold.primary 
             : theme.border.primary,
-          borderWidth: selectedReceipts.has(receipt.id) ? 2 : 1,
+          borderWidth: selectedReceipts.has(receipt.receiptId) ? 2 : 1,
         },
       ]}
     >
       {isSelectionMode && (
         <View style={[styles.checkbox, { borderColor: theme.border.primary }]}>
-          {selectedReceipts.has(receipt.id) && (
+          {selectedReceipts.has(receipt.receiptId) && (
             <View style={[styles.checkboxInner, { backgroundColor: theme.gold.primary }]} />
           )}
         </View>
@@ -331,7 +334,7 @@ export const ReceiptsListScreen: React.FC = () => {
       <View style={styles.receiptContent}>
         <View style={styles.receiptHeader}>
           <Text style={[styles.receiptName, { color: theme.text.primary }]}>
-            {new Date(receipt.createdAt?.toDate()).toLocaleDateString()}
+            {receipt.createdAt.toLocaleDateString()}
           </Text>
           <Text style={[styles.receiptAmount, { color: theme.gold.primary }]}>
             ${(receipt.amount || 0).toFixed(2)}
@@ -505,6 +508,25 @@ export const ReceiptsListScreen: React.FC = () => {
       </SafeAreaView>
     );
   }
+
+  // Sync status banner
+  const SyncBanner = () => {
+    if (syncing) {
+      return (
+        <View style={{ width: '100%', backgroundColor: theme.gold.primary, padding: 8 }}>
+          <Text style={{ color: theme.text.primary, textAlign: 'center', fontWeight: 'bold' }}>Syncing receipts...</Text>
+        </View>
+      );
+    }
+    if (syncError) {
+      return (
+        <View style={{ width: '100%', backgroundColor: '#FF4D4F', padding: 8 }}>
+          <Text style={{ color: '#fff', textAlign: 'center', fontWeight: 'bold' }}>{syncError}</Text>
+        </View>
+      );
+    }
+    return null;
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
@@ -728,13 +750,13 @@ export const ReceiptsListScreen: React.FC = () => {
             }
 
             // Regular receipt item
-            const receipt = item as Receipt;
+            const receipt = item as FirebaseReceipt;
             return renderReceiptItem({ item: receipt });
           }}
           keyExtractor={(item) => {
             if ('isLimitReachedPrompt' in item) return 'limit-reached-prompt';
             if ('isUpgradePrompt' in item) return 'upgrade-prompt';
-            return (item as Receipt).id;
+            return (item as FirebaseReceipt).receiptId;
           }}
           ListHeaderComponent={ListHeaderComponent}
           ListEmptyComponent={ListEmptyComponent}
