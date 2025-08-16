@@ -1,8 +1,8 @@
-import React, { useEffect } from "react";
-import { StyleSheet, Animated, Dimensions } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { StyleSheet, Animated, Dimensions, Easing } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
-import Svg, { Circle, Rect, Text, Polygon } from "react-native-svg";
+import Svg, { Circle, Rect, Text, Polygon, Defs, LinearGradient, Stop } from "react-native-svg";
 import { useTheme } from "../theme/ThemeProvider";
 import { BrandText, BodyText } from '../components/Typography';
 
@@ -15,34 +15,121 @@ interface SplashScreenProps {
 
 export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
   const { theme } = useTheme();
-  const fadeAnim = new Animated.Value(0);
-  const scaleAnim = new Animated.Value(0.8);
+  
+  // Enhanced animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.3)).current;
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  const slideUpAnim = useRef(new Animated.Value(50)).current;
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const logoOpacity = useRef(new Animated.Value(0)).current;
+  const textOpacity = useRef(new Animated.Value(0)).current;
+  const taglineOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const prepare = async () => {
       try {
-        // Simulate loading time and any async operations
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        // Start continuous animations immediately
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(shimmerAnim, {
+              toValue: 1,
+              duration: 2500,
+              easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+              useNativeDriver: true,
+            }),
+            Animated.timing(shimmerAnim, {
+              toValue: 0,
+              duration: 2500,
+              easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+              useNativeDriver: true,
+            }),
+          ])
+        ).start();
 
-        // Start animations
+        // Continuous pulse animation
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(pulseAnim, {
+              toValue: 1.15,
+              duration: 1800,
+              easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+              useNativeDriver: true,
+            }),
+            Animated.timing(pulseAnim, {
+              toValue: 1,
+              duration: 1800,
+              easing: Easing.bezier(0.4, 0.0, 0.2, 1),
+              useNativeDriver: true,
+            }),
+          ])
+        ).start();
+
+        // Simulate loading time
+        await new Promise((resolve) => setTimeout(resolve, 800));
+
+        // Logo entrance with rotation and scale
         Animated.parallel([
-          Animated.timing(fadeAnim, {
+          Animated.timing(logoOpacity, {
             toValue: 1,
             duration: 1000,
+            easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
             useNativeDriver: true,
           }),
           Animated.spring(scaleAnim, {
             toValue: 1,
-            tension: 50,
+            tension: 40,
             friction: 8,
+            useNativeDriver: true,
+          }),
+          Animated.timing(rotateAnim, {
+            toValue: 1,
+            duration: 1200,
+            easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
             useNativeDriver: true,
           }),
         ]).start();
 
-        // Wait for animation to complete then finish
+        // App name entrance (staggered)
         setTimeout(() => {
-          onFinish();
-        }, 1500);
+          Animated.parallel([
+            Animated.timing(textOpacity, {
+              toValue: 1,
+              duration: 800,
+              easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+              useNativeDriver: true,
+            }),
+            Animated.spring(slideUpAnim, {
+              toValue: 0,
+              tension: 35,
+              friction: 8,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }, 700);
+
+        // Tagline entrance
+        setTimeout(() => {
+          Animated.timing(taglineOpacity, {
+            toValue: 1,
+            duration: 600,
+            easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+            useNativeDriver: true,
+          }).start();
+        }, 1200);
+
+        // Final fade and transition
+        setTimeout(() => {
+          Animated.timing(fadeAnim, {
+            toValue: 1,
+            duration: 400,
+            easing: Easing.bezier(0.25, 0.46, 0.45, 0.94),
+            useNativeDriver: true,
+          }).start(() => {
+            setTimeout(onFinish, 300);
+          });
+        }, 3000);
       } catch (e) {
         console.warn(e);
       } finally {
@@ -53,130 +140,229 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
     prepare();
   }, []);
 
-  const ReceiptGoldLogo = () => (
-    <Svg width="200" height="200" viewBox="0 0 200 200">
-      {/* Circular background */}
-      <Circle
-        cx="100"
-        cy="100"
-        r="90"
-        fill={theme.background.primary}
-        stroke={theme.gold.primary}
-        strokeWidth="4"
-      />
+  const ReceiptGoldLogo = () => {
+    // Animation interpolations
+    const rotation = rotateAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    });
 
-      {/* Inner gold circle for depth */}
-      <Circle
-        cx="100"
-        cy="100"
-        r="75"
-        fill="none"
-        stroke={theme.gold.rich}
-        strokeWidth="1"
-        opacity="0.3"
-      />
+    const shimmerTranslate = shimmerAnim.interpolate({
+      inputRange: [0, 1],
+      outputRange: [-250, 250],
+    });
 
-      {/* Receipt icon base */}
-      <Rect
-        x="65"
-        y="45"
-        width="70"
-        height="90"
-        rx="8"
-        ry="8"
-        fill={theme.text.inverse}
-        stroke={theme.gold.primary}
-        strokeWidth="2"
-      />
+    const AnimatedSvg = Animated.createAnimatedComponent(Svg);
 
-      {/* Receipt text lines */}
-      <Rect
-        x="75"
-        y="65"
-        width="50"
-        height="3"
-        rx="1.5"
-        fill={theme.background.primary}
-      />
-      <Rect
-        x="75"
-        y="75"
-        width="40"
-        height="3"
-        rx="1.5"
-        fill={theme.background.primary}
-      />
-      <Rect
-        x="75"
-        y="85"
-        width="45"
-        height="3"
-        rx="1.5"
-        fill={theme.background.primary}
-      />
-      <Rect
-        x="75"
-        y="95"
-        width="35"
-        height="3"
-        rx="1.5"
-        fill={theme.background.primary}
-      />
-
-      {/* Total line (emphasized) */}
-      <Rect
-        x="75"
-        y="110"
-        width="50"
-        height="4"
-        rx="2"
-        fill={theme.gold.rich}
-      />
-
-      {/* Gold coin accent */}
-      <Circle
-        cx="120"
-        cy="70"
-        r="8"
-        fill={theme.gold.primary}
-        stroke={theme.gold.rich}
-        strokeWidth="1"
-      />
-      <Text
-        x="120"
-        y="75"
-        textAnchor="middle"
-        fontFamily="serif"
-        fontSize="10"
-        fontWeight="bold"
-        fill={theme.text.inverse}
+    return (
+      <Animated.View
+        style={{
+          transform: [
+            { scale: pulseAnim },
+            { rotateY: rotation },
+          ],
+        }}
       >
-        $
-      </Text>
+        <AnimatedSvg width="220" height="220" viewBox="0 0 220 220">
+          <Defs>
+            {/* Premium gold gradient */}
+            <LinearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor="#FFD700" stopOpacity="1" />
+              <Stop offset="30%" stopColor="#FFA500" stopOpacity="1" />
+              <Stop offset="70%" stopColor="#FF8C00" stopOpacity="1" />
+              <Stop offset="100%" stopColor="#DAA520" stopOpacity="1" />
+            </LinearGradient>
+            
+            {/* Shimmer effect */}
+            <LinearGradient id="shimmerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+              <Stop offset="0%" stopColor="transparent" stopOpacity="0" />
+              <Stop offset="30%" stopColor="#ffffff" stopOpacity="0.4" />
+              <Stop offset="50%" stopColor="#ffffff" stopOpacity="0.6" />
+              <Stop offset="70%" stopColor="#ffffff" stopOpacity="0.4" />
+              <Stop offset="100%" stopColor="transparent" stopOpacity="0" />
+            </LinearGradient>
 
-      {/* Geometric gold accents for symmetry */}
-      <Polygon points="100,25 105,35 95,35" fill={theme.gold.primary} />
-      <Polygon points="100,175 105,165 95,165" fill={theme.gold.primary} />
-      <Polygon points="25,100 35,95 35,105" fill={theme.gold.primary} />
-      <Polygon points="175,100 165,95 165,105" fill={theme.gold.primary} />
+            {/* Radial glow */}
+            <LinearGradient id="glowGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+              <Stop offset="0%" stopColor="#FFD700" stopOpacity="0.8" />
+              <Stop offset="50%" stopColor="#FFA500" stopOpacity="0.4" />
+              <Stop offset="100%" stopColor="transparent" stopOpacity="0" />
+            </LinearGradient>
+          </Defs>
 
-      {/* Inner geometric pattern */}
-      <Circle cx="85" cy="85" r="2" fill={theme.gold.primary} opacity="0.6" />
-      <Circle cx="115" cy="85" r="2" fill={theme.gold.primary} opacity="0.6" />
-      <Circle cx="85" cy="115" r="2" fill={theme.gold.primary} opacity="0.6" />
-      <Circle cx="115" cy="115" r="2" fill={theme.gold.primary} opacity="0.6" />
-    </Svg>
-  );
+          {/* Outer glow rings */}
+          <Circle
+            cx="110"
+            cy="110"
+            r="105"
+            fill="none"
+            stroke="url(#goldGradient)"
+            strokeWidth="2"
+            opacity="0.3"
+          />
+          <Circle
+            cx="110"
+            cy="110"
+            r="100"
+            fill="none"
+            stroke="url(#goldGradient)"
+            strokeWidth="3"
+            opacity="0.5"
+          />
+
+          {/* Main circular background */}
+          <Circle
+            cx="110"
+            cy="110"
+            r="90"
+            fill={theme.background.primary}
+            stroke="url(#goldGradient)"
+            strokeWidth="4"
+          />
+
+          {/* Inner depth circles */}
+          <Circle
+            cx="110"
+            cy="110"
+            r="75"
+            fill="none"
+            stroke={theme.gold.primary}
+            strokeWidth="1"
+            opacity="0.6"
+          />
+          <Circle
+            cx="110"
+            cy="110"
+            r="60"
+            fill="none"
+            stroke={theme.gold.rich}
+            strokeWidth="1"
+            opacity="0.4"
+          />
+
+          {/* Enhanced receipt icon */}
+          <Rect
+            x="75"
+            y="50"
+            width="70"
+            height="95"
+            rx="10"
+            ry="10"
+            fill={theme.text.inverse}
+            stroke="url(#goldGradient)"
+            strokeWidth="3"
+          />
+
+          {/* Receipt header with gradient */}
+          <Rect
+            x="75"
+            y="50"
+            width="70"
+            height="18"
+            rx="10"
+            ry="10"
+            fill="url(#goldGradient)"
+          />
+
+          {/* Receipt text lines */}
+          <Rect x="85" y="75" width="50" height="3" rx="1.5" fill={theme.background.primary} />
+          <Rect x="85" y="83" width="40" height="3" rx="1.5" fill={theme.background.primary} />
+          <Rect x="85" y="91" width="45" height="3" rx="1.5" fill={theme.background.primary} />
+          <Rect x="85" y="99" width="35" height="3" rx="1.5" fill={theme.background.primary} />
+          <Rect x="85" y="107" width="42" height="3" rx="1.5" fill={theme.background.primary} />
+
+          {/* Total line (emphasized with gold) */}
+          <Rect
+            x="85"
+            y="120"
+            width="50"
+            height="5"
+            rx="2.5"
+            fill="url(#goldGradient)"
+          />
+
+          {/* Enhanced gold coin */}
+          <Circle
+            cx="125"
+            cy="75"
+            r="10"
+            fill="url(#goldGradient)"
+            stroke={theme.gold.rich}
+            strokeWidth="2"
+          />
+          <Circle
+            cx="125"
+            cy="75"
+            r="7"
+            fill="none"
+            stroke="#ffffff"
+            strokeWidth="1"
+            opacity="0.6"
+          />
+          <Text
+            x="125"
+            y="80"
+            textAnchor="middle"
+            fontFamily="serif"
+            fontSize="11"
+            fontWeight="bold"
+            fill={theme.text.inverse}
+          >
+            $
+          </Text>
+
+          {/* Geometric accents */}
+          <Polygon points="110,20 118,35 102,35" fill="url(#goldGradient)" />
+          <Polygon points="110,200 118,185 102,185" fill="url(#goldGradient)" />
+          <Polygon points="20,110 35,102 35,118" fill="url(#goldGradient)" />
+          <Polygon points="200,110 185,102 185,118" fill="url(#goldGradient)" />
+
+          {/* Decorative corner elements */}
+          <Circle cx="85" cy="85" r="2.5" fill="url(#goldGradient)" opacity="0.8" />
+          <Circle cx="135" cy="85" r="2.5" fill="url(#goldGradient)" opacity="0.8" />
+          <Circle cx="85" cy="135" r="2.5" fill="url(#goldGradient)" opacity="0.8" />
+          <Circle cx="135" cy="135" r="2.5" fill="url(#goldGradient)" opacity="0.8" />
+        </AnimatedSvg>
+
+        {/* Shimmer overlay effect */}
+        <Animated.View
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            transform: [{ translateX: shimmerTranslate }],
+          }}
+          pointerEvents="none"
+        >
+          <Svg width="80" height="220" style={{ opacity: 0.7 }}>
+            <Rect
+              x="0"
+              y="0"
+              width="80"
+              height="220"
+              fill="url(#shimmerGradient)"
+            />
+          </Svg>
+        </Animated.View>
+      </Animated.View>
+    );
+  };
 
   return (
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.background.primary }]}
     >
+      {/* Subtle background gradient overlay */}
+      <Animated.View style={[styles.backgroundOverlay, { opacity: fadeAnim }]} />
+      
+      {/* Logo with complex animations */}
       <Animated.View
         style={[
           styles.logoContainer,
           {
-            opacity: fadeAnim,
+            opacity: logoOpacity,
             transform: [{ scale: scaleAnim }],
           },
         ]}
@@ -184,30 +370,68 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
         <ReceiptGoldLogo />
       </Animated.View>
 
-      <Animated.View style={{ opacity: fadeAnim }}>
+      {/* App name with slide up animation */}
+      <Animated.View
+        style={[
+          styles.textContainer,
+          {
+            opacity: textOpacity,
+            transform: [{ translateY: slideUpAnim }],
+          },
+        ]}
+      >
         <BrandText 
           color="gold"
-          style={{
-            fontSize: 36,
-            letterSpacing: 1,
-          }}
+          style={styles.appName}
         >
           ReceiptGold
         </BrandText>
       </Animated.View>
 
-      <Animated.View style={{ opacity: fadeAnim }}>
+      {/* Tagline with elegant fade in */}
+      <Animated.View 
+        style={[
+          styles.taglineContainer,
+          { opacity: taglineOpacity }
+        ]}
+      >
         <BodyText
           size="large"
           color="secondary"
-          style={{
-            fontWeight: '300',
-            letterSpacing: 0.5,
-            marginTop: 8,
-          }}
+          style={styles.tagline}
         >
           Premium Receipt Management
         </BodyText>
+      </Animated.View>
+
+      {/* Elegant loading dots */}
+      <Animated.View 
+        style={[
+          styles.loadingContainer,
+          { opacity: textOpacity }
+        ]}
+      >
+        <Animated.View
+          style={[
+            styles.loadingDot,
+            { backgroundColor: theme.gold.primary },
+            { transform: [{ scale: pulseAnim }] }
+          ]}
+        />
+        <Animated.View
+          style={[
+            styles.loadingDot,
+            { backgroundColor: theme.gold.primary },
+            { transform: [{ scale: pulseAnim }] }
+          ]}
+        />
+        <Animated.View
+          style={[
+            styles.loadingDot,
+            { backgroundColor: theme.gold.primary },
+            { transform: [{ scale: pulseAnim }] }
+          ]}
+        />
       </Animated.View>
     </SafeAreaView>
   );
@@ -218,19 +442,74 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: 'transparent',
+  },
+  backgroundOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 215, 0, 0.03)',
+    zIndex: -1,
   },
   logoContainer: {
-    marginBottom: 30,
+    marginBottom: 35,
+    shadowColor: "#FFD700",
+    shadowOffset: {
+      width: 0,
+      height: 12,
+    },
+    shadowOpacity: 0.4,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  textContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    marginBottom: 12,
   },
   appName: {
-    fontSize: 32,
+    fontSize: 38,
     fontWeight: "bold",
-    marginBottom: 8,
-    letterSpacing: 1,
+    letterSpacing: 2.5,
+    textAlign: 'center',
+    textShadowColor: 'rgba(255, 215, 0, 0.25)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 8,
+    lineHeight: 46,
+  },
+  taglineContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 32,
+    marginBottom: 32,
   },
   tagline: {
-    fontSize: 16,
-    fontWeight: "300",
-    letterSpacing: 0.5,
+    fontSize: 17,
+    fontWeight: '300',
+    letterSpacing: 1.2,
+    textAlign: 'center',
+    opacity: 0.9,
+    lineHeight: 24,
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  loadingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginHorizontal: 6,
+    shadowColor: "#FFD700",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 3,
   },
 });
