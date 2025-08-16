@@ -9,6 +9,7 @@ import {
   Animated,
   ActivityIndicator,
   Alert,
+  Platform,
 } from "react-native";
 import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription, SubscriptionTier } from "../context/SubscriptionContext";
@@ -503,38 +504,72 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 10,
     borderRadius: 25,
-    shadowColor: "#FFD700",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 6,
     alignItems: "center",
     justifyContent: "center",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#FFD700",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+      },
+      android: {
+        // Clean border approach for Android
+        borderWidth: 2,
+        borderColor: 'rgba(255, 215, 0, 0.4)',
+      },
+    }),
   },
   card: {
     borderRadius: 24,
     padding: 32,
     borderWidth: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 8,
     position: "relative",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.12,
+        shadowRadius: 16,
+      },
+      android: {
+        // Clean card with subtle border for Android
+        backgroundColor: 'transparent',
+      },
+    }),
   },
   selectedCard: {
     borderWidth: 3,
-    shadowOpacity: 0.25,
-    shadowRadius: 20,
-    elevation: 12,
+    ...Platform.select({
+      ios: {
+        shadowOpacity: 0.25,
+        shadowRadius: 20,
+      },
+      android: {
+        // Thicker border and background tint for selected state
+        borderWidth: 3,
+        backgroundColor: 'rgba(212, 175, 55, 0.05)',
+      },
+    }),
   },
   popularCard: {
     borderWidth: 3,
-    shadowColor: "#FFD700",
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 8,
     marginVertical: 4,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#FFD700",
+        shadowOpacity: 0.15,
+        shadowRadius: 16,
+      },
+      android: {
+        // Gold gradient border effect for Android
+        backgroundColor: 'rgba(255, 215, 0, 0.08)',
+        borderColor: 'rgba(255, 215, 0, 0.3)',
+        // Add a subtle inner shadow effect with border
+        borderTopWidth: 4,
+        borderBottomWidth: 4,
+      },
+    }),
   },
   iconContainer: {
     width: 64,
@@ -543,12 +578,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 4,
     alignSelf: "center",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 8,
+      },
+      android: {
+        // Clean border approach for icons on Android
+        borderWidth: 2,
+        borderColor: 'rgba(255, 255, 255, 0.2)',
+      },
+    }),
   },
   iconText: {
     fontSize: 28,
@@ -623,13 +666,19 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 32,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 6,
     position: "relative",
     overflow: "hidden",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.2,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   buttonGradient: {
     position: "absolute",

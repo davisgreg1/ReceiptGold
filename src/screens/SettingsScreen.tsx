@@ -619,19 +619,19 @@ export const SettingsScreen: React.FC = () => {
         <SettingsSection title="Support">
           <SettingsRow
             label="Help Center"
-            onPress={() => {/* TODO: Implement help center */}}
+            onPress={() => navigation.navigate('Help')}
           />
           <SettingsRow
             label="Contact Support"
-            onPress={() => {/* TODO: Implement support contact */}}
+            onPress={() => navigation.navigate('ContactSupport')}
           />
           <SettingsRow
             label="Privacy Policy"
-            onPress={() => {/* TODO: Implement privacy policy */}}
+            onPress={() => navigation.navigate('PrivacyPolicy')}
           />
           <SettingsRow
             label="Terms of Service"
-            onPress={() => {/* TODO: Implement terms of service */}}
+            onPress={() => navigation.navigate('TermsOfService')}
           />
         </SettingsSection>
 

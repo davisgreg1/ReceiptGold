@@ -15,6 +15,10 @@ import { EditReceiptScreen } from "../screens/EditReceiptScreen";
 import { DetailedBreakdownScreen } from "../screens/DetailedBreakdownScreen";
 import { NotificationSettingsScreen } from "../screens/NotificationSettingsScreen";
 import { BankTransactionsScreen } from "../screens/BankTransactionsScreen";
+import { ContactSupportScreen } from "../screens/ContactSupportScreen";
+import { HelpCenterScreen } from "../screens/HelpCenterScreen";
+import { PrivacyPolicyScreen } from "../screens/PrivacyPolicyScreen";
+import { TermsOfServiceScreen } from "../screens/TermsOfServiceScreen";
 import { Receipt } from "../types/receipt";
 
 // Tab Navigator Types
@@ -52,6 +56,9 @@ export type SettingsStackParamList = {
   Billing: undefined;
   Notifications: undefined;
   Help: undefined;
+  ContactSupport: undefined;
+  PrivacyPolicy: undefined;
+  TermsOfService: undefined;
 };
 
 const Tab = createBottomTabNavigator<BottomTabParamList>();
@@ -219,8 +226,23 @@ const SettingsStackNavigator = () => (
     />
     <SettingsStack.Screen
       name="Help"
-      component={() => <PlaceholderScreen title="Help" />}
-      options={{ title: "Help & Support" }}
+      component={HelpCenterScreen}
+      options={{ title: "Help Center" }}
+    />
+    <SettingsStack.Screen
+      name="ContactSupport"
+      component={ContactSupportScreen}
+      options={{ title: "Contact Support" }}
+    />
+    <SettingsStack.Screen
+      name="PrivacyPolicy"
+      component={PrivacyPolicyScreen}
+      options={{ title: "Privacy Policy" }}
+    />
+    <SettingsStack.Screen
+      name="TermsOfService"
+      component={TermsOfServiceScreen}
+      options={{ title: "Terms of Service" }}
     />
   </SettingsStack.Navigator>
 );
