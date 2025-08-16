@@ -298,7 +298,60 @@ export const HomeScreen: React.FC = () => {
           </View>
         )}
 
-        <PricingLanding />
+        {/* Compact Subscription Summary Card */}
+        <View style={{paddingHorizontal: 20, marginBottom: 30}}>
+          <View style={{
+            borderRadius: 16,
+            backgroundColor: theme.background.secondary,
+            borderWidth: 1,
+            borderColor: theme.gold.primary,
+            padding: 20,
+            shadowColor: theme.gold.primary,
+            shadowOpacity: 0.08,
+            shadowRadius: 8,
+            shadowOffset: { width: 0, height: 2 },
+            alignItems: 'center',
+            flexDirection: 'row',
+            gap: 16,
+          }}>
+            <View style={{alignItems: 'center', justifyContent: 'center', marginRight: 16}}>
+              <Text style={{fontSize: 32}}>
+                {subscription.currentTier === 'starter' ? '📄' : subscription.currentTier === 'growth' ? '📈' : subscription.currentTier === 'professional' ? '💼' : '🆓'}
+              </Text>
+            </View>
+            <View style={{flex: 1}}>
+              <HeadingText size="medium" color="gold">
+                {subscription.currentTier === 'starter' ? 'Starter Plan' : subscription.currentTier === 'growth' ? 'Growth Plan' : subscription.currentTier === 'professional' ? 'Professional Plan' : 'Free Plan'}
+              </HeadingText>
+              <BodyText size="small" color="secondary">
+                {subscription.currentTier === 'starter' && '50 receipts/mo · LLC categories'}
+                {subscription.currentTier === 'growth' && '150 receipts/mo · Advanced reporting'}
+                {subscription.currentTier === 'professional' && 'Unlimited receipts · Multi-business'}
+                {subscription.currentTier === 'free' && 'Basic features'}
+              </BodyText>
+              <BodyText size="small" color="tertiary" style={{marginTop: 4}}>
+                {subscription.currentTier === 'starter' && '$9.99/mo'}
+                {subscription.currentTier === 'growth' && '$19.99/mo'}
+                {subscription.currentTier === 'professional' && '$39.99/mo'}
+                {subscription.currentTier === 'free' && 'Free'}
+              </BodyText>
+            </View>
+            <TouchableOpacity
+              style={{
+                backgroundColor: theme.gold.primary,
+                borderRadius: 8,
+                paddingVertical: 8,
+                paddingHorizontal: 16,
+                marginLeft: 8,
+              }}
+              onPress={() => homeNavigation.navigate('Subscription')}
+            >
+              <ButtonText size="small" color="inverse">
+                {subscription.currentTier === 'free' ? 'Upgrade' : 'Manage'}
+              </ButtonText>
+            </TouchableOpacity>
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

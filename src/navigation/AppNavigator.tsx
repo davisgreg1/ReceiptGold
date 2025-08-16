@@ -127,7 +127,7 @@ const HomeStackNavigator = () => (
     />
     <HomeStack.Screen
       name="Subscription"
-      component={() => <PlaceholderScreen title="Subscription" />}
+      component={require("../screens/ChoosePlanScreen").default}
       options={{ title: "Choose Your Plan" }}
     />
     <HomeStack.Screen
