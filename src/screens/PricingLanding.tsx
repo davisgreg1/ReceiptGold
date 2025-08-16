@@ -493,7 +493,7 @@ const styles = StyleSheet.create({
   },
   popularBadgeContainer: {
     position: "absolute",
-    top: -30,
+    top: -17,
     left: 0,
     right: 0,
     alignItems: "center",
