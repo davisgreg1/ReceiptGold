@@ -14,6 +14,7 @@ import { ReceiptDetailScreen } from "../screens/ReceiptDetailScreen";
 import { EditReceiptScreen } from "../screens/EditReceiptScreen";
 import { DetailedBreakdownScreen } from "../screens/DetailedBreakdownScreen";
 import { NotificationSettingsScreen } from "../screens/NotificationSettingsScreen";
+import { BankTransactionsScreen } from "../screens/BankTransactionsScreen";
 import { Receipt } from "../types/receipt";
 
 // Tab Navigator Types
@@ -28,6 +29,7 @@ export type BottomTabParamList = {
 export type HomeStackParamList = {
   Home: undefined;
   Subscription: undefined;
+  BankTransactions: undefined;
 };
 
 export type ReceiptsStackParamList = {
@@ -120,6 +122,11 @@ const HomeStackNavigator = () => (
       name="Subscription"
       component={() => <PlaceholderScreen title="Subscription" />}
       options={{ title: "Choose Your Plan" }}
+    />
+    <HomeStack.Screen
+      name="BankTransactions"
+      component={BankTransactionsScreen}
+      options={{ title: "Bank Transactions" }}
     />
   </HomeStack.Navigator>
 );

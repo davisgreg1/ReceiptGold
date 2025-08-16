@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
+import { useSubscription } from "../context/SubscriptionContext";
 import { useHomeNavigation, useTabNavigation, navigationHelpers } from "../navigation/navigationHelpers";
 import { BrandText, HeadingText, BodyText, ButtonText } from '../components/Typography';
 import { useInAppNotifications } from '../components/InAppNotificationProvider';
@@ -20,6 +21,7 @@ import PricingLanding from "./PricingLanding";
 export const HomeScreen: React.FC = () => {
   const { theme, themeMode, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
+  const { subscription } = useSubscription();
   const homeNavigation = useHomeNavigation();
   const tabNavigation = useTabNavigation();
   const { showNotification } = useInAppNotifications();
@@ -243,6 +245,19 @@ export const HomeScreen: React.FC = () => {
                 View Reports
               </ButtonText>
             </TouchableOpacity>
+            
+            {/* Bank Transactions - Professional Feature */}
+            {subscription.currentTier === 'professional' && (
+              <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: theme.status.success, marginTop: 12 }]}
+                onPress={() => homeNavigation.navigate('BankTransactions')}
+              >
+                <Text style={styles.actionButtonIcon}>🏦</Text>
+                <ButtonText size="medium" color="inverse">
+                  Bank Transactions
+                </ButtonText>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
