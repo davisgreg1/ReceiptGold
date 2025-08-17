@@ -253,8 +253,8 @@ export const HomeScreen: React.FC = () => {
                 onPress={() => homeNavigation.navigate('BankTransactions')}
               >
                 <Text style={styles.actionButtonIcon}>🏦</Text>
-                <ButtonText size="medium" color="inverse">
-                  Bank Transactions
+                <ButtonText size="medium" color="inverse" style={{width: '100%', textAlign: 'center'}}>
+                  Bank Sync
                 </ButtonText>
               </TouchableOpacity>
             )}

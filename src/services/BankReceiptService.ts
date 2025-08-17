@@ -1,7 +1,7 @@
 import { PlaidService, PlaidTransaction } from './PlaidService';
 import { OpenAIReceiptService, GeneratedReceipt } from './OpenAIReceiptService';
 import { NotificationService } from './ExpoNotificationService';
-import { doc, collection, addDoc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -112,14 +112,22 @@ export class BankReceiptService {
         return [];
       }
       
+      // Check if we should fetch new data or use cached data
+      const cachedCandidates = await this.getCachedTransactionCandidates(userId);
+      if (cachedCandidates.length > 0) {
+        console.log('📱 Using cached transaction data:', cachedCandidates.length, 'candidates found');
+        return cachedCandidates;
+      }
+      
+      console.log('🔄 Fetching fresh transaction data from Plaid...');
       const candidates: TransactionCandidate[] = [];
       
       for (const connection of bankConnections) {
         if (!connection.isActive) continue;
         
-        // Get transactions from the last 7 days
-        const endDate = new Date().toISOString().split('T')[0];
-        const startDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  // Get transactions from the last 30 days
+  const endDate = new Date().toISOString().split('T')[0];
+  const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
         
         const transactions = await this.plaidService.fetchRecentTransactions(
           connection.accessToken,
@@ -128,25 +136,36 @@ export class BankReceiptService {
         );
         
         // Filter for receipt candidates
-        const receiptCandidates = this.plaidService.filterReceiptCandidates(transactions);
+        const receiptCandidates = transactions
+        // const receiptCandidates = this.plaidService.filterReceiptCandidates(transactions);
         
-        // Check which transactions are new
-        const lastSyncTime = await this.getLastSyncTime(userId);
-        const newTransactions = receiptCandidates.filter(transaction => 
-          new Date(transaction.date) > lastSyncTime
-        );
-        
-        // Create transaction candidates
-        for (const transaction of newTransactions) {
+        // Create transaction candidates for all transactions in the last 30 days
+        for (const transaction of transactions) {
+          // Avoid creating duplicates: check if a candidate already exists for this transaction and user
+          try {
+            const q = query(
+              collection(db, 'transactionCandidates'),
+              where('transaction.transaction_id', '==', transaction.transaction_id),
+              where('userId', '==', userId)
+            );
+            const existingSnap = await getDocs(q);
+            if (!existingSnap.empty) {
+              // already have this transaction as a candidate
+              continue;
+            }
+          } catch (err) {
+            console.warn('Warning: failed to query existing candidates, will attempt to create candidate anyway', err);
+          }
+
           const candidate: TransactionCandidate = {
             transaction,
             status: 'pending',
             createdAt: new Date(),
             userId,
           };
-          
+
           candidates.push(candidate);
-          
+
           // Save candidate to Firebase
           await addDoc(collection(db, 'transactionCandidates'), candidate);
         }
@@ -154,6 +173,9 @@ export class BankReceiptService {
       
       // Update last sync time
       await this.updateLastSyncTime(userId);
+      
+      // Cache the candidates locally for faster access
+      await this.cacheTransactionCandidates(userId, candidates);
       
       // Send notification if there are new candidates
       if (candidates.length > 0) {
@@ -177,6 +199,7 @@ export class BankReceiptService {
     try {
       // Generate receipt using OpenAI
       const generatedReceipt = await this.openAIService.generateReceiptFromTransaction(transaction);
+      console.log('🔍 Generated receipt structure:', JSON.stringify(generatedReceipt, null, 2));
       
       // Download and convert image to base64
       const imageBase64 = await this.openAIService.downloadAndConvertImage(generatedReceipt.receiptImageUrl);
@@ -186,12 +209,74 @@ export class BankReceiptService {
         ...generatedReceipt,
         receiptImageUrl: imageBase64,
       };
+      console.log('🔍 Final receipt structure:', JSON.stringify(finalReceipt.receiptData, null, 2));
       
       // Update candidate status in Firebase
-      await updateDoc(doc(db, 'transactionCandidates', candidateId), {
-        generatedReceipt: finalReceipt,
+      const candidateRef = doc(db, 'transactionCandidates', candidateId);
+      const candidateSnap = await getDoc(candidateRef);
+      
+      // Flatten the receipt data for Firestore storage
+      const firestoreReceiptData = {
+        receiptImageUrl: finalReceipt.receiptImageUrl,
+        receiptData: {
+          businessName: finalReceipt.receiptData?.businessName || 'Unknown Business',
+          address: finalReceipt.receiptData?.address || '',
+          date: finalReceipt.receiptData?.date || new Date().toISOString(),
+          time: finalReceipt.receiptData?.time || '',
+          subtotal: finalReceipt.receiptData?.subtotal || 0,
+          tax: finalReceipt.receiptData?.tax || 0,
+          total: finalReceipt.receiptData?.total || 0,
+          paymentMethod: finalReceipt.receiptData?.paymentMethod || 'Card',
+          transactionId: finalReceipt.receiptData?.transactionId || '',
+          items: (finalReceipt.receiptData?.items || []).map(item => ({
+            description: item.description || 'Unknown Item',
+            amount: item.amount || 0,
+          })),
+        },
         status: 'generated',
-      });
+      };
+      
+      // Instead of updating the existing candidate document which might have complex nested objects,
+      // let's create a simple status update and store the receipt data separately
+      try {
+        // First, try to just update the status
+        await updateDoc(candidateRef, {
+          status: 'generated',
+          generatedAt: new Date().toISOString(),
+        });
+        
+        // Store the receipt data in a separate collection to avoid nested entity issues
+        const receiptDoc = {
+          candidateId: candidateId,
+          receiptImageUrl: finalReceipt.receiptImageUrl,
+          businessName: finalReceipt.receiptData?.businessName || 'Unknown Business',
+          address: finalReceipt.receiptData?.address || '',
+          date: finalReceipt.receiptData?.date || new Date().toISOString().split('T')[0],
+          time: finalReceipt.receiptData?.time || '',
+          subtotal: Number(finalReceipt.receiptData?.subtotal) || 0,
+          tax: Number(finalReceipt.receiptData?.tax) || 0,
+          total: Number(finalReceipt.receiptData?.total) || 0,
+          paymentMethod: finalReceipt.receiptData?.paymentMethod || 'Card',
+          transactionId: finalReceipt.receiptData?.transactionId || '',
+          items: (finalReceipt.receiptData?.items || []).map(item => ({
+            description: String(item.description || 'Unknown Item'),
+            amount: Number(item.amount || 0),
+          })),
+          createdAt: new Date().toISOString(),
+        };
+        
+        await addDoc(collection(db, 'generatedReceipts'), receiptDoc);
+        console.log('✅ Receipt data stored separately');
+        
+      } catch (updateError) {
+        console.error('Failed to update candidate document:', updateError);
+        // If we can't update the existing document, create a new status document
+        await addDoc(collection(db, 'candidateStatus'), {
+          candidateId: candidateId,
+          status: 'generated',
+          generatedAt: new Date().toISOString(),
+        });
+      }
       
       console.log('✅ Receipt generated successfully');
       return finalReceipt;
@@ -342,6 +427,89 @@ export class BankReceiptService {
       console.log('🗑️ Cleared all bank connections for user:', userId);
     } catch (error) {
       console.error('Error clearing bank connections:', error);
+    }
+  }
+
+  /**
+   * Cache transaction candidates locally
+   */
+  private async cacheTransactionCandidates(userId: string, candidates: TransactionCandidate[]): Promise<void> {
+    try {
+      const key = `transaction_candidates_${userId}`;
+      const cacheData = {
+        timestamp: Date.now(),
+        candidates: candidates,
+      };
+      await AsyncStorage.setItem(key, JSON.stringify(cacheData));
+      console.log(`📱 Cached ${candidates.length} transaction candidates locally`);
+    } catch (error) {
+      console.error('Error caching transaction candidates:', error);
+    }
+  }
+
+  /**
+   * Cache candidates from Firestore (includes document IDs)
+   */
+  public async cacheFirestoreCandidates(userId: string, candidates: (TransactionCandidate & { _id?: string })[]): Promise<void> {
+    try {
+      const key = `transaction_candidates_${userId}`;
+      const cacheData = {
+        timestamp: Date.now(),
+        candidates: candidates,
+        source: 'firestore'
+      };
+      await AsyncStorage.setItem(key, JSON.stringify(cacheData));
+      console.log(`📱 Cached ${candidates.length} Firestore candidates locally`);
+    } catch (error) {
+      console.error('Error caching Firestore candidates:', error);
+    }
+  }
+
+  /**
+   * Get cached transaction candidates
+   */
+  public async getCachedTransactionCandidates(userId: string): Promise<TransactionCandidate[]> {
+    try {
+      const key = `transaction_candidates_${userId}`;
+      const cached = await AsyncStorage.getItem(key);
+      
+      if (!cached) {
+        console.log('📱 No cached data found');
+        return [];
+      }
+      
+      const cacheData = JSON.parse(cached);
+      const ageInMinutes = (Date.now() - cacheData.timestamp) / 1000 / 60;
+      const candidatesCount = cacheData.candidates?.length || 0;
+      
+      console.log(`📱 Found cached data: ${candidatesCount} candidates, ${Math.round(ageInMinutes)} minutes old`);
+      
+      // Return cached data if it's less than 10 minutes old (reduced from 30 for testing)
+      if (ageInMinutes < 10) {
+        console.log('📱 Using cached data (fresh enough)');
+        return cacheData.candidates || [];
+      } else {
+        console.log('📱 Cache expired, clearing and will fetch fresh data');
+        // Clear expired cache
+        await AsyncStorage.removeItem(key);
+        return [];
+      }
+    } catch (error) {
+      console.error('Error getting cached transaction candidates:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Clear cached transaction data for a user
+   */
+  public async clearTransactionCache(userId: string): Promise<void> {
+    try {
+      const key = `transaction_candidates_${userId}`;
+      await AsyncStorage.removeItem(key);
+      console.log('🗑️ Cleared transaction cache for user:', userId);
+    } catch (error) {
+      console.error('Error clearing transaction cache:', error);
     }
   }
 }

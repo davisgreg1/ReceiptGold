@@ -3,6 +3,12 @@
 rules_version = '2';
 service cloud.firestore {
     match /databases/{database}/documents {
+        // Transaction Candidates collection - users can only access their own candidates
+        match /transactionCandidates/{candidateId} {
+            allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+            allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+        }
 
         // Helper functions
         function isAuthenticated() {
@@ -46,24 +52,13 @@ service cloud.firestore {
 
         // Receipts collection - users can only access their own receipts
         match /receipts/{receiptId} {
-            allow read, write: if isAuthenticated() && 
-            request.auth.uid == resource.data.userId;
-
-            allow create: if isAuthenticated() && 
-            request.auth.uid == request.resource.data.userId &&
-            // Validate required fields
-            request.resource.data.keys().hasAll(['userId', 'amount', 'vendor']) &&
-            // Validate data types
-            request.resource.data.amount is number &&
-            request.resource.data.amount >= 0;
-
-            allow update: if isAuthenticated() && 
-            request.auth.uid == resource.data.userId &&
-            // Prevent changing userId
-            request.resource.data.userId == resource.data.userId;
-
-            allow delete: if isAuthenticated() && 
-            request.auth.uid == resource.data.userId;
+            allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId &&
+                request.resource.data.keys().hasAll(['userId', 'amount', 'businessName']) &&
+                request.resource.data.amount is number;
+            allow update: if isAuthenticated() && request.auth.uid == resource.data.userId &&
+                request.resource.data.userId == resource.data.userId;
+            allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
         }
 
         // Businesses collection - users can only access their own businesses

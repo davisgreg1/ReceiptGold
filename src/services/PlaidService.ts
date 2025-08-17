@@ -327,6 +327,8 @@ export class PlaidService {
         'Transportation',
         'Travel',
         'Professional Services',
+        'Mortgage',
+        'Rent'
       ];
       
       if (transaction.category) {
@@ -337,9 +339,8 @@ export class PlaidService {
       }
       
       // Filter out very small amounts (likely fees, tips, etc.)
-      if (transaction.amount < 5) return false;
-      
-      return true;
+  // Relaxed filter: accept all transactions
+  return true;
     });
   }
 }

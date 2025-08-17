@@ -1,6 +1,7 @@
 {
   "expo": {
-    "name": "ReceiptGold",
+  "name": "ReceiptGold",
+  "scheme": "receiptgold",
     "slug": "receiptgold",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -35,11 +36,11 @@
       }
     },
     "android": {
+      "package": "com.receiptgold.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.receiptgold.app",
       "versionCode": 1,
       "permissions": ["CAMERA", "INTERNET", "ACCESS_NETWORK_STATE"],
       "config": {
