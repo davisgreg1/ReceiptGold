@@ -1,0 +1,118 @@
+# Dockerfile for Android Development
+FROM node:18-bullseye
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    unzip \
+    wget \
+    openjdk-11-jdk \
+    android-tools-adb \
+    android-tools-fastboot \
+    udev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set JAVA_HOME to the correct path based on architecture
+RUN JAVA_PATH=$(find /usr/lib/jvm -name "*openjdk*" -type d | head -1) && \
+    echo "Detected Java installation at: $JAVA_PATH" && \
+    echo "export JAVA_HOME=$JAVA_PATH" >> ~/.bashrc
+
+# Set environment variable for build
+ENV JAVA_HOME=""
+RUN echo "JAVA_HOME will be set dynamically in commands"
+
+# Install Android SDK
+ENV ANDROID_HOME=/opt/android-sdk
+ENV PATH=${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools
+
+# Install Android Command Line Tools
+RUN mkdir -p ${ANDROID_HOME}/cmdline-tools && \
+    wget -q https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip && \
+    unzip -q commandlinetools-linux-9477386_latest.zip -d ${ANDROID_HOME}/cmdline-tools && \
+    mv ${ANDROID_HOME}/cmdline-tools/cmdline-tools ${ANDROID_HOME}/cmdline-tools/latest && \
+    rm commandlinetools-linux-9477386_latest.zip
+
+# Accept Android licenses (with dynamically detected JAVA_HOME)
+RUN JAVA_HOME=$(find /usr/lib/jvm -name "*openjdk*" -type d | head -1) && \
+    echo "Using JAVA_HOME: $JAVA_HOME for sdkmanager" && \
+    export JAVA_HOME=$JAVA_HOME && \
+    yes | sdkmanager --licenses
+
+# Install essential Android SDK packages only
+RUN JAVA_HOME=$(find /usr/lib/jvm -name "*openjdk*" -type d | head -1) && \
+    export JAVA_HOME=$JAVA_HOME && \
+    sdkmanager "platform-tools" "platforms;android-33" "build-tools;33.0.0"
+
+# Create a wrapper script for ADB that handles architecture issues
+RUN echo '#!/bin/bash\n\
+# Check if ADB is working, if not provide helpful message\n\
+if ! adb version >/dev/null 2>&1; then\n\
+    echo "⚠️  ADB compatibility issue detected"\n\
+    echo "💡 For physical device development:"\n\
+    echo "   1. Connect Android device via USB to host"\n\
+    echo "   2. Enable USB debugging on device"\n\
+    echo "   3. Run: adb devices (on host macOS)"\n\
+    echo "   4. Use Expo Go app or development build"\n\
+    echo ""\n\
+    echo "🔄 Alternative: Use network debugging instead of USB"\n\
+    exit 1\n\
+fi\n\
+exec adb "$@"' > /usr/local/bin/adb-wrapper && \
+    chmod +x /usr/local/bin/adb-wrapper
+
+# Install Expo CLI and EAS CLI
+RUN npm install -g @expo/cli eas-cli
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy app source
+COPY . .
+
+# Create entrypoint script for Android
+RUN echo '#!/bin/bash\n\
+echo "🤖 Android Development Container Started"\n\
+echo "📱 Metro bundler will run on http://0.0.0.0:19000"\n\
+echo ""\n\
+echo "🔌 USB Device Development:"\n\
+echo "   ⚠️  Note: ADB may have architecture compatibility issues in Docker"\n\
+echo "   💡 Recommended workflow:"\n\
+echo "      1. Connect device via USB to host"\n\
+echo "      2. Enable USB debugging on Android device"\n\
+echo "      3. Use Expo Go app from Google Play Store"\n\
+echo "      4. Scan QR code from http://localhost:19010"\n\
+echo ""\n\
+echo "🌐 Network Development (Alternative):"\n\
+echo "   1. Install Expo Go on Android device"\n\
+echo "   2. Connect device to same WiFi as host"\n\
+echo "   3. Scan QR code from Expo DevTools"\n\
+echo ""\n\
+# Try to start ADB, but continue if it fails\n\
+echo "🔄 Attempting to start ADB server..."\n\
+if adb start-server 2>/dev/null; then\n\
+    echo "✅ ADB server started successfully"\n\
+else\n\
+    echo "⚠️  ADB server failed to start (architecture compatibility issue)"\n\
+    echo "💡 Use Expo Go app instead of direct device deployment"\n\
+fi\n\
+echo ""\n\
+# Start Expo with Android support\n\
+exec "$@"' > /entrypoint-android.sh && \
+    chmod +x /entrypoint-android.sh
+
+# Expose ports (Android dev server on different port)
+EXPOSE 19010 19011 19012 8081
+
+# Set environment for Android development
+ENV EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0
+ENV REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
+ENV ANDROID_EMULATOR_USE_SYSTEM_LIBS=1
+
+ENTRYPOINT ["/entrypoint-android.sh"]
+CMD ["npx", "expo", "start", "--port", "19000", "--host", "0.0.0.0", "--web=false", "--clear"]

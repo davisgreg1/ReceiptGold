@@ -9,7 +9,7 @@ import {
 } from 'react-native-plaid-link-sdk';
 
 // Base URL for the backend API - use local IP for React Native
-const API_BASE_URL = 'http://10.0.0.84:3001';
+const API_BASE_URL = 'http://10.0.0.84:3000';
 
 export interface PlaidTransaction {
   account_id: string;

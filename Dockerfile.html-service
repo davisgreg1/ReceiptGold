@@ -1,0 +1,45 @@
+# Dockerfile for HTML-to-Image Service
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install system dependencies for Puppeteer
+RUN apk add --no-cache \
+    curl \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont
+
+# Tell Puppeteer to use installed Chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Copy package file (using server-package.json)
+COPY server-package.json package.json
+COPY server-package-lock.json package-lock.json
+
+# Install dependencies
+RUN npm ci --omit=dev
+
+# Copy server file
+COPY html-to-image-server.js .
+
+# Create user for security
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nextjs -u 1001
+
+USER nextjs
+
+# Expose port
+EXPOSE 3001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3001/health || exit 1
+
+# Start the server
+CMD ["node", "html-to-image-server.js"]

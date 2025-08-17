@@ -1,0 +1,47 @@
+# Production Docker Compose Override
+version: '3.8'
+
+services:
+  backend:
+    environment:
+      - NODE_ENV=production
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  html-service:
+    environment:
+      - NODE_ENV=production
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Remove expo-dev in production
+  expo-dev:
+    profiles:
+      - dev-only
+
+  # Production web build (if you want to serve a web version)
+  web-build:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: receiptgold-web
+    environment:
+      - NODE_ENV=production
+    volumes:
+      - web-build:/app/dist
+    profiles:
+      - production
+    networks:
+      - receiptgold-network
+
+volumes:
+  web-build:
+    driver: local

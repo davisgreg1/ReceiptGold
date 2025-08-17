@@ -1,0 +1,54 @@
+# Dockerfile for iOS Development (macOS host required)
+FROM node:18-alpine
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apk add --no-cache \
+    git \
+    bash \
+    curl \
+    python3 \
+    make \
+    g++
+
+# Install Expo CLI and EAS CLI
+RUN npm install -g @expo/cli eas-cli
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy app source
+COPY . .
+
+# Create entrypoint script for iOS
+RUN echo '#!/bin/bash\n\
+echo "🍎 iOS Development Container Started"\n\
+echo "📱 Metro bundler running on http://0.0.0.0:19000"\n\
+echo ""\n\
+echo "⚠️  For iOS Simulator/Device:"\n\
+echo "   • Xcode must be installed on macOS host"\n\
+echo "   • Run iOS Simulator on host macOS"\n\
+echo "   • Connect to Metro bundler from host"\n\
+echo ""\n\
+echo "💡 Development workflow:"\n\
+echo "   1. This container runs Metro bundler"\n\
+echo "   2. Use Xcode/Simulator on macOS host"\n\
+echo "   3. Connect to http://localhost:19020"\n\
+echo ""\n\
+# Start Expo with iOS support\n\
+exec "$@"' > /entrypoint-ios.sh && \
+    chmod +x /entrypoint-ios.sh
+
+# Expose ports for iOS development
+EXPOSE 19020 19021 19022 8081
+
+# Set environment for iOS development
+ENV EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0
+ENV REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
+
+ENTRYPOINT ["/entrypoint-ios.sh"]
+CMD ["npx", "expo", "start", "--ios"]

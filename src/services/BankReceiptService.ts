@@ -1,5 +1,6 @@
 import { PlaidService, PlaidTransaction } from './PlaidService';
-import { OpenAIReceiptService, GeneratedReceipt } from './OpenAIReceiptService';
+import ReceiptServiceFactory, { ReceiptService } from './ReceiptServiceFactory';
+import { GeneratedReceipt } from './HTMLReceiptService'; // Using HTMLReceiptService as the common interface
 import { NotificationService } from './ExpoNotificationService';
 import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -33,7 +34,7 @@ export interface TransactionCandidate {
 export class BankReceiptService {
   private static instance: BankReceiptService;
   private plaidService: PlaidService;
-  private openAIService: OpenAIReceiptService;
+  private receiptService: ReceiptService;
   private notificationService: NotificationService;
   
   // Storage keys
@@ -42,7 +43,7 @@ export class BankReceiptService {
 
   private constructor() {
     this.plaidService = PlaidService.getInstance();
-    this.openAIService = OpenAIReceiptService.getInstance();
+    this.receiptService = ReceiptServiceFactory.getReceiptService();
     this.notificationService = NotificationService.getInstance();
   }
 
@@ -197,18 +198,12 @@ export class BankReceiptService {
     transaction: PlaidTransaction
   ): Promise<GeneratedReceipt> {
     try {
-      // Generate receipt using OpenAI
-      const generatedReceipt = await this.openAIService.generateReceiptFromTransaction(transaction);
+      // Generate receipt using selected service (AI or HTML)
+      const generatedReceipt = await this.receiptService.generateReceiptFromTransaction(transaction);
       console.log('🔍 Generated receipt structure:', JSON.stringify(generatedReceipt, null, 2));
       
-      // Download and convert image to base64
-      const imageBase64 = await this.openAIService.downloadAndConvertImage(generatedReceipt.receiptImageUrl);
-      
-      // Update the generated receipt with base64 image
-      const finalReceipt = {
-        ...generatedReceipt,
-        receiptImageUrl: imageBase64,
-      };
+      // The receipt service already provides the image URL (base64 for HTML, URL for AI)
+      const finalReceipt = generatedReceipt;
       console.log('🔍 Final receipt structure:', JSON.stringify(finalReceipt.receiptData, null, 2));
       
       // Update candidate status in Firebase
@@ -228,7 +223,7 @@ export class BankReceiptService {
           total: finalReceipt.receiptData?.total || 0,
           paymentMethod: finalReceipt.receiptData?.paymentMethod || 'Card',
           transactionId: finalReceipt.receiptData?.transactionId || '',
-          items: (finalReceipt.receiptData?.items || []).map(item => ({
+          items: (finalReceipt.receiptData?.items || []).map((item: any) => ({
             description: item.description || 'Unknown Item',
             amount: item.amount || 0,
           })),
@@ -258,7 +253,7 @@ export class BankReceiptService {
           total: Number(finalReceipt.receiptData?.total) || 0,
           paymentMethod: finalReceipt.receiptData?.paymentMethod || 'Card',
           transactionId: finalReceipt.receiptData?.transactionId || '',
-          items: (finalReceipt.receiptData?.items || []).map(item => ({
+          items: (finalReceipt.receiptData?.items || []).map((item: any) => ({
             description: String(item.description || 'Unknown Item'),
             amount: Number(item.amount || 0),
           })),

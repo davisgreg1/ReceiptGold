@@ -19,7 +19,8 @@ import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
 import { BankReceiptService, TransactionCandidate } from '../services/BankReceiptService';
 import { PlaidService } from '../services/PlaidService';
-import { GeneratedReceipt } from '../services/OpenAIReceiptService';
+import { GeneratedReceipt } from '../services/HTMLReceiptService';
+import ReceiptServiceFactory from '../services/ReceiptServiceFactory';
 import { useInAppNotifications } from '../components/InAppNotificationProvider';
 import { PlaidLinkButton } from '../components/PlaidLinkButton';
 
@@ -45,6 +46,9 @@ export const BankTransactionsScreen: React.FC = () => {
 
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
+  
+  // Get service info for display
+  const serviceInfo = ReceiptServiceFactory.getServiceInfo();
 
   // Filtered and sorted candidates
   const filteredAndSortedCandidates = useMemo(() => {
@@ -537,6 +541,24 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.text.primary,
       marginBottom: 8,
     },
+    titleRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    serviceIndicator: {
+      backgroundColor: theme.background.secondary,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+      borderWidth: 1,
+      borderColor: theme.border.primary,
+    },
+    serviceText: {
+      fontSize: 12,
+      color: theme.text.secondary,
+      fontWeight: '600',
+    },
     subtitle: {
       fontSize: 16,
       color: theme.text.secondary,
@@ -851,7 +873,14 @@ export const BankTransactionsScreen: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Bank Transactions</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Bank Transactions</Text>
+          <View style={styles.serviceIndicator}>
+            <Text style={styles.serviceText}>
+              {serviceInfo.currentService === 'ai' ? '🤖 AI' : '📄 HTML'}
+            </Text>
+          </View>
+        </View>
         <Text style={styles.subtitle}>
           {filteredAndSortedCandidates.length === 0 && searchQuery.trim() 
             ? `No matches for "${searchQuery}"` 
