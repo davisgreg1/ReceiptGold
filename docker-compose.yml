@@ -1,0 +1,252 @@
+# ReceiptGold Docker Setup
+# This Docker Compose file runs all ReceiptGold services
+
+version: '3.8'
+
+services:
+  # Backend API Server
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: receiptgold-backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # Firebase config
+      - EXPO_PUBLIC_FIREBASE_API_KEY=${EXPO_PUBLIC_FIREBASE_API_KEY}
+      - EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=${EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN}
+      - EXPO_PUBLIC_FIREBASE_PROJECT_ID=${EXPO_PUBLIC_FIREBASE_PROJECT_ID}
+      - EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=${EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET}
+      - EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+      - EXPO_PUBLIC_FIREBASE_APP_ID=${EXPO_PUBLIC_FIREBASE_APP_ID}
+      # Stripe config
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=${EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+    volumes:
+      - ./server.js:/app/server.js
+      - ./package.json:/app/package.json
+    networks:
+      - receiptgold-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.docker.desktop.extension.icon=https://cdn-icons-png.flaticon.com/512/25/25231.png"
+      - "com.docker.compose.project=receiptgold"
+      - "service.name=Backend API"
+      - "service.description=Main API server handling Stripe, Firebase, and Plaid integrations"
+      - "service.url=http://localhost:3000"
+
+  # HTML to Image Service
+  html-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.html-service
+    container_name: receiptgold-html-service
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+    volumes:
+      - ./html-to-image-server.js:/app/html-to-image-server.js
+      - ./server-package.json:/app/package.json
+    networks:
+      - receiptgold-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    labels:
+      - "com.docker.compose.project=receiptgold"
+      - "service.name=HTML Receipt Service"
+      - "service.description=Converts HTML receipts to images using Puppeteer"
+      - "service.url=http://localhost:3001"
+
+  # Expo Development Server (for development)
+  expo-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.expo
+    container_name: receiptgold-expo
+    ports:
+      - "8081:8081"  # Expo bundler
+      - "19000:19000" # Expo DevTools
+      - "19001:19001" # Expo DevTools
+      - "19002:19002" # Expo DevTools
+    environment:
+      - EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0
+      - REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
+      # All environment variables from .env
+      - EXPO_PUBLIC_FIREBASE_API_KEY=${EXPO_PUBLIC_FIREBASE_API_KEY}
+      - EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=${EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN}
+      - EXPO_PUBLIC_FIREBASE_PROJECT_ID=${EXPO_PUBLIC_FIREBASE_PROJECT_ID}
+      - EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=${EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET}
+      - EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+      - EXPO_PUBLIC_FIREBASE_APP_ID=${EXPO_PUBLIC_FIREBASE_APP_ID}
+      - EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID=${EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID}
+      - EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=${EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+      - RECEIPT_SERVICE_TYPE=${RECEIPT_SERVICE_TYPE:-html}
+      - HTML_TO_IMAGE_SERVER_URL=http://html-service:3001
+      - EXPO_PUBLIC_OPENAI_API_KEY=${EXPO_PUBLIC_OPENAI_API_KEY:-}
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - expo-cache:/root/.expo
+    networks:
+      - receiptgold-network
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - html-service
+    labels:
+      - "com.docker.compose.project=receiptgold"
+      - "service.name=Expo Development"
+      - "service.description=React Native development server with hot reload"
+      - "service.url=http://localhost:19000"
+
+  # Android Development (Linux/macOS)
+  expo-android:
+    build:
+      context: .
+      dockerfile: Dockerfile.android
+    container_name: receiptgold-android
+    ports:
+      - "8082:8081"  # Expo bundler (different port)
+      - "19010:19000" # Expo DevTools
+      - "19011:19001" # Expo DevTools  
+      - "19012:19002" # Expo DevTools
+    environment:
+      - EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0
+      - REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
+      - ANDROID_HOME=/opt/android-sdk
+      # All environment variables from .env
+      - EXPO_PUBLIC_FIREBASE_API_KEY=${EXPO_PUBLIC_FIREBASE_API_KEY}
+      - EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=${EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN}
+      - EXPO_PUBLIC_FIREBASE_PROJECT_ID=${EXPO_PUBLIC_FIREBASE_PROJECT_ID}
+      - EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=${EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET}
+      - EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+      - EXPO_PUBLIC_FIREBASE_APP_ID=${EXPO_PUBLIC_FIREBASE_APP_ID}
+      - EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID=${EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID}
+      - EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=${EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+      - RECEIPT_SERVICE_TYPE=${RECEIPT_SERVICE_TYPE:-html}
+      - HTML_TO_IMAGE_SERVER_URL=http://html-service:3001
+      - EXPO_PUBLIC_OPENAI_API_KEY=${EXPO_PUBLIC_OPENAI_API_KEY:-}
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - expo-cache:/root/.expo
+      # USB device access for Android devices
+      - /dev/bus/usb:/dev/bus/usb
+    devices:
+      # Android device access
+      - /dev/kvm:/dev/kvm  # For Android emulator hardware acceleration
+    privileged: true  # Required for USB device access
+    networks:
+      - receiptgold-network
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - html-service
+    profiles:
+      - android
+      - mobile
+    labels:
+      - "com.docker.compose.project=receiptgold"
+      - "service.name=Android Development"
+      - "service.description=Android-specific Expo development with device support"
+      - "service.url=http://localhost:19010"
+
+  # iOS Development (macOS only)
+  expo-ios:
+    build:
+      context: .
+      dockerfile: Dockerfile.ios
+    container_name: receiptgold-ios
+    ports:
+      - "8083:8081"  # Expo bundler (different port)
+      - "19020:19000" # Expo DevTools
+      - "19021:19001" # Expo DevTools
+      - "19022:19002" # Expo DevTools
+    environment:
+      - EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0
+      - REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
+      # All environment variables from .env
+      - EXPO_PUBLIC_FIREBASE_API_KEY=${EXPO_PUBLIC_FIREBASE_API_KEY}
+      - EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=${EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN}
+      - EXPO_PUBLIC_FIREBASE_PROJECT_ID=${EXPO_PUBLIC_FIREBASE_PROJECT_ID}
+      - EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=${EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET}
+      - EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=${EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+      - EXPO_PUBLIC_FIREBASE_APP_ID=${EXPO_PUBLIC_FIREBASE_APP_ID}
+      - EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID=${EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID}
+      - EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=${EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY}
+      - RECEIPT_SERVICE_TYPE=${RECEIPT_SERVICE_TYPE:-html}
+      - HTML_TO_IMAGE_SERVER_URL=http://html-service:3001
+      - EXPO_PUBLIC_OPENAI_API_KEY=${EXPO_PUBLIC_OPENAI_API_KEY:-}
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - expo-cache:/root/.expo
+      # Note: iOS Simulator requires running Expo CLI on macOS host
+      # Docker container handles Metro bundler for iOS development
+    networks:
+      - receiptgold-network
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - html-service
+    profiles:
+      - ios
+      - mobile
+    labels:
+      - "com.docker.compose.project=receiptgold"
+      - "service.name=iOS Development"
+      - "service.description=iOS-specific Expo development with simulator support"
+      - "service.url=http://localhost:19020"
+
+  # Nginx Reverse Proxy (for production)
+  nginx:
+    image: nginx:alpine
+    container_name: receiptgold-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf
+      - ./docker/certs:/etc/nginx/certs
+    networks:
+      - receiptgold-network
+    depends_on:
+      - backend
+      - html-service
+    restart: unless-stopped
+    profiles:
+      - production
+    labels:
+      - "com.docker.compose.project=receiptgold"
+      - "service.name=Nginx Gateway"
+      - "service.description=Production reverse proxy with load balancing and SSL"
+      - "service.url=http://localhost"
+
+networks:
+  receiptgold-network:
+    driver: bridge
+
+volumes:
+  expo-cache:
+    driver: local

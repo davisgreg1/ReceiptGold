@@ -1,0 +1,28 @@
+# Dockerfile for Backend Server
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apk add --no-cache curl python3 make g++
+
+# Copy package files
+COPY package*.json ./
+
+# Clear npm cache and install dependencies
+RUN npm cache clean --force
+RUN npm ci --omit=dev --verbose
+
+# Copy server file and environment
+COPY server.js .
+COPY .env* ./
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
+
+# Start the server
+CMD ["node", "server.js"]
