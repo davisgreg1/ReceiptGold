@@ -1,4 +1,5 @@
 import { PlaidTransaction } from './PlaidService';
+const util = require('util');
 
 export interface GeneratedReceipt {
   receiptImageUrl: string;
@@ -111,9 +112,26 @@ Make the items and details realistic for the merchant type and amount.
 
       const data = await response.json();
       const receiptDataText = data.choices[0].message.content;
+      console.log('🔍 OpenAI raw response:', receiptDataText);
       
       // Parse the JSON response
-      const receiptData = JSON.parse(receiptDataText);
+      let receiptData;
+      try {
+        receiptData = JSON.parse(receiptDataText);
+        console.log('🔍 Parsed receipt data:', JSON.stringify(receiptData, null, 2));
+      } catch (parseError) {
+        console.error('❌ Failed to parse OpenAI JSON response:', parseError);
+        console.log('Raw response text:', receiptDataText);
+        throw new Error('Failed to parse OpenAI response as JSON');
+      }
+      
+      // Validate that the parsed data has the expected structure
+      if (!receiptData.items || !Array.isArray(receiptData.items)) {
+        console.warn('⚠️ OpenAI response missing items array, falling back to mock data');
+        return this.generateMockReceiptData(transaction);
+      }
+      
+      // console.log(util.inspect(receiptData, { depth: null, colors: true }));
       console.log('✅ Generated receipt data with OpenAI');
       return receiptData;
     } catch (error) {
@@ -193,31 +211,29 @@ Make the items and details realistic for the merchant type and amount.
    */
   private async generateReceiptImage(receiptData: GeneratedReceipt['receiptData']): Promise<string> {
     try {
-      const itemsList = receiptData.items.map(item =>
-        `${item.description}: $${item.amount.toFixed(2)}`
-      ).join(', ');
+      const itemsList = Array.isArray(receiptData.items)
+        ? receiptData.items.map(item => {
+            const amount = typeof item.amount === 'number' ? item.amount.toFixed(2) : '0.00';
+            return `${item.description}: $${amount}`;
+          }).join(', ')
+        : '';
 
-      const prompt = `
-Create a realistic receipt image with the following details:
+  const subtotal = typeof receiptData.subtotal === 'number' ? receiptData.subtotal.toFixed(2) : '0.00';
+  const tax = typeof receiptData.tax === 'number' ? receiptData.tax.toFixed(2) : '0.00';
+  const total = typeof receiptData.total === 'number' ? receiptData.total.toFixed(2) : '0.00';
+  const prompt = `
+Create a realistic, legible US retail receipt image using only real English words and numbers. Use the following details:
 
 Business: ${receiptData.businessName}
 Address: ${receiptData.address}
 Date: ${receiptData.date} at ${receiptData.time}
 Items: ${itemsList}
-Subtotal: $${receiptData.subtotal.toFixed(2)}
-Tax: $${receiptData.tax.toFixed(2)}
-Total: $${receiptData.total.toFixed(2)}
+Subtotal: $${subtotal}
+Tax: $${tax}
+Total: $${total}
 Payment: ${receiptData.paymentMethod}
 
-Make it look like a clean, professional printed receipt with:
-- White background
-- Clear black text
-- Proper receipt formatting
-- Business header
-- Itemized list
-- Tax calculation
-- Total clearly shown
-- Transaction ID at bottom
+Style: Clean, professional printed receipt. White background, clear black text, authentic receipt formatting, business header, itemized list, tax and total clearly shown, transaction ID at bottom. Avoid gibberish or random characters. All text should be readable and realistic, as if from a real store.
 `;
 
       const response = await fetch('https://api.openai.com/v1/images/generations', {

@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const util = require('util');
 require('dotenv').config();
 const { PlaidApi, Configuration, PlaidEnvironments } = require('plaid');
 
@@ -108,6 +109,7 @@ app.post('/api/plaid/transactions', async (req, res) => {
     };
 
     const response = await plaidClient.transactionsGet(request);
+    console.log(util.inspect(response.data, { depth: null, colors: true }));
     
     console.log(`✅ Fetched ${response.data.transactions.length} transactions`);
 

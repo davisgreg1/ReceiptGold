@@ -38,6 +38,10 @@ yarn-error.*
 *.tsbuildinfo
 
 # IDE
+
+# Native build directories
+android/
+ios/
 .vscode/
 .idea/
 *.swp

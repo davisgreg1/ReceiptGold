@@ -1,14 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   Image,
   RefreshControl,
+  TextInput,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,23 +29,90 @@ export const BankTransactionsScreen: React.FC = () => {
   const { subscription } = useSubscription();
   const { showNotification } = useInAppNotifications();
   
-  const [candidates, setCandidates] = useState<TransactionCandidate[]>([]);
+  const [candidates, setCandidates] = useState<(TransactionCandidate & { _id?: string })[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [generatingReceipt, setGeneratingReceipt] = useState<string | null>(null);
   const [generatedReceipts, setGeneratedReceipts] = useState<Map<string, GeneratedReceipt>>(new Map());
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  
+  // Search and filtering state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'date' | 'amount' | 'merchant'>('date');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const [filterByCategory, setFilterByCategory] = useState<string>('');
+  const [showFilters, setShowFilters] = useState(false);
 
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
 
+  // Filtered and sorted candidates
+  const filteredAndSortedCandidates = useMemo(() => {
+    let filtered = candidates;
+
+    // Search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(candidate => 
+        (candidate.transaction.merchant_name || candidate.transaction.name || '').toLowerCase().includes(query) ||
+        (candidate.transaction.category?.[0] || '').toLowerCase().includes(query)
+      );
+    }
+
+    // Category filter
+    if (filterByCategory && filterByCategory !== 'all') {
+      filtered = filtered.filter(candidate => 
+        candidate.transaction.category?.[0] === filterByCategory
+      );
+    }
+
+    // Sort
+    filtered.sort((a, b) => {
+      let aValue, bValue;
+      
+      switch (sortBy) {
+        case 'date':
+          aValue = new Date(a.transaction.date).getTime();
+          bValue = new Date(b.transaction.date).getTime();
+          break;
+        case 'amount':
+          aValue = Math.abs(a.transaction.amount);
+          bValue = Math.abs(b.transaction.amount);
+          break;
+        case 'merchant':
+          aValue = (a.transaction.merchant_name || a.transaction.name || '').toLowerCase();
+          bValue = (b.transaction.merchant_name || b.transaction.name || '').toLowerCase();
+          break;
+        default:
+          return 0;
+      }
+      
+      if (sortDirection === 'asc') {
+        return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+      } else {
+        return aValue > bValue ? -1 : aValue < bValue ? 1 : 0;
+      }
+    });
+
+    return filtered;
+  }, [candidates, searchQuery, sortBy, sortDirection, filterByCategory]);
+
+  // Get unique categories for filter
+  const availableCategories = useMemo(() => {
+    const categories = new Set<string>();
+    candidates.forEach(candidate => {
+      if (candidate.transaction.category?.[0]) {
+        categories.add(candidate.transaction.category[0]);
+      }
+    });
+    return Array.from(categories).sort();
+  }, [candidates]);
+
   useEffect(() => {
     if (user && subscription.currentTier === 'professional') {
-      // Clear any potentially corrupted stored connections for testing
-      bankReceiptService.clearBankConnections(user.uid).then(() => {
-        loadTransactionCandidates();
-        createLinkToken(); // Prepare link token for bank connection
-      });
+      // Only load candidates and create link token; do not clear bank connections in dev mode
+      loadTransactionCandidates();
+      createLinkToken(); // Prepare link token for bank connection
     }
   }, [user, subscription.currentTier]);
 
@@ -53,11 +121,41 @@ export const BankTransactionsScreen: React.FC = () => {
 
     try {
       setLoading(true);
-      const newCandidates = await bankReceiptService.monitorTransactions(user.uid);
-      setCandidates(newCandidates);
+      
+      // First, try to get candidates from cache
+      const cachedCandidates = await bankReceiptService.getCachedTransactionCandidates(user.uid);
+      
+      if (cachedCandidates.length > 0) {
+        console.log('� Using cached candidates:', cachedCandidates.length);
+        setCandidates(cachedCandidates.map(candidate => ({ _id: candidate.transaction?.transaction_id || 'unknown', ...candidate })));
+        
+        // Load generated receipts for candidates with 'generated' status
+        await loadGeneratedReceipts(cachedCandidates.filter(c => c.status === 'generated').map(candidate => ({ _id: candidate.transaction?.transaction_id || 'unknown', ...candidate })));
+        return;
+      }
+      
+      // No cache, run the full sync process
+      console.log('� No cache found, running full sync...');
+      await bankReceiptService.monitorTransactions(user.uid);
+      
+      // Now fetch the newly created candidates from Firestore
+      const { getDocs, collection, query, where } = await import('firebase/firestore');
+      const { db } = await import('../config/firebase');
+      const candidatesQuery = query(
+        collection(db, 'transactionCandidates'),
+        where('userId', '==', user.uid)
+      );
+      const snapshot = await getDocs(candidatesQuery);
+      const allCandidates = snapshot.docs.map(doc => ({ _id: doc.id, ...(doc.data() as TransactionCandidate) }));
+      setCandidates(allCandidates);
+      
+      // Cache these candidates with their Firestore IDs
+      await bankReceiptService.cacheFirestoreCandidates(user.uid, allCandidates);
+      
+      // Load generated receipts for candidates with 'generated' status
+      await loadGeneratedReceipts(allCandidates.filter(c => c.status === 'generated'));
     } catch (error) {
       console.error('Error loading transaction candidates:', error);
-      
       // Check if error is due to no bank connections
       if (error instanceof Error && error.message.includes('Network request failed')) {
         console.log('ℹ️ Network error - likely no bank connections exist yet');
@@ -74,8 +172,62 @@ export const BankTransactionsScreen: React.FC = () => {
     }
   };
 
+  const loadGeneratedReceipts = async (candidatesWithReceipts: (TransactionCandidate & { _id?: string })[]) => {
+    if (candidatesWithReceipts.length === 0) return;
+    
+    try {
+      const { getDocs, collection, query, where } = await import('firebase/firestore');
+      const { db } = await import('../config/firebase');
+      
+      const newGeneratedReceipts = new Map<string, GeneratedReceipt>();
+      
+      for (const candidate of candidatesWithReceipts) {
+        const docId = (candidate as any)._id;
+        if (!docId) continue;
+        
+        // Query the generatedReceipts collection
+        const receiptsQuery = query(
+          collection(db, 'generatedReceipts'),
+          where('candidateId', '==', docId)
+        );
+        const receiptSnap = await getDocs(receiptsQuery);
+        
+        if (!receiptSnap.empty) {
+          const receiptData = receiptSnap.docs[0].data();
+          // Convert back to GeneratedReceipt format
+          const generatedReceipt: GeneratedReceipt = {
+            receiptImageUrl: receiptData.receiptImageUrl,
+            receiptData: {
+              businessName: receiptData.businessName,
+              address: receiptData.address,
+              date: receiptData.date,
+              time: receiptData.time,
+              items: receiptData.items || [],
+              subtotal: receiptData.subtotal,
+              tax: receiptData.tax,
+              total: receiptData.total,
+              paymentMethod: receiptData.paymentMethod,
+              transactionId: receiptData.transactionId,
+            }
+          };
+          newGeneratedReceipts.set(docId, generatedReceipt);
+        }
+      }
+      
+      setGeneratedReceipts(newGeneratedReceipts);
+    } catch (error) {
+      console.error('Error loading generated receipts:', error);
+    }
+  };
+
   const handleRefresh = async () => {
     setRefreshing(true);
+    
+    // Clear cache to force fresh data fetch
+    if (user) {
+      await bankReceiptService.clearTransactionCache(user.uid);
+    }
+    
     await loadTransactionCandidates();
     setRefreshing(false);
   };
@@ -183,7 +335,7 @@ export const BankTransactionsScreen: React.FC = () => {
   };
 
   const approveReceipt = async (
-    candidate: TransactionCandidate,
+    candidate: TransactionCandidate & { _id?: string },
     candidateId: string,
     generatedReceipt: GeneratedReceipt
   ) => {
@@ -196,8 +348,8 @@ export const BankTransactionsScreen: React.FC = () => {
         candidateId
       );
       
-      // Remove from candidates list
-      setCandidates(prev => prev.filter(c => c.transaction.transaction_id !== candidate.transaction.transaction_id));
+      // Remove from candidates list by Firestore doc id
+      setCandidates(prev => prev.filter(c => (c as any)._id !== candidateId));
       setGeneratedReceipts(prev => {
         const newMap = new Map(prev);
         newMap.delete(candidateId);
@@ -220,7 +372,8 @@ export const BankTransactionsScreen: React.FC = () => {
   };
 
   const rejectCandidate = (candidateId: string) => {
-    setCandidates(prev => prev.filter(c => c.transaction.transaction_id !== candidateId));
+    // Remove by Firestore doc id to avoid colliding transaction ids
+    setCandidates(prev => prev.filter(c => (c as any)._id !== candidateId));
     setGeneratedReceipts(prev => {
       const newMap = new Map(prev);
       newMap.delete(candidateId);
@@ -247,6 +400,122 @@ export const BankTransactionsScreen: React.FC = () => {
       day: 'numeric',
       year: 'numeric',
     });
+  };
+
+  // FlatList item renderer
+  const renderTransactionItem = ({ item: candidate }: { item: TransactionCandidate & { _id?: string } }) => {
+    const docId = (candidate as any)._id ?? `${candidate.transaction.transaction_id}_fallback`;
+    const generatedReceipt = generatedReceipts.get(docId);
+    const isGenerating = generatingReceipt === docId;
+
+    return (
+      <View style={styles.candidateCard}>
+        <View style={styles.candidateHeader}>
+          <View style={styles.merchantInfo}>
+            <Text style={styles.merchantName}>
+              {candidate.transaction.merchant_name || candidate.transaction.name}
+            </Text>
+            <Text style={styles.transactionDate}>
+              {formatDate(candidate.transaction.date)}
+            </Text>
+          </View>
+          <View style={styles.amountContainer}>
+            <Text style={styles.amount}>
+              {formatCurrency(candidate.transaction.amount)}
+            </Text>
+            {candidate.transaction.category && (
+              <Text style={styles.category}>
+                {candidate.transaction.category[0]}
+              </Text>
+            )}
+          </View>
+        </View>
+
+        <View style={styles.transactionDetails}>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Payment Channel:</Text>
+            <Text style={styles.detailValue}>
+              {candidate.transaction.payment_channel}
+            </Text>
+          </View>
+          {candidate.transaction.location && (
+            <View style={styles.detailRow}>
+              <Text style={styles.detailLabel}>Location:</Text>
+              <Text style={styles.detailValue}>
+                {candidate.transaction.location.city}, {candidate.transaction.location.region}
+              </Text>
+            </View>
+          )}
+        </View>
+
+        {generatedReceipt && (
+          <View style={styles.generatedReceiptContainer}>
+            <Text style={styles.receiptTitle}>Generated Receipt Preview</Text>
+            <Image 
+              source={{ uri: generatedReceipt.receiptImageUrl }} 
+              style={styles.receiptImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.receiptDetails}>
+              {generatedReceipt.receiptData.businessName} • {generatedReceipt.receiptData.date}
+            </Text>
+          </View>
+        )}
+
+        <View style={styles.buttonContainer}>
+          {!generatedReceipt && !isGenerating && (
+            <>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.generateButton]}
+                onPress={() => generateReceipt(candidate, docId)}
+              >
+                <Text style={[styles.buttonText, styles.generateButtonText]}>
+                  Generate Receipt
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.rejectButton]}
+                onPress={() => rejectCandidate(docId)}
+              >
+                <Text style={[styles.buttonText, styles.rejectButtonText]}>
+                  Dismiss
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {isGenerating && (
+            <View style={[styles.actionButton, { flexDirection: 'row' }]}>
+              <ActivityIndicator size="small" color={theme.gold.primary} />
+              <Text style={[styles.loadingText, { marginLeft: 8 }]}>
+                Generating receipt...
+              </Text>
+            </View>
+          )}
+
+          {generatedReceipt && (
+            <>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.approveButton]}
+                onPress={() => approveReceipt(candidate, docId, generatedReceipt)}
+              >
+                <Text style={[styles.buttonText, styles.approveButtonText]}>
+                  Save Receipt
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionButton, styles.rejectButton]}
+                onPress={() => rejectCandidate(docId)}
+              >
+                <Text style={[styles.buttonText, styles.rejectButtonText]}>
+                  Discard
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    );
   };
 
   const styles = StyleSheet.create({
@@ -437,6 +706,109 @@ export const BankTransactionsScreen: React.FC = () => {
       marginLeft: 8,
       color: theme.text.secondary,
     },
+    listContainer: {
+      paddingBottom: 20,
+    },
+    searchContainer: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border.primary,
+    },
+    searchInputContainer: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.background.secondary,
+      borderRadius: 12,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      marginRight: 12,
+    },
+    searchIcon: {
+      marginRight: 8,
+    },
+    searchInput: {
+      flex: 1,
+      fontSize: 16,
+      color: theme.text.primary,
+      paddingVertical: 4,
+    },
+    filterButton: {
+      padding: 8,
+      borderRadius: 8,
+      backgroundColor: theme.background.secondary,
+      borderWidth: 1,
+      borderColor: theme.gold.primary,
+    },
+    filtersContainer: {
+      backgroundColor: theme.background.secondary,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border.primary,
+    },
+    filterRow: {
+      marginBottom: 12,
+    },
+    filterLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.text.primary,
+      marginBottom: 8,
+    },
+    filterOptions: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    filterOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 20,
+      backgroundColor: theme.background.primary,
+      borderWidth: 1,
+      borderColor: theme.border.primary,
+    },
+    filterOptionActive: {
+      backgroundColor: theme.gold.primary,
+      borderColor: theme.gold.primary,
+    },
+    filterOptionText: {
+      fontSize: 14,
+      color: theme.text.primary,
+      marginRight: 4,
+    },
+    filterOptionTextActive: {
+      color: theme.background.primary,
+    },
+    categoryFilters: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    categoryFilter: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+      backgroundColor: theme.background.primary,
+      borderWidth: 1,
+      borderColor: theme.border.primary,
+    },
+    categoryFilterActive: {
+      backgroundColor: theme.gold.primary,
+      borderColor: theme.gold.primary,
+    },
+    categoryFilterText: {
+      fontSize: 12,
+      color: theme.text.primary,
+    },
+    categoryFilterTextActive: {
+      color: theme.background.primary,
+    },
   });
 
   // Check if user has Professional subscription
@@ -481,163 +853,189 @@ export const BankTransactionsScreen: React.FC = () => {
       <View style={styles.header}>
         <Text style={styles.title}>Bank Transactions</Text>
         <Text style={styles.subtitle}>
-          {candidates.length === 0 
-            ? 'No recent purchases found' 
-            : `${candidates.length} recent ${candidates.length === 1 ? 'purchase' : 'purchases'} found`
+          {filteredAndSortedCandidates.length === 0 && searchQuery.trim() 
+            ? `No matches for "${searchQuery}"` 
+            : filteredAndSortedCandidates.length === 0
+            ? 'No recent purchases found'
+            : `${filteredAndSortedCandidates.length} of ${candidates.length} transactions`
           }
         </Text>
       </View>
 
-      <ScrollView 
-        style={styles.scrollContainer}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[theme.gold.primary]}
-            tintColor={theme.gold.primary}
-          />
-        }
-      >
-        {candidates.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="card-outline" size={64} color={theme.text.secondary} />
-            <Text style={styles.emptyTitle}>No Recent Purchases</Text>
-            <Text style={styles.emptySubtitle}>
-              We'll monitor your connected accounts for new purchases and notify you when we find potential receipts.
-            </Text>
-            {linkToken ? (
-              <PlaidLinkButton
-                linkToken={linkToken}
-                onSuccess={handlePlaidSuccess}
-                onExit={handlePlaidExit}
-                style={styles.connectButton}
-              >
-                <Text style={styles.connectButtonText}>Connect Bank Account</Text>
-              </PlaidLinkButton>
-            ) : (
-              <TouchableOpacity style={styles.connectButton} onPress={createLinkToken}>
-                <Text style={styles.connectButtonText}>Connect Bank Account</Text>
-              </TouchableOpacity>
-            )}
+      {candidates.length > 0 && (
+        <>
+          {/* Search Bar */}
+          <View style={styles.searchContainer}>
+            <View style={styles.searchInputContainer}>
+              <Ionicons name="search-outline" size={20} color={theme.text.secondary} style={styles.searchIcon} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search transactions..."
+                placeholderTextColor={theme.text.secondary}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery('')}>
+                  <Ionicons name="close-circle" size={20} color={theme.text.secondary} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity 
+              style={styles.filterButton}
+              onPress={() => setShowFilters(!showFilters)}
+            >
+              <Ionicons name="options-outline" size={20} color={theme.gold.primary} />
+            </TouchableOpacity>
           </View>
-        ) : (
-          candidates.map((candidate, index) => {
-            const candidateId = candidate.transaction.transaction_id;
-            const generatedReceipt = generatedReceipts.get(candidateId);
-            const isGenerating = generatingReceipt === candidateId;
 
-            return (
-              <View key={candidateId} style={styles.candidateCard}>
-                <View style={styles.candidateHeader}>
-                  <View style={styles.merchantInfo}>
-                    <Text style={styles.merchantName}>
-                      {candidate.transaction.merchant_name || candidate.transaction.name}
-                    </Text>
-                    <Text style={styles.transactionDate}>
-                      {formatDate(candidate.transaction.date)}
-                    </Text>
-                  </View>
-                  <View style={styles.amountContainer}>
-                    <Text style={styles.amount}>
-                      {formatCurrency(candidate.transaction.amount)}
-                    </Text>
-                    {candidate.transaction.category && (
-                      <Text style={styles.category}>
-                        {candidate.transaction.category[0]}
+          {/* Filters */}
+          {showFilters && (
+            <View style={styles.filtersContainer}>
+              <View style={styles.filterRow}>
+                <Text style={styles.filterLabel}>Sort by:</Text>
+                <View style={styles.filterOptions}>
+                  {[
+                    { key: 'date', label: 'Date' },
+                    { key: 'amount', label: 'Amount' },
+                    { key: 'merchant', label: 'Merchant' }
+                  ].map(option => (
+                    <TouchableOpacity
+                      key={option.key}
+                      style={[
+                        styles.filterOption,
+                        sortBy === option.key && styles.filterOptionActive
+                      ]}
+                      onPress={() => {
+                        if (sortBy === option.key) {
+                          setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+                        } else {
+                          setSortBy(option.key as any);
+                          setSortDirection('desc');
+                        }
+                      }}
+                    >
+                      <Text style={[
+                        styles.filterOptionText,
+                        sortBy === option.key && styles.filterOptionTextActive
+                      ]}>
+                        {option.label}
                       </Text>
-                    )}
-                  </View>
-                </View>
-
-                <View style={styles.transactionDetails}>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Payment Channel:</Text>
-                    <Text style={styles.detailValue}>
-                      {candidate.transaction.payment_channel}
-                    </Text>
-                  </View>
-                  {candidate.transaction.location && (
-                    <View style={styles.detailRow}>
-                      <Text style={styles.detailLabel}>Location:</Text>
-                      <Text style={styles.detailValue}>
-                        {candidate.transaction.location.city}, {candidate.transaction.location.region}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                {generatedReceipt && (
-                  <View style={styles.generatedReceiptContainer}>
-                    <Text style={styles.receiptTitle}>Generated Receipt Preview</Text>
-                    <Image 
-                      source={{ uri: generatedReceipt.receiptImageUrl }} 
-                      style={styles.receiptImage}
-                      resizeMode="contain"
-                    />
-                    <Text style={styles.receiptDetails}>
-                      {generatedReceipt.receiptData.businessName} • {generatedReceipt.receiptData.date}
-                    </Text>
-                  </View>
-                )}
-
-                <View style={styles.buttonContainer}>
-                  {!generatedReceipt && !isGenerating && (
-                    <>
-                      <TouchableOpacity
-                        style={[styles.actionButton, styles.generateButton]}
-                        onPress={() => generateReceipt(candidate, candidateId)}
-                      >
-                        <Text style={[styles.buttonText, styles.generateButtonText]}>
-                          Generate Receipt
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.actionButton, styles.rejectButton]}
-                        onPress={() => rejectCandidate(candidateId)}
-                      >
-                        <Text style={[styles.buttonText, styles.rejectButtonText]}>
-                          Dismiss
-                        </Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
-
-                  {isGenerating && (
-                    <View style={[styles.actionButton, { flexDirection: 'row' }]}>
-                      <ActivityIndicator size="small" color={theme.gold.primary} />
-                      <Text style={[styles.loadingText, { marginLeft: 8 }]}>
-                        Generating receipt...
-                      </Text>
-                    </View>
-                  )}
-
-                  {generatedReceipt && (
-                    <>
-                      <TouchableOpacity
-                        style={[styles.actionButton, styles.approveButton]}
-                        onPress={() => approveReceipt(candidate, candidateId, generatedReceipt)}
-                      >
-                        <Text style={[styles.buttonText, styles.approveButtonText]}>
-                          Save Receipt
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[styles.actionButton, styles.rejectButton]}
-                        onPress={() => rejectCandidate(candidateId)}
-                      >
-                        <Text style={[styles.buttonText, styles.rejectButtonText]}>
-                          Discard
-                        </Text>
-                      </TouchableOpacity>
-                    </>
-                  )}
+                      {sortBy === option.key && (
+                        <Ionicons 
+                          name={sortDirection === 'asc' ? 'chevron-up' : 'chevron-down'} 
+                          size={16} 
+                          color={theme.gold.primary} 
+                        />
+                      )}
+                    </TouchableOpacity>
+                  ))}
                 </View>
               </View>
-            );
-          })
-        )}
-      </ScrollView>
+
+              <View style={styles.filterRow}>
+                <Text style={styles.filterLabel}>Category:</Text>
+                <View style={styles.categoryFilters}>
+                  <TouchableOpacity
+                    style={[
+                      styles.categoryFilter,
+                      (filterByCategory === '' || filterByCategory === 'all') && styles.categoryFilterActive
+                    ]}
+                    onPress={() => setFilterByCategory('')}
+                  >
+                    <Text style={[
+                      styles.categoryFilterText,
+                      (filterByCategory === '' || filterByCategory === 'all') && styles.categoryFilterTextActive
+                    ]}>
+                      All
+                    </Text>
+                  </TouchableOpacity>
+                  {availableCategories.slice(0, 3).map(category => (
+                    <TouchableOpacity
+                      key={category}
+                      style={[
+                        styles.categoryFilter,
+                        filterByCategory === category && styles.categoryFilterActive
+                      ]}
+                      onPress={() => setFilterByCategory(category)}
+                    >
+                      <Text style={[
+                        styles.categoryFilterText,
+                        filterByCategory === category && styles.categoryFilterTextActive
+                      ]}>
+                        {category}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            </View>
+          )}
+        </>
+      )}
+
+      {candidates.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="card-outline" size={64} color={theme.text.secondary} />
+          <Text style={styles.emptyTitle}>No Recent Purchases</Text>
+          <Text style={styles.emptySubtitle}>
+            We'll monitor your connected accounts for new purchases and notify you when we find potential receipts.
+          </Text>
+          {linkToken ? (
+            <PlaidLinkButton
+              linkToken={linkToken}
+              onSuccess={handlePlaidSuccess}
+              onExit={handlePlaidExit}
+              style={styles.connectButton}
+            >
+              <Text style={styles.connectButtonText}>Connect Bank Account</Text>
+            </PlaidLinkButton>
+          ) : (
+            <TouchableOpacity style={styles.connectButton} onPress={createLinkToken}>
+              <Text style={styles.connectButtonText}>Connect Bank Account</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ) : filteredAndSortedCandidates.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Ionicons name="search-outline" size={64} color={theme.text.secondary} />
+          <Text style={styles.emptyTitle}>No Matching Transactions</Text>
+          <Text style={styles.emptySubtitle}>
+            Try adjusting your search terms or filters to find what you're looking for.
+          </Text>
+          <TouchableOpacity 
+            style={styles.connectButton}
+            onPress={() => {
+              setSearchQuery('');
+              setFilterByCategory('');
+            }}
+          >
+            <Text style={styles.connectButtonText}>Clear Filters</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredAndSortedCandidates}
+          renderItem={renderTransactionItem}
+          keyExtractor={(item) => (item as any)._id ?? `${item.transaction.transaction_id}_fallback`}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[theme.gold.primary]}
+              tintColor={theme.gold.primary}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContainer}
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={10}
+          getItemLayout={(data, index) => (
+            {length: 200, offset: 200 * index, index}
+          )}
+        />
+      )}
     </SafeAreaView>
   );
 };
