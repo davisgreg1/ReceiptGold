@@ -10,6 +10,50 @@ service cloud.firestore {
             allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
         }
 
+        // Generated Receipts collection - users can only access their own generated receipts
+        match /generatedReceipts/{receiptId} {
+            allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow list: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+            allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+            allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+        }
+
+        // Candidate Status collection - users can only access their own candidate statuses
+        match /candidateStatus/{statusId} {
+            allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+            allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+        }
+
+        // Bank Connections collection - users can only access their own bank connections
+        match /bankConnections/{connectionId} {
+            allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+            allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+        }
+
+        // Merchant Categories collection - shared data for categorizing merchants
+        match /merchantCategories/{merchantId} {
+            // Anyone authenticated can read merchant categories
+            allow read: if isAuthenticated();
+
+            // Anyone authenticated can create/update merchant categories
+            // This allows crowdsourced categorization from all users
+            allow create, update: if isAuthenticated() &&
+            // Validate required fields
+            request.resource.data.keys().hasAll(['merchantName', 'category', 'confidence']) &&
+            // Validate data types
+            request.resource.data.merchantName is string &&
+            request.resource.data.category is string &&
+            request.resource.data.confidence is number &&
+            // Validate confidence is between 0 and 1
+            request.resource.data.confidence >= 0 && request.resource.data.confidence <= 1;
+
+            // Only allow deletion by admins or Cloud Functions
+            allow delete: if isAdmin();
+        }
+
         // Helper functions
         function isAuthenticated() {
             return request.auth != null;
@@ -53,11 +97,19 @@ service cloud.firestore {
         // Receipts collection - users can only access their own receipts
         match /receipts/{receiptId} {
             allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
-            allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId &&
-                request.resource.data.keys().hasAll(['userId', 'amount', 'businessName']) &&
-                request.resource.data.amount is number;
-            allow update: if isAuthenticated() && request.auth.uid == resource.data.userId &&
-                request.resource.data.userId == resource.data.userId;
+
+            // Simplified: Only require userId for creation
+            allow create: if isAuthenticated() && 
+            request.auth.uid == request.resource.data.userId &&
+            // Validate userId is present and is a string
+            request.resource.data.keys().hasAll(['userId']) &&
+            request.resource.data.userId is string;
+
+            allow update: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId &&
+            // Prevent changing userId
+            request.resource.data.userId == resource.data.userId;
+
             allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
         }
 

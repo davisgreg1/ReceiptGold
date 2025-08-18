@@ -1,4 +1,4 @@
-import { collection, query, where, getDocs, Query, QuerySnapshot, getDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
 export async function getMonthlyReceiptCount(userId: string): Promise<number> {

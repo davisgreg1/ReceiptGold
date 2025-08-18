@@ -269,7 +269,7 @@ export class PlaidService {
       console.log(`✅ Fetched ${data.transactions.length} transactions from Plaid`);
       return data.transactions;
     } catch (error) {
-      console.error('❌ Error fetching transactions:', error);
+      console.error('❌ PlaidService Error fetching transactions:', error);
       throw error;
     }
   }
@@ -342,6 +342,37 @@ export class PlaidService {
   // Relaxed filter: accept all transactions
   return true;
     });
+  }
+
+  /**
+   * Disconnect a bank account by removing the access token from Plaid
+   */
+  public async disconnectBankAccount(accessToken: string): Promise<void> {
+    try {
+      console.log('🔌 Disconnecting bank account from Plaid again...');
+      
+      const response = await fetch(`${API_BASE_URL}/api/plaid/remove_item`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'remove_item',
+          access_token: accessToken,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to disconnect bank account');
+      }
+
+      const result = await response.json();
+      console.log('✅ Bank account disconnected from Plaid successfully:', result);
+    } catch (error) {
+      console.error('❌ Plaid Service Error disconnecting bank account:', error);
+      throw error;
+    }
   }
 }
 

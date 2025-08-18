@@ -12,10 +12,19 @@ import {
   Platform,
 } from "react-native";
 import { useTheme } from "../theme/ThemeProvider";
-import { useSubscription, SubscriptionTier } from "../context/SubscriptionContext";
+import {
+  useSubscription,
+  SubscriptionTier,
+} from "../context/SubscriptionContext";
 import { useAuth } from "../context/AuthContext";
 import { useStripePayments } from "../hooks/useStripePayments";
-import { HeadingText, BodyText, ButtonText, BrandText } from '../components/Typography';
+import {
+  HeadingText,
+  BodyText,
+  ButtonText,
+  BrandText,
+} from "../components/Typography";
+import { useInAppNotifications } from "../components/InAppNotificationProvider";
 
 const { width, height } = Dimensions.get("window");
 
@@ -41,11 +50,16 @@ interface PricingLandingProps {}
 
 const PricingLanding: React.FC<PricingLandingProps> = () => {
   const { theme } = useTheme();
-  const { subscription, upgradeTo, loading: subscriptionLoading } = useSubscription();
+  const { subscription, loading: subscriptionLoading } = useSubscription();
+  const { showNotification } = useInAppNotifications();
+
   const { user } = useAuth();
-  const { handleSubscription, formatPrice } = useStripePayments();
-  
-  const [selectedTier, setSelectedTier] = useState<SubscriptionTier | null>(null);
+  const { handleSubscriptionWithCloudFunction, formatPrice } =
+    useStripePayments();
+
+  const [selectedTier, setSelectedTier] = useState<SubscriptionTier | null>(
+    null
+  );
   const [isSelecting, setIsSelecting] = useState(false);
   const scaleAnim = new Animated.Value(1);
 
@@ -115,12 +129,15 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
 
   const handleTierSelect = async (tier: PricingTier): Promise<void> => {
     if (!user) {
-      Alert.alert('Authentication Required', 'Please sign in to upgrade your subscription.');
+      Alert.alert(
+        "Authentication Required",
+        "Please sign in to upgrade your subscription."
+      );
       return;
     }
 
     if (tier.id === subscription?.currentTier) {
-      Alert.alert('Current Plan', 'You are already on this plan!');
+      Alert.alert("Current Plan", "You are already on this plan!");
       return;
     }
 
@@ -142,27 +159,30 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
     ]).start();
 
     try {
-      const customerEmail = user.email || '';
-      const customerName = user.displayName || 'Customer';
-      
+      const customerEmail = user.email || "";
+      const customerName = user.displayName || "Customer";
+
       // Use the Stripe service to handle subscription
-      const success = await handleSubscription(
+      const success = await handleSubscriptionWithCloudFunction(
         tier.id,
         customerEmail,
         customerName
       );
 
       if (success) {
-        console.log(`Successfully initiated upgrade to: ${tier.name}`);
-        // Update local subscription state
-        await upgradeTo(tier.id);
+        // show notification
+        showNotification({
+          type: "success",
+          title: "Subscription",
+          message: "Your subscription has been updated successfully.",
+        });
       }
     } catch (error) {
-      console.error('Upgrade failed:', error);
+      console.error("Upgrade failed:", error);
       Alert.alert(
-        'Upgrade Error',
-        'Failed to process subscription. Please try again.',
-        [{ text: 'OK' }]
+        "Upgrade Error",
+        "Failed to process subscription. Please try again.",
+        [{ text: "OK" }]
       );
     } finally {
       setIsSelecting(false);
@@ -191,11 +211,11 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
           {
             transform: [
               { scale: isSelected ? scaleAnim : cardScale },
-              { 
+              {
                 translateY: cardAnimValue.interpolate({
                   inputRange: [0, 1],
                   outputRange: [50, 0],
-                })
+                }),
               },
             ],
             opacity: cardAnimValue,
@@ -204,8 +224,17 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       >
         {tier.popular && (
           <View style={styles.popularBadgeContainer}>
-            <View style={[styles.popularBadge, { backgroundColor: theme.gold.primary }]}>
-              <BodyText size="small" color="inverse" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
+            <View
+              style={[
+                styles.popularBadge,
+                { backgroundColor: theme.gold.primary },
+              ]}
+            >
+              <BodyText
+                size="small"
+                color="inverse"
+                style={{ fontWeight: "700", letterSpacing: 0.5 }}
+              >
                 ⭐ MOST POPULAR
               </BodyText>
             </View>
@@ -221,9 +250,11 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
               backgroundColor: tier.popular
                 ? theme.gold.background
                 : theme.background.secondary,
-              borderColor: isCurrentTier 
-                ? theme.status.success 
-                : (isSelected ? theme.gold.primary : theme.border.primary),
+              borderColor: isCurrentTier
+                ? theme.status.success
+                : isSelected
+                ? theme.gold.primary
+                : theme.border.primary,
             },
           ]}
           onPress={() => handleTierSelect(tier)}
@@ -233,7 +264,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
           <View
             style={[
               styles.iconContainer,
-              { 
+              {
                 backgroundColor: tier.gradientStart,
                 shadowColor: tier.gradientStart,
               },
@@ -242,21 +273,37 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
             <Text style={styles.iconText}>{tier.icon}</Text>
           </View>
 
-          <HeadingText size="small" color="primary" align="center" style={styles.tierNameSpacing}>
+          <HeadingText
+            size="small"
+            color="primary"
+            align="center"
+            style={styles.tierNameSpacing}
+          >
             {tier.name}
           </HeadingText>
-          <BodyText size="medium" color="secondary" align="center" style={styles.descriptionSpacing}>
+          <BodyText
+            size="medium"
+            color="secondary"
+            align="center"
+            style={styles.descriptionSpacing}
+          >
             {tier.description}
           </BodyText>
 
           <View style={styles.priceContainer}>
             <View style={styles.priceWrapper}>
-              <BodyText size="small" color="secondary" style={styles.currency}>$</BodyText>
-              <HeadingText size="large" color="primary" style={styles.priceNumber}>
-                {tier.price.toString().split('.')[0]}
+              <BodyText size="small" color="secondary" style={styles.currency}>
+                $
+              </BodyText>
+              <HeadingText
+                size="large"
+                color="primary"
+                style={styles.priceNumber}
+              >
+                {tier.price.toString().split(".")[0]}
               </HeadingText>
               <BodyText size="small" color="secondary" style={styles.cents}>
-                .{tier.price.toString().split('.')[1] || '00'}
+                .{tier.price.toString().split(".")[1] || "00"}
               </BodyText>
             </View>
             <BodyText size="small" color="tertiary" style={styles.period}>
@@ -267,10 +314,23 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
           <View style={styles.featuresContainer}>
             {tier.features.map((feature: string, idx: number) => (
               <View key={idx} style={styles.featureItem}>
-                <View style={[styles.checkmarkContainer, { backgroundColor: theme.status.success + '20' }]}>
-                  <Text style={[styles.checkmark, { color: theme.status.success }]}>✓</Text>
+                <View
+                  style={[
+                    styles.checkmarkContainer,
+                    { backgroundColor: theme.status.success + "20" },
+                  ]}
+                >
+                  <Text
+                    style={[styles.checkmark, { color: theme.status.success }]}
+                  >
+                    ✓
+                  </Text>
                 </View>
-                <BodyText size="medium" color="primary" style={styles.featureText}>
+                <BodyText
+                  size="medium"
+                  color="primary"
+                  style={styles.featureText}
+                >
                   {feature}
                 </BodyText>
               </View>
@@ -281,12 +341,16 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
             style={[
               styles.button,
               {
-                backgroundColor: isCurrentTier 
-                  ? theme.status.success 
-                  : (isSelected ? theme.gold.primary : tier.gradientStart),
-                shadowColor: isCurrentTier 
-                  ? theme.status.success 
-                  : (isSelected ? theme.gold.primary : tier.gradientStart),
+                backgroundColor: isCurrentTier
+                  ? theme.status.success
+                  : isSelected
+                  ? theme.gold.primary
+                  : tier.gradientStart,
+                shadowColor: isCurrentTier
+                  ? theme.status.success
+                  : isSelected
+                  ? theme.gold.primary
+                  : tier.gradientStart,
                 opacity: isCurrentTier ? 0.8 : 1,
               },
             ]}
@@ -294,39 +358,61 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
             onPress={() => handleTierSelect(tier)}
           >
             {/* Button gradient overlay */}
-            <View style={[
-              styles.buttonGradient,
-              {
-                backgroundColor: isCurrentTier 
-                  ? theme.status.success + '10' 
-                  : (isSelected ? theme.gold.primary + '10' : tier.gradientStart + '10'),
-              }
-            ]} />
-            
+            <View
+              style={[
+                styles.buttonGradient,
+                {
+                  backgroundColor: isCurrentTier
+                    ? theme.status.success + "10"
+                    : isSelected
+                    ? theme.gold.primary + "10"
+                    : tier.gradientStart + "10",
+                },
+              ]}
+            />
+
             {isSelecting && selectedTier === tier.id ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="small" color="white" />
-                <ButtonText size="medium" color="inverse" style={{ marginLeft: 8, fontWeight: '700' }}>
+                <ButtonText
+                  size="medium"
+                  color="inverse"
+                  style={{ marginLeft: 8, fontWeight: "700" }}
+                >
                   Upgrading...
                 </ButtonText>
               </View>
             ) : isCurrentTier ? (
               <View style={styles.currentPlanContainer}>
                 <Text style={styles.checkIcon}>✓</Text>
-                <ButtonText size="medium" color="inverse" style={{ fontWeight: '700' }}>
+                <ButtonText
+                  size="medium"
+                  color="inverse"
+                  style={{ fontWeight: "700" }}
+                >
                   Current Plan
                 </ButtonText>
               </View>
             ) : isSelected ? (
               <View style={styles.selectedContainer}>
                 <Text style={styles.sparkleIcon}>✨</Text>
-                <ButtonText size="medium" color="inverse" style={{ fontWeight: '700' }}>
+                <ButtonText
+                  size="medium"
+                  color="inverse"
+                  style={{ fontWeight: "700" }}
+                >
                   Selected
                 </ButtonText>
               </View>
             ) : (
-              <ButtonText size="medium" color="inverse" style={{ fontWeight: '700', letterSpacing: 0.5 }}>
-                {subscription?.currentTier === 'free' ? `Get ${tier.name}` : `Upgrade Now`}
+              <ButtonText
+                size="medium"
+                color="inverse"
+                style={{ fontWeight: "700", letterSpacing: 0.5 }}
+              >
+                {subscription?.currentTier === "free"
+                  ? `Get ${tier.name}`
+                  : `Upgrade Now`}
               </ButtonText>
             )}
           </TouchableOpacity>
@@ -336,32 +422,74 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
   };
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.background.primary }]}>
+    <View
+      style={[styles.container, { backgroundColor: theme.background.primary }]}
+    >
       <ScrollView
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
         {/* Enhanced decorative background elements */}
-        <View style={[styles.bgCircle, styles.bgCircle1, { backgroundColor: theme.gold.primary }]} />
-        <View style={[styles.bgCircle, styles.bgCircle2, { backgroundColor: theme.gold.muted }]} />
-        <View style={[styles.bgCircle, styles.bgCircle3, { backgroundColor: theme.gold.rich }]} />
-        <View style={[styles.bgCircle, styles.bgCircle4, { backgroundColor: theme.gold.primary }]} />
-        
+        <View
+          style={[
+            styles.bgCircle,
+            styles.bgCircle1,
+            { backgroundColor: theme.gold.primary },
+          ]}
+        />
+        <View
+          style={[
+            styles.bgCircle,
+            styles.bgCircle2,
+            { backgroundColor: theme.gold.muted },
+          ]}
+        />
+        <View
+          style={[
+            styles.bgCircle,
+            styles.bgCircle3,
+            { backgroundColor: theme.gold.rich },
+          ]}
+        />
+        <View
+          style={[
+            styles.bgCircle,
+            styles.bgCircle4,
+            { backgroundColor: theme.gold.primary },
+          ]}
+        />
+
         {/* Subtle gradient overlay */}
-        <View style={[styles.gradientOverlay, { 
-          backgroundColor: `${theme.gold.primary}05`
-        }]} />
+        <View
+          style={[
+            styles.gradientOverlay,
+            {
+              backgroundColor: `${theme.gold.primary}05`,
+            },
+          ]}
+        />
 
         {/* Header */}
         <View style={styles.header}>
-          <HeadingText size="large" color="gold" align="center" style={styles.mainTitle}>
+          <HeadingText
+            size="large"
+            color="gold"
+            align="center"
+            style={styles.mainTitle}
+          >
             Choose Your Perfect Plan
           </HeadingText>
-          <BodyText size="large" color="secondary" align="center" style={styles.headerSubtitle}>
-            Streamline your LLC expenses and maximize your tax savings with the perfect plan for your business growth
+          <BodyText
+            size="large"
+            color="secondary"
+            align="center"
+            style={styles.headerSubtitle}
+          >
+            Streamline your LLC expenses and maximize your tax savings with the
+            perfect plan for your business growth
           </BodyText>
-          
+
           {/* Trust indicators */}
           <View style={styles.trustIndicators}>
             <BodyText size="small" color="tertiary" style={styles.trustItem}>
@@ -388,19 +516,43 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
           <View style={styles.benefits}>
             <View style={styles.benefitItem}>
               <Text style={styles.benefitIcon}>✨</Text>
-              <BodyText size="small" color="tertiary" style={styles.benefitText}>No setup fees</BodyText>
+              <BodyText
+                size="small"
+                color="tertiary"
+                style={styles.benefitText}
+              >
+                No setup fees
+              </BodyText>
             </View>
             <View style={styles.benefitItem}>
               <Text style={styles.benefitIcon}>🔄</Text>
-              <BodyText size="small" color="tertiary" style={styles.benefitText}>Cancel anytime</BodyText>
+              <BodyText
+                size="small"
+                color="tertiary"
+                style={styles.benefitText}
+              >
+                Cancel anytime
+              </BodyText>
             </View>
             <View style={styles.benefitItem}>
               <Text style={styles.benefitIcon}>�</Text>
-              <BodyText size="small" color="tertiary" style={styles.benefitText}>Tax deductible</BodyText>
+              <BodyText
+                size="small"
+                color="tertiary"
+                style={styles.benefitText}
+              >
+                Tax deductible
+              </BodyText>
             </View>
             <View style={styles.benefitItem}>
               <Text style={styles.benefitIcon}>🏆</Text>
-              <BodyText size="small" color="tertiary" style={styles.benefitText}>Premium support</BodyText>
+              <BodyText
+                size="small"
+                color="tertiary"
+                style={styles.benefitText}
+              >
+                Premium support
+              </BodyText>
             </View>
           </View>
         </View>
@@ -465,7 +617,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   mainTitle: {
-    fontWeight: '800',
+    fontWeight: "800",
     letterSpacing: 0.5,
     marginBottom: 16,
   },
@@ -475,13 +627,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   trustIndicators: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 20,
-    flexWrap: 'wrap',
-    justifyContent: 'center',
+    flexWrap: "wrap",
+    justifyContent: "center",
   },
   trustItem: {
-    fontWeight: '600',
+    fontWeight: "600",
     letterSpacing: 0.3,
   },
   cardsContainer: {
@@ -516,7 +668,7 @@ const styles = StyleSheet.create({
       android: {
         // Clean border approach for Android
         borderWidth: 2,
-        borderColor: 'rgba(255, 215, 0, 0.4)',
+        borderColor: "rgba(255, 215, 0, 0.4)",
       },
     }),
   },
@@ -534,7 +686,7 @@ const styles = StyleSheet.create({
       },
       android: {
         // Clean card with subtle border for Android
-        backgroundColor: 'transparent',
+        backgroundColor: "transparent",
       },
     }),
   },
@@ -548,7 +700,7 @@ const styles = StyleSheet.create({
       android: {
         // Thicker border and background tint for selected state
         borderWidth: 3,
-        backgroundColor: 'rgba(212, 175, 55, 0.05)',
+        backgroundColor: "rgba(212, 175, 55, 0.05)",
       },
     }),
   },
@@ -563,8 +715,8 @@ const styles = StyleSheet.create({
       },
       android: {
         // Gold gradient border effect for Android
-        backgroundColor: 'rgba(255, 215, 0, 0.08)',
-        borderColor: 'rgba(255, 215, 0, 0.3)',
+        backgroundColor: "rgba(255, 215, 0, 0.08)",
+        borderColor: "rgba(255, 215, 0, 0.3)",
         // Add a subtle inner shadow effect with border
         borderTopWidth: 4,
         borderBottomWidth: 4,
@@ -589,7 +741,7 @@ const styles = StyleSheet.create({
       android: {
         // Clean border approach for icons on Android
         borderWidth: 2,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: "rgba(255, 255, 255, 0.2)",
       },
     }),
   },
@@ -598,7 +750,7 @@ const styles = StyleSheet.create({
   },
   tierNameSpacing: {
     marginBottom: 8,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   descriptionSpacing: {
     marginBottom: 32,
@@ -617,22 +769,22 @@ const styles = StyleSheet.create({
   currency: {
     marginTop: 8,
     marginRight: 2,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   priceNumber: {
-    fontWeight: '800',
+    fontWeight: "800",
     fontSize: 56,
     lineHeight: 60,
   },
   cents: {
     marginTop: 8,
     marginLeft: 2,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   period: {
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     letterSpacing: 1,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   featuresContainer: {
     marginBottom: 32,
@@ -659,7 +811,7 @@ const styles = StyleSheet.create({
   featureText: {
     flex: 1,
     lineHeight: 22,
-    fontWeight: '500',
+    fontWeight: "500",
   },
   button: {
     borderRadius: 16,
@@ -700,8 +852,8 @@ const styles = StyleSheet.create({
   },
   checkIcon: {
     fontSize: 16,
-    color: 'white',
-    fontWeight: 'bold',
+    color: "white",
+    fontWeight: "bold",
   },
   sparkleIcon: {
     fontSize: 16,
@@ -732,7 +884,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   benefitText: {
-    fontWeight: '500',
+    fontWeight: "500",
     letterSpacing: 0.2,
   },
 });

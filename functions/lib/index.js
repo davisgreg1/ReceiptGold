@@ -28,7 +28,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initializeTestUser = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.testWebhookConfig = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
+exports.initializeTestUser = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.testWebhookConfig = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -1339,6 +1339,166 @@ exports.onUserDelete = functionsV1.auth.user().onDelete(async (user) => {
         console.error("Error deleting user data:", error);
     }
 });
+exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => {
+    var _a, _b, _c, _d;
+    try {
+        functions.logger.info('🚀 Starting updateSubscriptionAfterPayment', {
+            data: request.data,
+            auth: (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid
+        });
+        // Validate authentication
+        if (!request.auth) {
+            throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
+        }
+        // Validate that the authenticated user matches the userId in the request
+        if (request.auth.uid !== request.data.userId) {
+            throw new https_1.HttpsError('permission-denied', 'User can only update their own subscription');
+        }
+        const { subscriptionId, tierId, userId } = request.data;
+        // Validate required fields
+        if (!subscriptionId || !tierId || !userId) {
+            throw new https_1.HttpsError('invalid-argument', 'Missing required fields: subscriptionId, tierId, userId');
+        }
+        // Validate tier
+        const validTiers = ['free', 'starter', 'growth', 'professional'];
+        if (!validTiers.includes(tierId)) {
+            throw new https_1.HttpsError('invalid-argument', `Invalid tier: ${tierId}`);
+        }
+        // Validate subscription ID format (basic validation)
+        if (typeof subscriptionId !== 'string' || subscriptionId.length < 10) {
+            throw new https_1.HttpsError('invalid-argument', 'Invalid subscription ID format');
+        }
+        functions.logger.info('✅ Validation passed', { userId, tierId, subscriptionId });
+        // Get current subscription to check if this is a tier change
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const currentSub = await subscriptionRef.get();
+        const currentTier = ((_b = currentSub.data()) === null || _b === void 0 ? void 0 : _b.currentTier) || 'free';
+        functions.logger.info('📋 Current subscription state', {
+            exists: currentSub.exists,
+            currentTier,
+            newTier: tierId
+        });
+        const now = new Date();
+        let receiptsExcludedCount = 0;
+        const isTierChange = currentTier !== tierId;
+        // Start a batch for atomic updates
+        const batch = db.batch();
+        if (isTierChange) {
+            functions.logger.info(`🔄 Tier change detected: ${currentTier} → ${tierId}, processing receipt exclusions...`);
+            // Get ALL existing receipts for this user
+            const receiptsQuery = db.collection('receipts').where('userId', '==', userId);
+            const receiptsSnapshot = await receiptsQuery.get();
+            receiptsExcludedCount = receiptsSnapshot.docs.length;
+            functions.logger.info(`📝 Found ${receiptsExcludedCount} receipts to exclude from new tier count`);
+            // Mark ALL existing receipts as excluded from the new tier's count
+            receiptsSnapshot.docs.forEach((receiptDoc) => {
+                const updateData = {
+                    excludeFromMonthlyCount: true,
+                    monthlyCountExcludedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    previousTier: currentTier,
+                    upgradeProcessedAt: now
+                };
+                batch.update(receiptDoc.ref, updateData);
+            });
+            functions.logger.info(`✅ Prepared ${receiptsExcludedCount} receipts for exclusion in batch`);
+        }
+        else {
+            functions.logger.info(`📝 No tier change detected: staying on ${currentTier}`);
+        }
+        // Prepare subscription update data
+        const subscriptionUpdateData = {
+            currentTier: tierId,
+            status: 'active',
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastMonthlyCountResetAt: isTierChange ? admin.firestore.FieldValue.serverTimestamp() : (_c = currentSub.data()) === null || _c === void 0 ? void 0 : _c.lastMonthlyCountResetAt,
+            billing: {
+                subscriptionId: subscriptionId,
+                currentPeriodStart: admin.firestore.FieldValue.serverTimestamp(),
+                currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+                lastPaymentProcessed: admin.firestore.FieldValue.serverTimestamp()
+            },
+            // Add metadata for tracking
+            lastUpgrade: isTierChange ? {
+                fromTier: currentTier,
+                toTier: tierId,
+                processedAt: admin.firestore.FieldValue.serverTimestamp(),
+                receiptsExcluded: receiptsExcludedCount
+            } : (_d = currentSub.data()) === null || _d === void 0 ? void 0 : _d.lastUpgrade
+        };
+        functions.logger.info('📝 Prepared subscription update data', {
+            currentTier: tierId,
+            isTierChange,
+            receiptsExcluded: receiptsExcludedCount
+        });
+        // Add subscription update to batch
+        if (currentSub.exists) {
+            batch.update(subscriptionRef, subscriptionUpdateData);
+        }
+        else {
+            // Create new subscription document if it doesn't exist
+            const createData = {
+                ...subscriptionUpdateData,
+                userId: userId,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            };
+            batch.set(subscriptionRef, createData);
+        }
+        // Execute all updates atomically
+        try {
+            await batch.commit();
+            functions.logger.info('✅ Batch commit successful', {
+                subscriptionUpdated: true,
+                receiptsExcluded: receiptsExcludedCount,
+                tierChange: isTierChange
+            });
+        }
+        catch (batchError) {
+            functions.logger.error('❌ Batch commit failed', batchError);
+            throw new https_1.HttpsError('internal', 'Failed to update subscription and receipts');
+        }
+        // Log successful completion
+        functions.logger.info('🎉 Subscription update completed successfully', {
+            userId,
+            oldTier: currentTier,
+            newTier: tierId,
+            receiptsExcluded: receiptsExcludedCount,
+            subscriptionId
+        });
+        return {
+            success: true,
+            receiptsExcluded: receiptsExcludedCount,
+            tierChange: isTierChange
+        };
+    }
+    catch (error) {
+        functions.logger.error('❌ updateSubscriptionAfterPayment failed', error);
+        // Re-throw HttpsErrors as-is
+        if (error instanceof https_1.HttpsError) {
+            throw error;
+        }
+        // Convert other errors to internal HttpsError
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+        throw new https_1.HttpsError('internal', `Subscription update failed: ${errorMessage}`);
+    }
+});
+// Optional: Helper function to validate Stripe subscription (if you want to add Stripe verification)
+/*
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16',
+});
+
+const validateStripeSubscription = async (subscriptionId: string): Promise<boolean> => {
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    return subscription.status === 'active' || subscription.status === 'trialing';
+  } catch (error) {
+    logger.error('Failed to validate Stripe subscription', { subscriptionId, error });
+    return false;
+  }
+};
+*/
 // ADDITIONAL FUNCTIONS FOR TESTING AND DEBUGGING
 // Test Stripe connection
 exports.testStripeConnection = (0, https_1.onCall)(async (request) => {

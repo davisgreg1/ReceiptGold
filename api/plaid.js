@@ -9,7 +9,7 @@ const configuration = new Configuration({
   baseOptions: {
     headers: {
       'PLAID-CLIENT-ID': process.env.EXPO_PUBLIC_PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.EXPO_PUBLIC_PLAID_SANDBOX,
+      'PLAID-SECRET': process.env.EXPO_PUBLIC_PLAID_SANDBOX_SECRET,
     },
   },
 });
@@ -64,6 +64,21 @@ export default async function handler(req, res) {
           });
           
           res.json({ transactions: transactionsResponse.data.transactions });
+          break;
+          
+        case 'remove_item':
+          const removeResponse = await client.itemRemove({
+            access_token: body.access_token,
+          });
+          
+          console.log('✅ Plaid item removed successfully:', removeResponse.data);
+          
+          res.json({
+            success: true,
+            message: 'Bank account disconnected successfully',
+            removed: true,
+            request_id: removeResponse.data.request_id,
+          });
           break;
           
         default:

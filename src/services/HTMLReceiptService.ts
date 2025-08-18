@@ -331,70 +331,229 @@ export class HTMLReceiptService {
   }
 
   /**
-   * Generate receipt from transaction using HTML approach
+   * Generate receipt from transaction using native approach
    */
   public async generateReceiptFromTransaction(transaction: PlaidTransaction): Promise<GeneratedReceipt> {
     try {
-      console.log('🎨 Generating HTML receipt for transaction...');
+      console.log('🎨 Generating native receipt for transaction (no external service)...');
       
       // Generate receipt data
       const receiptData = this.generateReceiptData(transaction);
       
-      // Generate HTML
-      const htmlContent = this.generateReceiptHTML(receiptData);
+      // Generate receipt image natively (bypassing HTML conversion)
+      const receiptImageUrl = await this.generateNativeReceiptImageFromData(receiptData);
       
-      // Convert HTML to image using a web service or WebView
-      const receiptImageUrl = await this.convertHTMLToImage(htmlContent);
-      
-      console.log('✅ HTML receipt generated successfully');
+      console.log('✅ Native receipt generated successfully');
       return {
         receiptImageUrl,
         receiptData
       };
     } catch (error) {
-      console.error('❌ Error generating HTML receipt:', error);
+      console.error('❌ Error generating native receipt:', error);
       throw error;
     }
   }
 
   /**
-   * Convert HTML to image (this would use WebView in React Native)
+   * Generate receipt image directly from structured data (bypassing HTML)
+   */
+  private async generateNativeReceiptImageFromData(receiptData: any): Promise<string> {
+    console.log('🎨 Creating native receipt image from structured data...');
+    
+    // Create SVG receipt directly from data
+    const receiptSVG = this.createReceiptSVG(receiptData);
+    console.log('🔍 Generated SVG length:', receiptSVG.length);
+    
+    // Convert SVG to base64 data URL
+    const base64Image = `data:image/svg+xml;base64,${btoa(receiptSVG)}`;
+    console.log('🔍 Base64 data URL created, length:', base64Image.length);
+    
+    // For React Native compatibility, also try a simpler approach
+    // React Native Image component doesn't always handle complex SVG data URLs well
+    // So we also show a text-based receipt as backup
+    console.log('ℹ️ Text-based receipt fallback available if SVG doesn\'t display');
+    
+    console.log('✅ Native receipt image created');
+    return base64Image;
+  }
+
+  /**
+   * Convert HTML to image using React Native Canvas or fallback to base64 data URL
    */
   private async convertHTMLToImage(htmlContent: string): Promise<string> {
     try {
-      const serverUrl = process.env.HTML_TO_IMAGE_SERVER_URL || 'http://localhost:3001';
+      // For React Native, we'll create a simple receipt layout directly
+      // instead of converting HTML. This is much more efficient.
+      console.log('🎨 Generating receipt image natively (no external service)...');
       
-      console.log('🎨 Converting HTML to image via server...');
+      // Create a simple base64 data URL for a receipt image
+      // This is a placeholder - in a real app, you might use react-native-svg 
+      // or react-native-canvas to create the actual image
+      const receiptImageBase64 = await this.generateNativeReceiptImage(htmlContent);
       
-      const response = await fetch(`${serverUrl}/convert-html-to-image`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ html: htmlContent }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`Server error: ${errorData.message || response.statusText}`);
-      }
-
-      const result = await response.json();
-      
-      if (!result.success || !result.imageUrl) {
-        throw new Error('Invalid response from HTML to image server');
-      }
-
-      console.log('✅ HTML converted to image successfully');
-      return result.imageUrl;
+      console.log('✅ Native receipt image generated successfully');
+      return receiptImageBase64;
       
     } catch (error) {
-      console.error('❌ Error converting HTML to image:', error);
+      console.error('❌ Error generating native receipt image:', error);
+      if (error instanceof Error) {
+        console.error('❌ Error type:', error.constructor.name);
+        console.error('❌ Error message:', error.message);
+      }
       
       // Fallback: return a placeholder image
       console.log('⚠️ Using placeholder image as fallback');
       return this.getPlaceholderImage();
     }
+  }
+
+  /**
+   * Generate receipt image natively without external services
+   */
+  private async generateNativeReceiptImage(htmlContent: string): Promise<string> {
+    // Parse the receipt data from the HTML or use structured data
+    // For now, we'll create a simple text-based receipt representation
+    
+    console.log('🎨 Creating native receipt image...');
+    
+    // Extract receipt data (you could also pass structured data directly)
+    const receiptData = this.parseReceiptDataFromHTML(htmlContent);
+    
+    // Create a simple SVG-based receipt (which can be converted to base64)
+    const receiptSVG = this.createReceiptSVG(receiptData);
+    
+    // Convert SVG to base64 data URL
+    const base64Image = `data:image/svg+xml;base64,${btoa(receiptSVG)}`;
+    
+    return base64Image;
+  }
+
+  /**
+   * Parse receipt data from HTML content
+   */
+  private parseReceiptDataFromHTML(htmlContent: string): any {
+    // Extract data from the generateReceiptData method's output
+    // Look for patterns in the HTML to extract actual data
+    try {
+      // Try to extract business name
+      const businessMatch = htmlContent.match(/<h1[^>]*>(.*?)<\/h1>/i);
+      const businessName = businessMatch ? businessMatch[1].trim() : 'Unknown Business';
+      
+      // Try to extract address
+      const addressMatch = htmlContent.match(/<p[^>]*class=".*address.*"[^>]*>(.*?)<\/p>/i);
+      const address = addressMatch ? addressMatch[1].replace(/<[^>]+>/g, '').trim() : '';
+      
+      // Try to extract date
+      const dateMatch = htmlContent.match(/Date:\s*([^<\n]+)/i);
+      const date = dateMatch ? dateMatch[1].trim() : new Date().toLocaleDateString();
+      
+      // Try to extract time
+      const timeMatch = htmlContent.match(/Time:\s*([^<\n]+)/i);
+      const time = timeMatch ? timeMatch[1].trim() : new Date().toLocaleTimeString();
+      
+      // Try to extract total
+      const totalMatch = htmlContent.match(/Total:\s*\$?([\d,]+\.?\d*)/i);
+      const total = totalMatch ? parseFloat(totalMatch[1].replace(/,/g, '')) : 0;
+      
+      return {
+        businessName,
+        address,
+        date,
+        time,
+        items: [
+          { description: 'Transaction Amount', amount: total }
+        ],
+        subtotal: total * 0.93, // Approximate subtotal
+        tax: total * 0.07, // Approximate tax
+        total
+      };
+    } catch (error) {
+      console.warn('⚠️ Could not parse HTML data, using defaults');
+      return {
+        businessName: 'Receipt',
+        address: '',
+        date: new Date().toLocaleDateString(),
+        time: new Date().toLocaleTimeString(),
+        items: [
+          { description: 'Transaction', amount: 0 }
+        ],
+        subtotal: 0,
+        tax: 0,
+        total: 0
+      };
+    }
+  }
+
+  /**
+   * Create SVG receipt representation
+   */
+  private createReceiptSVG(receiptData: any): string {
+    const width = 300;
+    const height = 400;
+    
+    // Use actual receipt data
+    const businessName = receiptData.businessName || 'Receipt';
+    const address = receiptData.address || '';
+    const date = receiptData.date || new Date().toLocaleDateString();
+    const time = receiptData.time || new Date().toLocaleTimeString();
+    const items = receiptData.items || [{ description: 'Transaction', amount: receiptData.total || 0 }];
+    const subtotal = receiptData.subtotal || 0;
+    const tax = receiptData.tax || 0;
+    const total = receiptData.total || 0;
+    
+    return `
+      <svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <style>
+            .receipt-text { font-family: 'Courier New', monospace; font-size: 12px; fill: black; }
+            .receipt-title { font-family: 'Courier New', monospace; font-size: 14px; fill: black; font-weight: bold; }
+            .receipt-line { stroke: black; stroke-width: 1; }
+          </style>
+        </defs>
+        
+        <!-- Background -->
+        <rect width="${width}" height="${height}" fill="white" stroke="black" stroke-width="2"/>
+        
+        <!-- Header -->
+        <text x="${width/2}" y="25" text-anchor="middle" class="receipt-title">${businessName}</text>
+        ${address ? `<text x="${width/2}" y="40" text-anchor="middle" class="receipt-text">${address}</text>` : ''}
+        
+        <!-- Date/Time -->
+        <text x="10" y="70" class="receipt-text">Date: ${date}</text>
+        <text x="10" y="85" class="receipt-text">Time: ${time}</text>
+        
+        <!-- Line separator -->
+        <line x1="10" y1="95" x2="${width-10}" y2="95" class="receipt-line"/>
+        
+        <!-- Items -->
+        ${items.map((item: any, index: number) => {
+          const y = 115 + (index * 15);
+          return `
+            <text x="10" y="${y}" class="receipt-text">${item.description}</text>
+            <text x="${width-10}" y="${y}" text-anchor="end" class="receipt-text">$${(item.amount || 0).toFixed(2)}</text>
+          `;
+        }).join('')}
+        
+        <!-- Totals line separator -->
+        <line x1="10" y1="${135 + (items.length * 15)}" x2="${width-10}" y2="${135 + (items.length * 15)}" class="receipt-line"/>
+        
+        <!-- Subtotal, Tax, Total -->
+        ${subtotal > 0 ? `
+        <text x="10" y="${155 + (items.length * 15)}" class="receipt-text">Subtotal:</text>
+        <text x="${width-10}" y="${155 + (items.length * 15)}" text-anchor="end" class="receipt-text">$${subtotal.toFixed(2)}</text>
+        
+        <text x="10" y="${170 + (items.length * 15)}" class="receipt-text">Tax:</text>
+        <text x="${width-10}" y="${170 + (items.length * 15)}" text-anchor="end" class="receipt-text">$${tax.toFixed(2)}</text>
+        ` : ''}
+        
+        <text x="10" y="${190 + (items.length * 15)}" class="receipt-title">Total:</text>
+        <text x="${width-10}" y="${190 + (items.length * 15)}" text-anchor="end" class="receipt-title">$${total.toFixed(2)}</text>
+        
+        <!-- Footer -->
+        <text x="${width/2}" y="${height-30}" text-anchor="middle" class="receipt-text">Thank you for your business!</text>
+        <text x="${width/2}" y="${height-15}" text-anchor="middle" class="receipt-text">Generated by ReceiptGold</text>
+      </svg>
+    `;
   }
 
   private getPlaceholderImage(): string {

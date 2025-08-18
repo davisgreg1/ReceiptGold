@@ -1,8 +1,8 @@
-const express = require('express');
-const cors = require('cors');
-const util = require('util');
-require('dotenv').config();
-const { PlaidApi, Configuration, PlaidEnvironments } = require('plaid');
+const express = require("express");
+const cors = require("cors");
+const util = require("util");
+require("dotenv").config();
+const { PlaidApi, Configuration, PlaidEnvironments } = require("plaid");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -11,62 +11,157 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// Health check
+app.get('/health', (req, res) => {
+  console.log('🔍 HEALTH CHECK - Code is updated!');
+  res.json({ status: 'OK', message: 'Plaid API server is running' });
+});
+
 // Initialize Plaid client
+console.log('🔍 Debug - Plaid Client ID:', process.env.PLAID_CLIENT_ID ? 'loaded' : 'MISSING');
+console.log('🔍 Debug - Plaid Secret:', process.env.PLAID_SANDBOX_SECRET ? 'loaded' : 'MISSING');
+
 const configuration = new Configuration({
   basePath: PlaidEnvironments.sandbox,
   baseOptions: {
     headers: {
-      'PLAID-CLIENT-ID': process.env.EXPO_PUBLIC_PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.EXPO_PUBLIC_PLAID_SANDBOX,
+      'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
+      'PLAID-SECRET': process.env.PLAID_SANDBOX_SECRET,
     },
   },
 });
 
+// Create the Plaid client with explicit credentials
 const plaidClient = new PlaidApi(configuration);
 
+// Test endpoint
+app.post("/api/test", (req, res) => {
+  res.json({ message: "Test endpoint works!" });
+});
+
+// Consolidated Plaid endpoint (handles multiple actions)
+app.post("/api/plaid", async (req, res) => {
+  const { action, ...body } = req.body;
+  
+  try {
+    switch (action) {
+      case 'create_link_token':
+        const linkTokenResponse = await plaidClient.linkTokenCreate({
+          user: {
+            client_user_id: body.user_id || 'user-id-' + Date.now(),
+          },
+          client_name: 'ReceiptGold',
+          products: ['transactions'],
+          country_codes: ['US'],
+          language: 'en',
+        });
+        
+        res.json({ link_token: linkTokenResponse.data.link_token });
+        break;
+        
+      case 'exchange_public_token':
+        const exchangeResponse = await plaidClient.itemPublicTokenExchange({
+          public_token: body.public_token,
+        });
+        
+        res.json({ 
+          access_token: exchangeResponse.data.access_token,
+          item_id: exchangeResponse.data.item_id,
+        });
+        break;
+        
+      case 'get_accounts':
+        const accountsResponse = await plaidClient.accountsGet({
+          access_token: body.access_token,
+        });
+        
+        res.json({ accounts: accountsResponse.data.accounts });
+        break;
+        
+      case 'get_transactions':
+        const transactionsResponse = await plaidClient.transactionsGet({
+          access_token: body.access_token,
+          start_date: body.start_date,
+          end_date: body.end_date,
+        });
+        
+        res.json({ transactions: transactionsResponse.data.transactions });
+        break;
+        
+      case 'remove_item':
+        console.log('🔍 Remove-item endpoint called with access_token:', body.access_token?.substring(0, 20) + '...');
+        
+        const removeResponse = await plaidClient.itemRemove({
+          access_token: body.access_token,
+        });
+        
+        console.log('✅ Plaid item removed successfully:', removeResponse.data);
+        
+        res.json({
+          success: true,
+          message: 'Bank account disconnected successfully',
+          removed: true,
+          request_id: removeResponse.data.request_id,
+        });
+        break;
+        
+      default:
+        res.status(400).json({ error: 'Invalid action' });
+    }
+  } catch (error) {
+    console.error('❌ Plaid API error:', error.response?.data || error);
+    res.status(500).json({ 
+      error: error.message || 'Unknown error',
+      error_code: error.error_code,
+      error_type: error.error_type,
+      details: error.response?.data || error.message,
+    });
+  }
+});
+
 // Create link token endpoint
-app.post('/api/plaid/create-link-token', async (req, res) => {
+app.post("/api/plaid/create-link-token", async (req, res) => {
   try {
     const { user_id } = req.body;
 
     if (!user_id) {
-      return res.status(400).json({ error: 'user_id is required' });
+      return res.status(400).json({ error: "user_id is required" });
     }
 
     const request = {
       user: {
         client_user_id: user_id,
       },
-      client_name: 'ReceiptGold',
-      products: ['transactions'],
-      country_codes: ['US'],
-      language: 'en',
+      client_name: "ReceiptGold",
+      products: ["transactions"],
+      country_codes: ["US"],
+      language: "en",
     };
 
     const response = await plaidClient.linkTokenCreate(request);
     const linkToken = response.data.link_token;
 
-    console.log('✅ Link token created successfully for user:', user_id);
+    console.log("✅ Link token created successfully for user:", user_id);
 
     res.json({
       link_token: linkToken,
     });
   } catch (error) {
-    console.error('❌ Error creating link token:', error);
+    console.error("❌ Error creating link token:", error);
     res.status(500).json({
-      error: 'Failed to create link token',
+      error: "Failed to create link token",
       details: error.response?.data || error.message,
     });
   }
 });
 
 // Exchange public token endpoint
-app.post('/api/plaid/exchange-public-token', async (req, res) => {
+app.post("/api/plaid/exchange-public-token", async (req, res) => {
   try {
     const { public_token } = req.body;
 
     if (!public_token) {
-      return res.status(400).json({ error: 'public_token is required' });
+      return res.status(400).json({ error: "public_token is required" });
     }
 
     const request = {
@@ -76,29 +171,29 @@ app.post('/api/plaid/exchange-public-token', async (req, res) => {
     const response = await plaidClient.itemPublicTokenExchange(request);
     const accessToken = response.data.access_token;
 
-    console.log('✅ Access token created successfully');
+    console.log("✅ Access token created successfully");
 
     res.json({
       access_token: accessToken,
       item_id: response.data.item_id,
     });
   } catch (error) {
-    console.error('❌ Error exchanging public token:', error);
+    console.error("❌ Error exchanging public token:", error);
     res.status(500).json({
-      error: 'Failed to exchange public token',
+      error: "Failed to exchange public token",
       details: error.response?.data || error.message,
     });
   }
 });
 
 // Get transactions endpoint
-app.post('/api/plaid/transactions', async (req, res) => {
+app.post("/api/plaid/transactions", async (req, res) => {
   try {
     const { access_token, start_date, end_date } = req.body;
 
     if (!access_token || !start_date || !end_date) {
-      return res.status(400).json({ 
-        error: 'access_token, start_date, and end_date are required' 
+      return res.status(400).json({
+        error: "access_token, start_date, and end_date are required",
       });
     }
 
@@ -110,7 +205,7 @@ app.post('/api/plaid/transactions', async (req, res) => {
 
     const response = await plaidClient.transactionsGet(request);
     console.log(util.inspect(response.data, { depth: null, colors: true }));
-    
+
     console.log(`✅ Fetched ${response.data.transactions.length} transactions`);
 
     res.json({
@@ -119,21 +214,21 @@ app.post('/api/plaid/transactions', async (req, res) => {
       accounts: response.data.accounts,
     });
   } catch (error) {
-    console.error('❌ Error fetching transactions:', error);
+    console.error("❌ server Error fetching transactions:", error);
     res.status(500).json({
-      error: 'Failed to fetch transactions',
+      error: "Failed to fetch transactions",
       details: error.response?.data || error.message,
     });
   }
 });
 
 // Get accounts endpoint
-app.post('/api/plaid/accounts', async (req, res) => {
+app.post("/api/plaid/accounts", async (req, res) => {
   try {
     const { access_token } = req.body;
 
     if (!access_token) {
-      return res.status(400).json({ error: 'access_token is required' });
+      return res.status(400).json({ error: "access_token is required" });
     }
 
     const request = {
@@ -141,7 +236,7 @@ app.post('/api/plaid/accounts', async (req, res) => {
     };
 
     const response = await plaidClient.accountsGet(request);
-    
+
     console.log(`✅ Fetched ${response.data.accounts.length} accounts`);
 
     res.json({
@@ -149,34 +244,73 @@ app.post('/api/plaid/accounts', async (req, res) => {
       item: response.data.item,
     });
   } catch (error) {
-    console.error('❌ Error fetching accounts:', error);
+    console.error("❌ Error fetching accounts:", error);
     res.status(500).json({
-      error: 'Failed to fetch accounts',
+      error: "Failed to fetch accounts",
+      details: error.response?.data || error.message,
+    });
+  }
+});
+
+// Remove item endpoint
+app.post("/api/plaid/remove-item", async (req, res) => {
+  console.log('🔍 Remove-item endpoint called with body:', req.body);
+  
+  try {
+    const { access_token } = req.body;
+
+    if (!access_token) {
+      return res.status(400).json({ error: "access_token is required" });
+    }
+
+    // Based on Plaid documentation, include client_id and secret in the request
+    const request = {
+      client_id: process.env.PLAID_CLIENT_ID,
+      secret: process.env.PLAID_SANDBOX_SECRET,
+      access_token: access_token,
+    };
+
+    console.log('🔍 Debug - Request payload for Plaid:', {
+      access_token: access_token.substring(0, 20) + '...',
+      client_id_configured: process.env.PLAID_CLIENT_ID ? 'yes' : 'no',
+      secret_configured: process.env.PLAID_SANDBOX_SECRET ? 'yes' : 'no',
+    });
+
+    const response = await plaidClient.itemRemove(request);
+
+    console.log("✅ Plaid item removed successfully:", response.data);
+
+    res.json({
+      success: true,
+      message: "Bank account disconnected successfully",
+      removed: true,
+      request_id: response.data.request_id,
+    });
+  } catch (error) {
+    console.error("❌ Error removing Plaid item:", error.response?.data || error);
+    res.status(500).json({
+      error: "Failed to remove Plaid item",
+      error_code: error.error_code,
+      error_type: error.error_type,
       details: error.response?.data || error.message,
     });
   }
 });
 
 // Health check
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Plaid API server is running' });
+app.get("/health", (req, res) => {
+  res.json({ status: "OK", message: "Plaid API server is running" });
 });
 
 app.listen(PORT, () => {
   console.log(`🚀 Plaid API server running at http://localhost:${PORT}`);
-  console.log('Available endpoints:');
-  console.log('  POST /api/plaid/create-link-token');
-  console.log('  POST /api/plaid/exchange-public-token');
-  console.log('  POST /api/plaid/transactions');
-  console.log('  POST /api/plaid/accounts');
+  console.log("Available endpoints:");
+  console.log("  POST /api/plaid (consolidated)");
+  console.log("  POST /api/plaid/create-link-token");
+  console.log("  POST /api/plaid/exchange-public-token");
+  console.log("  POST /api/plaid/transactions");
+  console.log("  POST /api/plaid/accounts");
+  console.log("  POST /api/plaid/remove-item");
 });
 
 module.exports = app;
-app.get('/health', (req, res) => {
-  res.json({ status: 'OK', message: 'ReceiptGold Backend API is running' });
-});
-
-app.listen(PORT, () => {
-  console.log(`🚀 ReceiptGold Backend API server running on http://localhost:${PORT}`);
-  console.log(`📊 Plaid endpoint available at http://localhost:${PORT}/api/plaid`);
-});

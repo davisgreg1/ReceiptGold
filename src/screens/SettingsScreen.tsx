@@ -29,6 +29,7 @@ import { db } from '../config/firebase';
 import { getAuth, updateProfile, EmailAuthProvider, updatePassword, reauthenticateWithCredential, deleteUser } from 'firebase/auth';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
+import { BankReceiptService, BankConnection } from '../services/BankReceiptService';
 
 interface SettingsSectionProps {
   title: string;
@@ -138,11 +139,12 @@ const BUSINESS_TYPES = [
 
 export const SettingsScreen: React.FC = () => {
   const { theme, themeMode, toggleTheme } = useTheme();
-  const { subscription } = useSubscription();
+  const { subscription, canAccessFeature } = useSubscription();
+  console.log("🚀 ~ SettingsScreen ~ subscription:", subscription)
   const { user, logout, refreshUser } = useAuth();
-  const { handleSubscription, SUBSCRIPTION_TIERS } = useStripePayments();
+  const { handleSubscriptionWithCloudFunction, SUBSCRIPTION_TIERS } = useStripePayments();
   const navigation = useNavigation<StackNavigationProp<SettingsStackParamList>>();
-  const { showSuccess, showError, showWarning, showFirebaseError } = useCustomAlert();
+  const { showSuccess, showError, showWarning, showInfo, showFirebaseError, hideAlert } = useCustomAlert();
   
   const [userData, setUserData] = React.useState<{ firstName?: string; lastName?: string; }>({});
   const [emailUpdates, setEmailUpdates] = React.useState(true);
@@ -154,6 +156,9 @@ export const SettingsScreen: React.FC = () => {
   const [lastName, setLastName] = React.useState('');
   const [deleteConfirmPassword, setDeleteConfirmPassword] = React.useState('');
   const [showDeletePassword, setShowDeletePassword] = React.useState(false);
+
+  const canUseBankConnection = canAccessFeature('bankConnection');
+
 
   // Fetch user data from Firestore
   React.useEffect(() => {
@@ -190,6 +195,27 @@ export const SettingsScreen: React.FC = () => {
 
     fetchUserData();
   }, [user]);
+
+  // Fetch bank connections
+  React.useEffect(() => {
+    if (!user) return;
+    
+    const fetchBankConnections = async () => {
+      try {
+        setLoadingBankConnections(true);
+        const bankReceiptService = BankReceiptService.getInstance();
+        const connections = await bankReceiptService.getBankConnections(user.uid);
+        setBankConnections(connections.filter(conn => conn.isActive));
+      } catch (error) {
+        console.error('Error fetching bank connections:', error);
+        setBankConnections([]);
+      } finally {
+        setLoadingBankConnections(false);
+      }
+    };
+
+    fetchBankConnections();
+  }, [user]);
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
@@ -198,6 +224,11 @@ export const SettingsScreen: React.FC = () => {
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
   const [showBusinessDialog, setShowBusinessDialog] = React.useState(false);
+  
+  // Bank accounts state
+  const [bankConnections, setBankConnections] = React.useState<BankConnection[]>([]);
+  const [loadingBankConnections, setLoadingBankConnections] = React.useState(true);
+  const [disconnectingAccount, setDisconnectingAccount] = React.useState<string | null>(null);
   const [showIOSPicker, setShowIOSPicker] = React.useState(false);
   const formatEIN = (ein: string) => {
     // Remove all non-numeric characters
@@ -340,7 +371,7 @@ export const SettingsScreen: React.FC = () => {
         }
       };
       
-      await handleSubscription(
+      await handleSubscriptionWithCloudFunction(
         tierId as any,
         user.email,
         user.displayName || 'User',
@@ -411,6 +442,42 @@ export const SettingsScreen: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Bank account handlers
+  const handleDisconnectBankAccount = async (connection: BankConnection) => {
+    const performDisconnect = async () => {
+      if (!user) return;
+      
+      try {
+        hideAlert(); // Close the alert first
+        setDisconnectingAccount(connection.id);
+        const bankReceiptService = BankReceiptService.getInstance();
+        await bankReceiptService.disconnectBankAccount(user.uid, connection.id);
+        
+        // Update local state
+        setBankConnections(prev => prev.filter(conn => conn.id !== connection.id));
+        
+        showSuccess('Success', `${connection.institutionName} disconnected successfully`);
+      } catch (error: any) {
+        console.error('Error disconnecting bank account:', error);
+        showError('Error', 'Failed to disconnect bank account. Please try again.');
+      } finally {
+        setDisconnectingAccount(null);
+      }
+    };
+
+    // Use custom alert with warning type and two buttons
+    showWarning(
+      'Disconnect Bank Account',
+      `Are you sure you want to disconnect ${connection.institutionName}? This will stop automatic receipt generation for this account.`,
+      {
+        primaryButtonText: 'Disconnect',
+        secondaryButtonText: 'Cancel',
+        onPrimaryPress: performDisconnect,
+        onSecondaryPress: hideAlert // Properly close the alert
+      }
+    );
   };
 
   const handleDeleteAccount = async () => {
@@ -562,6 +629,99 @@ export const SettingsScreen: React.FC = () => {
             </View>
           )}
         </SettingsSection>
+
+        {/* Bank Accounts Section */}
+        {canUseBankConnection && (
+          <SettingsSection title="Connected Bank Accounts">
+            {loadingBankConnections ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator color={theme.gold.primary} />
+                <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
+                  Loading bank connections...
+              </Text>
+            </View>
+          ) : bankConnections.length > 0 ? (
+            <>
+              {bankConnections.map((connection) => (
+                <View key={connection.id} style={[styles.bankConnectionRow, { 
+                  backgroundColor: theme.background.tertiary,
+                  borderColor: theme.border.primary 
+                }]}>
+                  <View style={styles.bankConnectionInfo}>
+                    <View style={styles.bankConnectionHeader}>
+                      <Ionicons 
+                        name="card" 
+                        size={24} 
+                        color={theme.gold.primary} 
+                        style={styles.bankIcon}
+                      />
+                      <View style={styles.bankConnectionDetails}>
+                        <Text style={[styles.bankName, { color: theme.text.primary }]}>
+                          {connection.institutionName}
+                        </Text>
+                        <Text style={[styles.bankAccountsCount, { color: theme.text.secondary }]}>
+                          {connection.accounts.length} account{connection.accounts.length !== 1 ? 's' : ''} connected
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.bankConnectionDate, { color: theme.text.tertiary }]}>
+                      Connected {new Date(connection.connectedAt).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={[styles.disconnectButton, { 
+                      borderColor: theme.status.error,
+                      opacity: disconnectingAccount === connection.id ? 0.6 : 1 
+                    }]}
+                    onPress={() => handleDisconnectBankAccount(connection)}
+                    disabled={disconnectingAccount === connection.id}
+                  >
+                    {disconnectingAccount === connection.id ? (
+                      <ActivityIndicator size="small" color={theme.status.error} />
+                    ) : (
+                      <Text style={[styles.disconnectButtonText, { color: theme.status.error }]}>
+                        Disconnect
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <View style={[styles.bankAccountsFooter, { borderTopColor: theme.border.primary }]}>
+                <Ionicons name="information-circle" size={16} color={theme.text.tertiary} />
+                <Text style={[styles.bankAccountsFooterText, { color: theme.text.tertiary }]}>
+                  Disconnecting will stop automatic receipt generation for these accounts
+                </Text>
+              </View>
+            </>
+          ) : (
+            <View style={styles.noBankAccountsContainer}>
+              <Ionicons name="card-outline" size={48} color={theme.text.tertiary} />
+              <Text style={[styles.noBankAccountsTitle, { color: theme.text.primary }]}>
+                No Bank Accounts Connected
+              </Text>
+              <Text style={[styles.noBankAccountsDescription, { color: theme.text.secondary }]}>
+                Connect your bank account to automatically generate receipts from your transactions
+              </Text>
+              <TouchableOpacity
+                style={[styles.connectBankButton, { backgroundColor: theme.gold.primary }]}
+                onPress={() => {
+                  // Use custom alert instead of native Alert
+                  showInfo(
+                    'Connect Bank Account',
+                    'To connect a bank account, please go to the Transactions tab and tap "Connect Bank Account".',
+                    {
+                      primaryButtonText: 'OK'
+                    }
+                  );
+                }}
+              >
+                <Ionicons name="add" size={20} color="white" />
+                <Text style={styles.connectBankButtonText}>Connect Bank Account</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </SettingsSection>
+      )}
 
         {/* Notifications Section */}
         <SettingsSection title="Notifications">
@@ -1369,5 +1529,106 @@ const styles = StyleSheet.create({
     right: 12,
     top: 12,
     padding: 4,
+  },
+  // Bank Accounts Styles
+  loadingContainer: {
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 8,
+    fontSize: 14,
+  },
+  bankConnectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginVertical: 4,
+    borderWidth: 1,
+  },
+  bankConnectionInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  bankConnectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  bankIcon: {
+    marginRight: 12,
+  },
+  bankConnectionDetails: {
+    flex: 1,
+  },
+  bankName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  bankAccountsCount: {
+    fontSize: 14,
+  },
+  bankConnectionDate: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  disconnectButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    borderWidth: 1,
+    minWidth: 90,
+    alignItems: 'center',
+  },
+  disconnectButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  bankAccountsFooter: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderTopWidth: 1,
+  },
+  bankAccountsFooterText: {
+    fontSize: 12,
+    marginLeft: 8,
+    flex: 1,
+    lineHeight: 16,
+  },
+  noBankAccountsContainer: {
+    alignItems: 'center',
+    padding: 32,
+  },
+  noBankAccountsTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  noBankAccountsDescription: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  connectBankButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  connectBankButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 6,
   },
 });

@@ -43,7 +43,7 @@ export class OpenAIReceiptService {
       // First, generate receipt data using GPT
       const receiptData = await this.generateReceiptData(transaction);
       
-      // Then, create receipt image using DALL-E
+      // Then, create receipt image using OpenAI DALL-E
       const receiptImageUrl = await this.generateReceiptImage(receiptData);
 
       return {
@@ -207,10 +207,12 @@ Make the items and details realistic for the merchant type and amount.
   }
 
   /**
-   * Generate a receipt image using DALL-E
+   * Generate a receipt image using OpenAI DALL-E
    */
   private async generateReceiptImage(receiptData: GeneratedReceipt['receiptData']): Promise<string> {
     try {
+      console.log('🎨 Generating receipt image with OpenAI DALL-E...');
+      
       const itemsList = Array.isArray(receiptData.items)
         ? receiptData.items.map(item => {
             const amount = typeof item.amount === 'number' ? item.amount.toFixed(2) : '0.00';
@@ -218,24 +220,40 @@ Make the items and details realistic for the merchant type and amount.
           }).join(', ')
         : '';
 
-  const subtotal = typeof receiptData.subtotal === 'number' ? receiptData.subtotal.toFixed(2) : '0.00';
-  const tax = typeof receiptData.tax === 'number' ? receiptData.tax.toFixed(2) : '0.00';
-  const total = typeof receiptData.total === 'number' ? receiptData.total.toFixed(2) : '0.00';
-  const prompt = `
-Create a realistic, legible US retail receipt image using only real English words and numbers. Use the following details:
+      const subtotal = typeof receiptData.subtotal === 'number' ? receiptData.subtotal.toFixed(2) : '0.00';
+      const tax = typeof receiptData.tax === 'number' ? receiptData.tax.toFixed(2) : '0.00';
+      const total = typeof receiptData.total === 'number' ? receiptData.total.toFixed(2) : '0.00';
+      
+      // Enhanced prompt for better receipt generation
+      const prompt = `Create a paper mock receipt image with the following exact details:
 
-Business: ${receiptData.businessName}
-Address: ${receiptData.address}
-Date: ${receiptData.date} at ${receiptData.time}
-Items: ${itemsList}
-Subtotal: $${subtotal}
-Tax: $${tax}
-Total: $${total}
-Payment: ${receiptData.paymentMethod}
+BUSINESS: ${receiptData.businessName}
+ADDRESS: ${receiptData.address}
+DATE: ${receiptData.date}
+TIME: ${receiptData.time}
 
-Style: Clean, professional printed receipt. White background, clear black text, authentic receipt formatting, business header, itemized list, tax and total clearly shown, transaction ID at bottom. Avoid gibberish or random characters. All text should be readable and realistic, as if from a real store.
-`;
+ITEMS PURCHASED:
+${receiptData.items.map(item => `• ${item.description} - $${(typeof item.amount === 'number' ? item.amount.toFixed(2) : '0.00')}`).join('\n')}
 
+SUBTOTAL: $${subtotal}
+TAX: $${tax}
+TOTAL: $${total}
+PAYMENT: ${receiptData.paymentMethod}
+TRANSACTION ID: ${receiptData.transactionId}
+
+Style requirements:
+- White paper receipt background with slight texture
+- Black thermal printer text style
+- Professional retail receipt layout
+- Clear, legible fonts
+- Proper spacing and alignment
+- Authentic receipt paper proportions (tall and narrow)
+- All text must be clearly readable
+- No blurry or distorted text
+- Clean, professional appearance`;
+      console.log("🚀 ~ OpenAIReceiptService ~ generateReceiptImage ~ prompt:", prompt)
+
+      console.log('📝 Sending request to OpenAI DALL-E 3...');
       const response = await fetch('https://api.openai.com/v1/images/generations', {
         method: 'POST',
         headers: {
@@ -246,23 +264,70 @@ Style: Clean, professional printed receipt. White background, clear black text, 
           model: 'dall-e-3',
           prompt: prompt,
           n: 1,
-          size: '1024x1024',
-          quality: 'standard',
+          size: '1024x1792', // Taller format for receipt
+          quality: 'hd', // Higher quality
+          style: 'natural', // More realistic style
         }),
       });
 
+      console.log('📡 OpenAI API Response status:', response.status);
+      console.log('📡 OpenAI API Response headers:', response.headers);
+
       if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.status}`);
+        const errorText = await response.text();
+        console.error('❌ OpenAI API error:', response.status, errorText);
+        throw new Error(`OpenAI API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
-      console.log('✅ Generated receipt image with DALL-E');
+      console.log('✅ OpenAI API Response received (full):', JSON.stringify(data, null, 2));
+      
+      // Validate the response structure
+      if (!data.data || !Array.isArray(data.data) || data.data.length === 0) {
+        console.error('❌ Invalid OpenAI response structure:', data);
+        throw new Error('Invalid response from OpenAI API - missing data array');
+      }
+      
+      if (!data.data[0].url) {
+        console.error('❌ Missing URL in OpenAI response:', data.data[0]);
+        throw new Error('Invalid response from OpenAI API - missing image URL');
+      }
+      
+      console.log('✅ Generated receipt image with OpenAI DALL-E 3');
+      console.log('🔗 Image URL received:', data.data[0].url.substring(0, 50) + '...');
+      
       return data.data[0].url;
     } catch (error) {
-      console.error('❌ Error generating receipt image:', error);
-      // Fallback to placeholder image
-      const placeholderImageUrl = 'https://via.placeholder.com/400x600/ffffff/000000?text=Receipt+Image';
-      console.log('Using placeholder image as fallback');
+      console.error('❌ Error generating receipt image with OpenAI:', error);
+      
+      // Calculate values for fallback
+      const subtotalFallback = typeof receiptData.subtotal === 'number' ? receiptData.subtotal.toFixed(2) : '0.00';
+      const taxFallback = typeof receiptData.tax === 'number' ? receiptData.tax.toFixed(2) : '0.00';
+      const totalFallback = typeof receiptData.total === 'number' ? receiptData.total.toFixed(2) : '0.00';
+      
+      // Enhanced fallback with receipt-style placeholder
+      const placeholderImageUrl = `data:image/svg+xml;base64,${btoa(`
+        <svg width="400" height="600" xmlns="http://www.w3.org/2000/svg">
+          <rect width="400" height="600" fill="#ffffff" stroke="#cccccc"/>
+          <text x="200" y="50" text-anchor="middle" font-family="monospace" font-size="16" font-weight="bold">${receiptData.businessName}</text>
+          <text x="200" y="80" text-anchor="middle" font-family="monospace" font-size="12">${receiptData.address}</text>
+          <line x1="50" y1="100" x2="350" y2="100" stroke="#000000"/>
+          <text x="200" y="130" text-anchor="middle" font-family="monospace" font-size="14">${receiptData.date} ${receiptData.time}</text>
+          <text x="50" y="180" font-family="monospace" font-size="12">ITEMS:</text>
+          ${receiptData.items.map((item, i) => `
+            <text x="50" y="${200 + (i * 20)}" font-family="monospace" font-size="11">${item.description}</text>
+            <text x="350" y="${200 + (i * 20)}" text-anchor="end" font-family="monospace" font-size="11">$${(typeof item.amount === 'number' ? item.amount.toFixed(2) : '0.00')}</text>
+          `).join('')}
+          <line x1="50" y1="${220 + (receiptData.items.length * 20)}" x2="350" y2="${220 + (receiptData.items.length * 20)}" stroke="#000000"/>
+          <text x="50" y="${250 + (receiptData.items.length * 20)}" font-family="monospace" font-size="12">SUBTOTAL: $${subtotalFallback}</text>
+          <text x="50" y="${270 + (receiptData.items.length * 20)}" font-family="monospace" font-size="12">TAX: $${taxFallback}</text>
+          <text x="50" y="${290 + (receiptData.items.length * 20)}" font-family="monospace" font-size="14" font-weight="bold">TOTAL: $${totalFallback}</text>
+          <text x="200" y="${330 + (receiptData.items.length * 20)}" text-anchor="middle" font-family="monospace" font-size="11">Payment: ${receiptData.paymentMethod}</text>
+          <text x="200" y="${350 + (receiptData.items.length * 20)}" text-anchor="middle" font-family="monospace" font-size="10">Transaction: ${receiptData.transactionId}</text>
+        </svg>
+      `)}`;
+      
+      console.log('🔄 Using enhanced SVG fallback receipt');
       return placeholderImageUrl;
     }
   }

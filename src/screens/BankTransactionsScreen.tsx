@@ -312,11 +312,27 @@ export const BankTransactionsScreen: React.FC = () => {
 
   const generateReceipt = async (candidate: TransactionCandidate, candidateId: string) => {
     try {
+      console.log('🔍 Generate receipt called for candidate:', candidateId);
+      console.log('🔍 Current user:', user);
+      console.log('🔍 User UID:', user?.uid);
+      
+      if (!user?.uid) {
+        console.error('❌ No authenticated user found');
+        showNotification({
+          type: 'error',
+          title: 'Authentication Error',
+          message: 'You must be logged in to generate receipts.',
+        });
+        return;
+      }
+
       setGeneratingReceipt(candidateId);
       
+      console.log('🔍 Calling generateReceiptForTransaction with userId:', user.uid);
       const generatedReceipt = await bankReceiptService.generateReceiptForTransaction(
         candidateId,
-        candidate.transaction
+        candidate.transaction,
+        user.uid
       );
       
       setGeneratedReceipts(prev => new Map(prev).set(candidateId, generatedReceipt));
@@ -459,7 +475,13 @@ export const BankTransactionsScreen: React.FC = () => {
               source={{ uri: generatedReceipt.receiptImageUrl }} 
               style={styles.receiptImage}
               resizeMode="contain"
+              onLoad={() => console.log('✅ Receipt image loaded successfully')}
+              onError={(error) => {
+                console.log('⚠️ Image failed to load:', error.nativeEvent.error);
+                console.log('🔍 Image URL:', generatedReceipt.receiptImageUrl);
+              }}
             />
+            
             <Text style={styles.receiptDetails}>
               {generatedReceipt.receiptData.businessName} • {generatedReceipt.receiptData.date}
             </Text>
@@ -717,6 +739,67 @@ export const BankTransactionsScreen: React.FC = () => {
     receiptDetails: {
       fontSize: 12,
       color: theme.text.secondary,
+    },
+    // Text-based receipt styles
+    textReceiptContainer: {
+      backgroundColor: theme.background.secondary,
+      padding: 16,
+      borderRadius: 8,
+      marginVertical: 8,
+      borderWidth: 1,
+      borderColor: theme.border.primary,
+    },
+    textReceiptTitle: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: theme.text.primary,
+      textAlign: 'center',
+      marginBottom: 4,
+    },
+    textReceiptAddress: {
+      fontSize: 12,
+      color: theme.text.secondary,
+      textAlign: 'center',
+      marginBottom: 8,
+    },
+    textReceiptDate: {
+      fontSize: 12,
+      color: theme.text.primary,
+      fontFamily: 'monospace',
+      marginBottom: 2,
+    },
+    textReceiptLine: {
+      height: 1,
+      backgroundColor: theme.border.primary,
+      marginVertical: 8,
+    },
+    textReceiptItemRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginBottom: 4,
+    },
+    textReceiptItemName: {
+      fontSize: 12,
+      color: theme.text.primary,
+      fontFamily: 'monospace',
+      flex: 1,
+    },
+    textReceiptItemPrice: {
+      fontSize: 12,
+      color: theme.text.primary,
+      fontFamily: 'monospace',
+    },
+    textReceiptTotalLabel: {
+      fontSize: 14,
+      fontWeight: 'bold',
+      color: theme.text.primary,
+      fontFamily: 'monospace',
+    },
+    textReceiptTotalAmount: {
+      fontSize: 14,
+      fontWeight: 'bold',
+      color: theme.text.primary,
+      fontFamily: 'monospace',
     },
     loadingContainer: {
       flexDirection: 'row',

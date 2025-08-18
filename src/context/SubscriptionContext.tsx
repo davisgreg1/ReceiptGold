@@ -1,8 +1,15 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
-import { 
-  doc, 
-  onSnapshot, 
-  updateDoc, 
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
+import {
+  doc,
+  onSnapshot,
+  updateDoc,
   writeBatch,
   collection,
   query,
@@ -10,7 +17,6 @@ import {
   getDocs,
   getDoc,
   DocumentData,
-  QueryDocumentSnapshot
 } from "firebase/firestore";
 import { useAuth } from "./AuthContext";
 import { db } from "../config/firebase";
@@ -28,6 +34,7 @@ export interface SubscriptionFeatures {
   whiteLabel: boolean;
   apiAccess: boolean;
   dedicatedManager: boolean;
+  bankConnection: boolean;
 }
 
 export interface BillingInfo {
@@ -59,17 +66,21 @@ interface SubscriptionContextType {
   canAccessFeature: (feature: keyof SubscriptionFeatures) => boolean;
   canAddReceipt: (currentReceiptCount: number) => boolean;
   getRemainingReceipts: (currentReceiptCount: number) => number;
-  upgradeTo: (tier: SubscriptionTier) => Promise<void>;
   loading: boolean;
   currentReceiptCount: number;
-  refreshReceiptCount: () => Promise<void>;
+  refreshReceiptCount: () => Promise<{
+    success: boolean;
+    count?: number;
+    error?: string;
+  }>;
+  isRefreshing: boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(
   undefined
 );
 
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
 
 // Get receipt limits from environment variables
 const getReceiptLimits = () => {
@@ -78,13 +89,13 @@ const getReceiptLimits = () => {
     free: parseInt(extra.FREE_TIER_MAX_RECEIPTS || "10", 10),
     starter: parseInt(extra.STARTER_TIER_MAX_RECEIPTS || "50", 10),
     growth: parseInt(extra.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
-    professional: parseInt(extra.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10)
+    professional: parseInt(extra.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
   };
 };
 
 const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
   const limits = getReceiptLimits();
-  
+
   switch (tier) {
     case "free":
       return {
@@ -97,10 +108,11 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         whiteLabel: false,
         apiAccess: false,
         dedicatedManager: false,
+        bankConnection: false,
       };
     case "starter":
       return {
-        maxReceipts: limits.starter, // Configurable via environment
+        maxReceipts: limits.starter,
         advancedReporting: false,
         taxPreparation: false,
         accountingIntegrations: false,
@@ -109,10 +121,11 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         whiteLabel: false,
         apiAccess: false,
         dedicatedManager: false,
+        bankConnection: false,
       };
     case "growth":
       return {
-        maxReceipts: limits.growth, // Configurable via environment
+        maxReceipts: limits.growth,
         advancedReporting: true,
         taxPreparation: true,
         accountingIntegrations: true,
@@ -121,10 +134,11 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         whiteLabel: false,
         apiAccess: false,
         dedicatedManager: false,
+        bankConnection: false,
       };
     case "professional":
       return {
-        maxReceipts: limits.professional, // unlimited
+        maxReceipts: limits.professional,
         advancedReporting: true,
         taxPreparation: true,
         accountingIntegrations: true,
@@ -133,9 +147,19 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         whiteLabel: true,
         apiAccess: true,
         dedicatedManager: true,
+        bankConnection: true,
       };
   }
 };
+
+// Configuration for refresh behavior
+const REFRESH_CONFIG = {
+  MAX_RETRIES: 3,
+  INITIAL_DELAY: 500,
+  RETRY_DELAY: 1000,
+  BACKOFF_MULTIPLIER: 1.5,
+  TIMEOUT: 10000,
+} as const;
 
 export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
@@ -143,42 +167,168 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   const { user } = useAuth();
   const limits = getReceiptLimits();
   const [currentReceiptCount, setCurrentReceiptCount] = useState(0);
-  const [refreshing, setRefreshing] = useState(false);
-  
-  const refreshReceiptCount = async (retryCount = 0) => {
-    if (!user?.uid) {
-      console.log("🚀 ~ refreshReceiptCount ~ No user ID, skipping");
-      return;
-    }
-    
-    // Prevent multiple simultaneous refreshes
-    if (refreshing) {
-      console.log("🚀 ~ refreshReceiptCount ~ Already refreshing, skipping");
-      return;
-    }
-    
-    setRefreshing(true);
-    console.log("🚀 ~ refreshReceiptCount ~ Starting refresh for user:", user.uid, "retry:", retryCount);
-    console.log("🚀 ~ refreshReceiptCount ~ Current count before refresh:", currentReceiptCount);
-    
-    try {
-      // Add a small delay to allow Firestore to propagate changes
-      if (retryCount === 0) {
-        await new Promise(resolve => setTimeout(resolve, 500));
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  // Use refs to track refresh state and abort controller
+  const refreshingRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // Improved refresh receipt count function
+  const refreshReceiptCount = useCallback(
+    async (
+      options: {
+        retryCount?: number;
+        forceRefresh?: boolean;
+        skipDelay?: boolean;
+      } = {}
+    ): Promise<{ success: boolean; count?: number; error?: string }> => {
+      const {
+        retryCount = 0,
+        forceRefresh = false,
+        skipDelay = false,
+      } = options;
+
+      // Early validation
+      if (!user?.uid) {
+        console.log("📊 refreshReceiptCount: No user ID available");
+        return { success: false, error: "No user ID" };
       }
-      
-      const count = await getMonthlyReceiptCount(user.uid);
-      console.log("🚀 ~ refreshReceiptCount ~ New count from getMonthlyReceiptCount:", count);
-      
-      // Update the count immediately
-      setCurrentReceiptCount(count);
-      console.log("🚀 ~ refreshReceiptCount ~ Set new count to state:", count);
-    } catch (error) {
-      console.error("🚀 ~ refreshReceiptCount ~ Error:", error);
-    } finally {
-      setRefreshing(false);
+
+      if (refreshingRef.current && !forceRefresh) {
+        console.log("📊 refreshReceiptCount: Already in progress, skipping");
+        return { success: false, error: "Already refreshing" };
+      }
+
+      // Cancel any previous request
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+
+      // Create new abort controller
+      abortControllerRef.current = new AbortController();
+      const { signal } = abortControllerRef.current;
+
+      // Set refreshing state
+      refreshingRef.current = true;
+      setIsRefreshing(true);
+
+      console.log(
+        `📊 refreshReceiptCount: Starting${
+          retryCount > 0
+            ? ` (retry ${retryCount}/${REFRESH_CONFIG.MAX_RETRIES})`
+            : ""
+        } for user: ${user.uid}`
+      );
+
+      try {
+        // Progressive delay strategy
+        if (!skipDelay) {
+          const delay =
+            retryCount === 0
+              ? REFRESH_CONFIG.INITIAL_DELAY
+              : REFRESH_CONFIG.RETRY_DELAY *
+                Math.pow(REFRESH_CONFIG.BACKOFF_MULTIPLIER, retryCount - 1);
+
+          console.log(
+            `📊 refreshReceiptCount: Waiting ${delay}ms before refresh`
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+
+        // Check if request was aborted during delay
+        if (signal.aborted) {
+          throw new Error("Request aborted");
+        }
+
+        // Create timeout promise
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          const timeoutId = setTimeout(() => {
+            reject(new Error("Request timeout"));
+          }, REFRESH_CONFIG.TIMEOUT);
+
+          // Clear timeout if signal is aborted
+          signal.addEventListener("abort", () => {
+            clearTimeout(timeoutId);
+            reject(new Error("Request aborted"));
+          });
+        });
+
+        // Race between the actual request and timeout
+        const count = await Promise.race([
+          getMonthlyReceiptCount(user.uid),
+          timeoutPromise,
+        ]);
+
+        // Validate the response
+        if (typeof count !== "number" || count < 0) {
+          throw new Error(`Invalid count received: ${count}`);
+        }
+
+        console.log(
+          `📊 refreshReceiptCount: Successfully retrieved count: ${count}`
+        );
+
+        // Update state
+        setCurrentReceiptCount(count);
+
+        return { success: true, count };
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        console.error(
+          `📊 refreshReceiptCount: Error (attempt ${retryCount + 1}):`,
+          errorMessage
+        );
+
+        // Handle aborted requests
+        if (errorMessage.includes("aborted")) {
+          console.log("📊 refreshReceiptCount: Request was cancelled");
+          return { success: false, error: "cancelled" };
+        }
+
+        // Determine if error is retryable
+        const isRetryableError =
+          !errorMessage.includes("permission") &&
+          !errorMessage.includes("unauthorized") &&
+          !errorMessage.includes("not-found") &&
+          retryCount < REFRESH_CONFIG.MAX_RETRIES;
+
+        if (isRetryableError) {
+          console.log(`📊 refreshReceiptCount: Retrying...`);
+          return refreshReceiptCount({
+            retryCount: retryCount + 1,
+            forceRefresh: true,
+            skipDelay: false,
+          });
+        }
+
+        // Max retries reached or non-retryable error
+        console.error(
+          `📊 refreshReceiptCount: Failed after ${retryCount + 1} attempts:`,
+          errorMessage
+        );
+        return { success: false, error: errorMessage };
+      } finally {
+        refreshingRef.current = false;
+        setIsRefreshing(false);
+        abortControllerRef.current = null;
+      }
+    },
+    [user?.uid]
+  );
+
+  // Cancel ongoing refresh (useful for cleanup)
+  const cancelRefresh = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      console.log("📊 refreshReceiptCount: Cancelled ongoing request");
     }
-  };
+  }, []);
+
+  // Quick refresh without delay
+  const quickRefresh = useCallback(() => {
+    return refreshReceiptCount({ skipDelay: true, forceRefresh: true });
+  }, [refreshReceiptCount]);
 
   const [subscription, setSubscription] = useState<SubscriptionState>({
     currentTier: "free",
@@ -203,13 +353,21 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   });
   const [loading, setLoading] = useState(true);
 
-  // Refresh receipt count when subscription changes or user changes
+  // Refresh receipt count when user changes
   useEffect(() => {
     if (user?.uid) {
-      console.log("🚀 ~ SubscriptionContext ~ Refreshing receipt count for user:", user.uid);
+      console.log(
+        "🔄 SubscriptionContext: User changed, refreshing receipt count for:",
+        user.uid
+      );
       refreshReceiptCount();
     }
-  }, [user?.uid, subscription.currentTier]);
+
+    // Cleanup on unmount or user change
+    return () => {
+      cancelRefresh();
+    };
+  }, [user?.uid, refreshReceiptCount, cancelRefresh]); // Fixed: Added proper dependencies
 
   // Set up Firestore subscription
   useEffect(() => {
@@ -251,52 +409,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           if (!data) return;
 
           const currentTier = (data.currentTier || "free") as SubscriptionTier;
-
-          // Initialize lastMonthlyCountResetAt if it doesn't exist
-          // For free accounts, we should start counting from the beginning of the month
-          if (!data.lastMonthlyCountResetAt && data.billing?.currentPeriodStart) {
-            try {
-              // For free accounts, use start of month instead of subscription creation time
-              const resetDate = currentTier === 'free' 
-                ? (() => {
-                    const startOfMonth = new Date();
-                    startOfMonth.setDate(1);
-                    startOfMonth.setHours(0, 0, 0, 0);
-                    return startOfMonth;
-                  })()
-                : data.billing.currentPeriodStart;
-                
-              await updateDoc(subscriptionRef, {
-                lastMonthlyCountResetAt: resetDate,
-                updatedAt: new Date()
-              });
-              console.log("Initialized lastMonthlyCountResetAt for subscription:", currentTier, resetDate);
-            } catch (error) {
-              console.error("Error initializing lastMonthlyCountResetAt:", error);
-            }
-          }
-
-          // TEMPORARY FIX: Force update for existing free accounts with wrong reset date
-          if (currentTier === 'free' && data.lastMonthlyCountResetAt) {
-            const currentResetDate = data.lastMonthlyCountResetAt.toDate();
-            const startOfMonth = new Date();
-            startOfMonth.setDate(1);
-            startOfMonth.setHours(0, 0, 0, 0);
-            
-            // If the reset date is after the start of the month, update it
-            if (currentResetDate > startOfMonth) {
-              try {
-                await updateDoc(subscriptionRef, {
-                  lastMonthlyCountResetAt: startOfMonth,
-                  updatedAt: new Date()
-                });
-                console.log("🔧 FIXED: Updated lastMonthlyCountResetAt for free account from", currentResetDate, "to", startOfMonth);
-              } catch (error) {
-                console.error("Error fixing lastMonthlyCountResetAt:", error);
-              }
-            }
-          }
-
+          
           console.log("Subscription updated:", {
             currentTier,
             status: data.status,
@@ -318,16 +431,12 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
                 ? -1
                 : currentTier === "growth"
                 ? 3
-                : currentTier === "starter"
-                ? 1
                 : 1,
             apiCallsPerMonth:
               currentTier === "professional"
                 ? -1
                 : currentTier === "growth"
                 ? 1000
-                : currentTier === "starter"
-                ? 0
                 : 0,
             maxReports:
               currentTier === "professional"
@@ -361,10 +470,14 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               trialEnd: data.billing?.trialEnd?.toDate() || null,
             },
           });
-          
-          // Refresh receipt count when subscription is loaded
-          console.log("🔄 Subscription loaded, triggering receipt count refresh");
-          refreshReceiptCount();
+
+          // Refresh receipt count when subscription changes
+          // This will trigger after Cloud Function updates
+          console.log("🔄 Subscription changed, refreshing receipt count");
+          setTimeout(() => {
+            refreshReceiptCount({ skipDelay: true, forceRefresh: true });
+          }, 500); // Small delay to allow for Firestore consistency
+
         } else {
           setSubscription({
             currentTier: "free",
@@ -421,126 +534,45 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       if (unsubscribe) {
         unsubscribe();
       }
+      cancelRefresh();
     };
-  }, [user]); // Only re-run if user changes
+  }, [user, limits.free, refreshReceiptCount, cancelRefresh]); // Fixed: Added proper dependencies
 
-  const canAccessFeature = (feature: keyof SubscriptionFeatures): boolean => {
-    return subscription.features[feature] === true;
-  };
+  const canAccessFeature = useCallback(
+    (feature: keyof SubscriptionFeatures): boolean => {
+      return subscription.features[feature] === true;
+    },
+    [subscription.features]
+  );
 
-  const canAddReceipt = (currentReceiptCount: number): boolean => {
-    const maxReceipts = subscription.limits.maxReceipts;
-    // Only allow if unlimited or strictly under the limit
-    return maxReceipts === -1 ? true : currentReceiptCount < maxReceipts;
-  };
+  const canAddReceipt = useCallback(
+    (currentReceiptCount: number): boolean => {
+      const maxReceipts = subscription.limits.maxReceipts;
+      return maxReceipts === -1 ? true : currentReceiptCount < maxReceipts;
+    },
+    [subscription.limits.maxReceipts]
+  );
 
-  const getRemainingReceipts = (currentReceiptCount: number): number => {
-    const maxReceipts = subscription.limits.maxReceipts;
-    if (maxReceipts === -1) return -1; // unlimited
-    // If at or above the limit, always return 0
-    return currentReceiptCount >= maxReceipts ? 0 : maxReceipts - currentReceiptCount;
-  };
-
-  const upgradeTo = async (tier: SubscriptionTier): Promise<void> => {
-    try {
-      if (!user) {
-        throw new Error("User must be logged in to upgrade subscription");
-      }
-
-      const now = new Date();
-      const batch = writeBatch(db);
-      const subscriptionRef = doc(db, "subscriptions", user.uid);
-      
-      // Get current subscription to check if this is actually a tier change
-      const currentSub = await getDoc(subscriptionRef);
-      const currentTier = currentSub.data()?.currentTier || 'free';
-      
-      if (currentTier !== tier) {
-        // This is a tier change, so reset monthly count
-        
-        // Get current month's receipts
-        const startOfMonth = new Date();
-        startOfMonth.setDate(1);
-        startOfMonth.setHours(0, 0, 0, 0);
-        
-        const receiptsQuery = query(
-          collection(db, "receipts"),
-          where("userId", "==", user.uid),
-          where("createdAt", ">=", startOfMonth)
-        );
-        
-        const receiptsSnapshot = await getDocs(receiptsQuery);
-        
-        // Mark all current month's receipts as excluded from the new tier's count
-        receiptsSnapshot.docs.forEach((receiptDoc: DocumentData) => {
-          batch.update(doc(db, "receipts", receiptDoc.id), {
-            excludeFromMonthlyCount: true,
-            monthlyCountExcludedAt: now,
-            previousTier: currentTier
-          });
-        });
-      }
-      
-      // Update subscription
-      batch.update(subscriptionRef, {
-        currentTier: tier,
-        status: "active",
-        updatedAt: now,
-        lastMonthlyCountResetAt: tier !== currentTier ? now : currentSub.data()?.lastMonthlyCountResetAt,
-        limits: {
-          maxReceipts:
-            tier === "free"
-              ? getReceiptLimits().free
-              : tier === "starter"
-              ? getReceiptLimits().starter
-              : tier === "growth"
-              ? getReceiptLimits().growth
-              : getReceiptLimits().professional,
-          maxBusinesses:
-            tier === "free"
-              ? 1
-              : tier === "starter"
-              ? 1
-              : tier === "growth"
-              ? 3
-              : -1,
-          apiCallsPerMonth:
-            tier === "free"
-              ? 0
-              : tier === "starter"
-              ? 0
-              : tier === "growth"
-              ? 1000
-              : -1,
-          maxReports:
-            tier === "free"
-              ? 3
-              : tier === "starter"
-              ? 10
-              : tier === "growth"
-              ? 50
-              : -1,
-        },
-        features: getFeaturesByTier(tier),
-      });
-      
-      // Commit all changes
-      await batch.commit();
-    } catch (error) {
-      console.error("Error upgrading subscription:", error);
-      throw error;
-    }
-  };
+  const getRemainingReceipts = useCallback(
+    (currentReceiptCount: number): number => {
+      const maxReceipts = subscription.limits.maxReceipts;
+      if (maxReceipts === -1) return -1; // unlimited
+      return currentReceiptCount >= maxReceipts
+        ? 0
+        : maxReceipts - currentReceiptCount;
+    },
+    [subscription.limits.maxReceipts]
+  );
 
   const contextValue = {
     subscription,
     canAccessFeature,
     canAddReceipt,
     getRemainingReceipts,
-    upgradeTo,
     loading,
     currentReceiptCount,
     refreshReceiptCount,
+    isRefreshing,
   };
 
   return (
