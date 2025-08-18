@@ -34,7 +34,7 @@ export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
   const navigation = useReceiptsNavigation();
   const { subscription, getRemainingReceipts, currentReceiptCount } = useSubscription();
-  const { handleSubscription } = useStripePayments();
+  const { handleSubscriptionWithCloudFunction } = useStripePayments();
   const { user } = useAuth();
   const { showError, showSuccess, showWarning, showFirebaseError, hideAlert } = useCustomAlert();
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -459,7 +459,7 @@ export const ReceiptsListScreen: React.FC = () => {
 
     setIsUpgrading(true);
     try {
-      const success = await handleSubscription(
+      const success = await handleSubscriptionWithCloudFunction(
         'starter',
         user.email || '',
         user.displayName || 'User'
@@ -679,7 +679,7 @@ export const ReceiptsListScreen: React.FC = () => {
                     onPress={async () => {
                       setIsUpgrading(true);
                       try {
-                        const success = await handleSubscription(
+                        const success = await handleSubscriptionWithCloudFunction(
                           'growth',
                           user?.email || '',
                           user?.displayName || 'User'

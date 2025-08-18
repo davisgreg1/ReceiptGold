@@ -5,7 +5,7 @@ const configuration = new Configuration({
   baseOptions: {
     headers: {
       'PLAID-CLIENT-ID': process.env.EXPO_PUBLIC_PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.EXPO_PUBLIC_PLAID_SANDBOX,
+      'PLAID-SECRET': process.env.EXPO_PUBLIC_PLAID_SANDBOX_SECRET,
     },
   },
 });

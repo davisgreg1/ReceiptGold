@@ -5,7 +5,9 @@
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
+    "droid-device": "npx expo run:android --device",
     "ios": "expo run:ios",
+    "ios-device": "npx expo run:ios --device",
     "web": "expo start --web",
     "server": "nodemon server.js",
     "server:prod": "node server.js",

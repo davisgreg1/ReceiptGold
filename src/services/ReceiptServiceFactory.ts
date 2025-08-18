@@ -17,11 +17,14 @@ class ReceiptServiceFactory {
    */
   static getReceiptService(): ReceiptService {
     const serviceType = this.getReceiptServiceType();
+    console.log('🔧 Receipt service type selected:', serviceType);
     
     switch (serviceType) {
       case 'ai':
+        console.log('🤖 Using AI Receipt Service');
         return this.getAIService();
       case 'html':
+        console.log('📄 Using HTML Receipt Service');
         return this.getHTMLService();
       default:
         console.warn(`⚠️ Unknown receipt service type: ${serviceType}, falling back to HTML`);
@@ -33,13 +36,14 @@ class ReceiptServiceFactory {
    * Get the configured receipt service type from environment
    */
   private static getReceiptServiceType(): ReceiptServiceType {
-    const envType = process.env.RECEIPT_SERVICE_TYPE || 'html';
+    const envType = process.env.EXPO_PUBLIC_RECEIPT_SERVICE_TYPE || 'html';
+    console.log('🔧 Environment EXPO_PUBLIC_RECEIPT_SERVICE_TYPE:', envType);
     
     if (envType === 'ai' || envType === 'html') {
       return envType;
     }
     
-    console.warn(`⚠️ Invalid RECEIPT_SERVICE_TYPE: ${envType}, using 'html'`);
+    console.warn(`⚠️ Invalid EXPO_PUBLIC_RECEIPT_SERVICE_TYPE: ${envType}, using 'html'`);
     return 'html';
   }
 

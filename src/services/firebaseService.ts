@@ -1,12 +1,12 @@
-import { 
-  doc, 
-  getDoc, 
-  setDoc, 
-  updateDoc, 
-  collection, 
-  query, 
-  where, 
-  orderBy, 
+import {
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  collection,
+  query,
+  where,
+  orderBy,
   limit,
   getDocs,
   serverTimestamp,
@@ -116,7 +116,7 @@ export const userService = {
     try {
       const docRef = doc(db, 'users', userId);
       const docSnap = await getDoc(docRef);
-      
+
       if (docSnap.exists()) {
         return { ...docSnap.data(), userId } as UserProfile;
       }
@@ -177,7 +177,7 @@ export const receiptService = {
         orderBy('createdAt', 'desc'),
         limit(limitCount)
       );
-      
+
       const querySnapshot = await getDocs(q);
       return querySnapshot.docs.map(doc => ({
         receiptId: doc.id,
@@ -191,20 +191,36 @@ export const receiptService = {
 
   async createReceipt(receipt: Omit<Receipt, 'receiptId' | 'createdAt' | 'updatedAt'>): Promise<string> {
     try {
+      console.log("🚀 Starting receipt creation process");
+      console.log("🚀 Input receipt data:", receipt);
+
+      // Validate only the essential field
+      if (!receipt.userId) {
+        throw new Error("userId is required");
+      }
+
       const docRef = doc(collection(db, 'receipts'));
       console.log("🚀 Creating receipt document with ID:", docRef.id);
-      
+
+      // Ensure userId is present and properly typed
+      const { userId, ...rest } = receipt;
       const receiptData = {
-        ...receipt,
+        userId: String(userId), // Ensure it's a string
+        ...rest, // Spread all other properties except userId
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
-      
-      console.log("🚀 Receipt data to save:", receiptData);
-      
+
+      console.log("🚀 Final receipt data to save:", receiptData);
+      console.log("🚀 Data types:", {
+        userId: typeof receiptData.userId,
+        hasBusinessName: 'businessName' in receiptData,
+        hasAmount: 'amount' in receiptData,
+      });
+
       await setDoc(docRef, receiptData);
       console.log("✅ Receipt document created successfully");
-      
+
       // Immediately verify the document exists
       const verifyDoc = await getDoc(docRef);
       if (verifyDoc.exists()) {
@@ -213,26 +229,8 @@ export const receiptService = {
       } else {
         console.error("❌ Document does not exist immediately after creation!");
       }
-      
-      // Re-enable usage stats update now that Cloud Function limit check is disabled
-      try {
-        await this.updateUsageStats(receipt.userId);
-        console.log("✅ Usage stats updated successfully");
-      } catch (usageError) {
-        console.error("❌ Error updating usage stats (receipt still saved):", usageError);
-        // Don't throw here - the receipt was saved successfully
-      }
-      
-      // Add a small delay and check again to verify document persistence
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      const verifyDoc2 = await getDoc(docRef);
-      if (verifyDoc2.exists()) {
-        console.log("✅ Document still exists after 1 second delay");
-      } else {
-        console.error("❌ Document was deleted within 1 second!");
-      }
-      
-      // Temporarily disable usage stats update to isolate the issue
+
+      // Update usage stats
       // try {
       //   await this.updateUsageStats(receipt.userId);
       //   console.log("✅ Usage stats updated successfully");
@@ -240,11 +238,24 @@ export const receiptService = {
       //   console.error("❌ Error updating usage stats (receipt still saved):", usageError);
       //   // Don't throw here - the receipt was saved successfully
       // }
-      
+
       console.log("🚀 Receipt creation process completed, returning ID:", docRef.id);
       return docRef.id;
     } catch (error) {
       console.error('❌ Error creating receipt:', error);
+
+      // Enhanced error logging
+      if (error instanceof Error) {
+        console.error('❌ Error message:', error.message);
+        console.error('❌ Error stack:', error.stack);
+      }
+
+      // Log specific Firebase error details
+      if (error && typeof error === 'object' && 'code' in error) {
+        console.error('❌ Firebase error code:', (error as any).code);
+        console.error('❌ Firebase error message:', (error as any).message);
+      }
+
       throw error;
     }
   },
@@ -265,13 +276,13 @@ export const receiptService = {
   async deleteReceipt(receiptId: string, userId: string): Promise<void> {
     try {
       const docRef = doc(db, 'receipts', receiptId);
-      
+
       // Soft delete the receipt by updating its status
       await updateDoc(docRef, {
         status: 'deleted',
         updatedAt: serverTimestamp(),
       });
-      
+
       // We no longer decrement the usage count when deleting receipts
       // Monthly usage should track ALL receipts created in a month,
       // regardless of whether they are later deleted
@@ -288,7 +299,7 @@ export const receiptService = {
         where('userId', '==', userId),
         where('status', '!=', 'deleted')
       );
-      
+
       const querySnapshot = await getDocs(q);
       return querySnapshot.size;
     } catch (error) {
@@ -306,7 +317,7 @@ export const receiptService = {
       await runTransaction(db, async (transaction) => {
         // Check if usage document exists
         const usageDoc = await transaction.get(usageRef);
-        
+
         if (usageDoc.exists()) {
           // Increment the count by 1 (since we just added a receipt)
           transaction.update(usageRef, {
@@ -319,7 +330,7 @@ export const receiptService = {
           nextMonth.setMonth(nextMonth.getMonth() + 1);
           nextMonth.setDate(1);
           nextMonth.setHours(0, 0, 0, 0);
-          
+
           transaction.set(usageRef, {
             userId,
             month: currentMonth,
@@ -351,17 +362,17 @@ export const usageService = {
       const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
       const docRef = doc(db, 'usage', `${userId}_${currentMonth}`);
       const docSnap = await getDoc(docRef);
-      
+
       if (docSnap.exists()) {
         return docSnap.data() as Usage;
       }
-      
+
       // Create initial usage document if it doesn't exist
       const nextMonth = new Date();
       nextMonth.setMonth(nextMonth.getMonth() + 1);
       nextMonth.setDate(1);
       nextMonth.setHours(0, 0, 0, 0);
-      
+
       const initialUsage: Usage = {
         userId,
         month: currentMonth,
@@ -377,13 +388,13 @@ export const usageService = {
         createdAt: new Date(),
         updatedAt: new Date(),
       };
-      
+
       await setDoc(docRef, {
         ...initialUsage,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      
+
       return initialUsage;
     } catch (error) {
       console.error('Error getting current usage:', error);
@@ -395,9 +406,9 @@ export const usageService = {
     try {
       const currentMonth = new Date().toISOString().slice(0, 7);
       const usageRef = doc(db, 'usage', `${userId}_${currentMonth}`);
-      
+
       const limits = this.getLimitsForTier(tier);
-      
+
       await updateDoc(usageRef, {
         limits,
         updatedAt: serverTimestamp(),
@@ -442,14 +453,14 @@ export const usageService = {
       const startOfMonth = new Date();
       startOfMonth.setDate(1);
       startOfMonth.setHours(0, 0, 0, 0);
-      
+
       const monthlyUsageQuery = query(
         collection(db, 'receipts'),
         where('userId', '==', userId),
         where('createdAt', '>=', startOfMonth),
         orderBy('createdAt', 'desc')
       );
-      
+
       const monthlyUsageSnapshot = await getDocs(monthlyUsageQuery);
       return monthlyUsageSnapshot.size;
     } catch (error) {

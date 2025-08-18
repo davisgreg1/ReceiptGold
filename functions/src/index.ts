@@ -76,6 +76,19 @@ interface SubscriptionTier {
   };
 }
 
+interface UpdateSubscriptionRequest {
+  subscriptionId: string;
+  tierId: 'free' | 'starter' | 'growth' | 'professional';
+  userId: string;
+}
+
+interface UpdateSubscriptionResponse {
+  success: boolean;
+  error?: string;
+  receiptsExcluded?: number;
+  tierChange?: boolean;
+}
+
 // Subscription tier limits - used in subscription management
 export const TIER_LIMITS = {
   starter: {
@@ -92,7 +105,7 @@ export const TIER_LIMITS = {
     maxReceipts: -1, // unlimited
     maxBusinesses: -1, // unlimited
     apiCallsPerMonth: -1, // unlimited
-    }
+  }
 } as const;
 
 interface UserProfile {
@@ -432,7 +445,7 @@ export const onReceiptCreate = functionsV1.firestore
       }
 
       const subscription = subscriptionDoc.data() as SubscriptionDocument;
-      
+
       // Ensure limits are correctly set based on current tier
       const currentTier = subscription.currentTier;
       subscription.limits = subscriptionTiers[currentTier].limits;
@@ -1015,7 +1028,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
 
     // Try to get subscription ID from different possible sources
     let subscriptionId = invoice.subscription;
-    
+
     if (!subscriptionId && invoice.lines?.data) {
       // Look for subscription in invoice line items
       const subscriptionItem = invoice.lines.data.find(
@@ -1026,7 +1039,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
         console.log("Found subscription ID in line items:", subscriptionId);
       }
     }
-    
+
     // If still no subscription, try to find it by customer
     if (!subscriptionId) {
       const subscriptions = await getStripe().subscriptions.list({
@@ -1034,7 +1047,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
         limit: 1,
         status: 'active'
       });
-      
+
       if (subscriptions.data.length > 0) {
         subscriptionId = subscriptions.data[0].id;
         console.log("Found subscription ID from customer's subscriptions:", subscriptionId);
@@ -1045,7 +1058,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
       // Get subscription status in Firestore
       const subscriptionRef = db.collection("subscriptions").doc(userId);
       const subscriptionDoc = await subscriptionRef.get();
-      
+
       const updateData = {
         status: "active", // Ensure status is active since payment succeeded
         "billing.lastPaymentStatus": "succeeded",
@@ -1060,7 +1073,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
         const stripeSubscription = await getStripe().subscriptions.retrieve(subscriptionId as string);
         const priceId = stripeSubscription.items.data[0].price.id;
         const tier = getTierFromPriceId(priceId);
-        
+
         // Create a new subscription document
         await subscriptionRef.set({
           userId,
@@ -1289,7 +1302,7 @@ export const createSubscription = onCall(async (request: CallableRequest<CreateS
       customer: customerId,
       items: [{ price: priceId }],
       payment_behavior: 'default_incomplete',
-      payment_settings: { 
+      payment_settings: {
         save_default_payment_method: 'on_subscription',
         payment_method_types: ['card']
       },
@@ -1298,7 +1311,7 @@ export const createSubscription = onCall(async (request: CallableRequest<CreateS
       },
       expand: ['latest_invoice.payment_intent', 'latest_invoice']
     });
-    
+
     console.log('Created subscription:', JSON.stringify(subscription, null, 2));
 
     console.log('Subscription created:', subscription.id);
@@ -1712,6 +1725,207 @@ export const onUserDelete = functionsV1.auth.user().onDelete(async (user: admin.
     console.error("Error deleting user data:", error);
   }
 });
+
+interface UpdateSubscriptionRequest {
+  subscriptionId: string;
+  tierId: 'free' | 'starter' | 'growth' | 'professional';
+  userId: string;
+}
+
+interface UpdateSubscriptionResponse {
+  success: boolean;
+  error?: string;
+  receiptsExcluded?: number;
+  tierChange?: boolean;
+}
+
+// Type for Firestore batch update operations
+type FirestoreUpdateData = admin.firestore.UpdateData<admin.firestore.DocumentData>;
+type FirestoreDocumentData = admin.firestore.DocumentData;
+
+export const updateSubscriptionAfterPayment = onCall(
+  async (request: CallableRequest<UpdateSubscriptionRequest>): Promise<UpdateSubscriptionResponse> => {
+    try {
+      functions.logger.info('🚀 Starting updateSubscriptionAfterPayment', {
+        data: request.data,
+        auth: request.auth?.uid
+      });
+
+      // Validate authentication
+      if (!request.auth) {
+        throw new HttpsError('unauthenticated', 'User must be authenticated');
+      }
+
+      // Validate that the authenticated user matches the userId in the request
+      if (request.auth.uid !== request.data.userId) {
+        throw new HttpsError('permission-denied', 'User can only update their own subscription');
+      }
+
+      const { subscriptionId, tierId, userId }: UpdateSubscriptionRequest = request.data;
+
+      // Validate required fields
+      if (!subscriptionId || !tierId || !userId) {
+        throw new HttpsError('invalid-argument', 'Missing required fields: subscriptionId, tierId, userId');
+      }
+
+      // Validate tier
+      const validTiers: Array<'free' | 'starter' | 'growth' | 'professional'> = ['free', 'starter', 'growth', 'professional'];
+      if (!validTiers.includes(tierId)) {
+        throw new HttpsError('invalid-argument', `Invalid tier: ${tierId}`);
+      }
+
+      // Validate subscription ID format (basic validation)
+      if (typeof subscriptionId !== 'string' || subscriptionId.length < 10) {
+        throw new HttpsError('invalid-argument', 'Invalid subscription ID format');
+      }
+
+      functions.logger.info('✅ Validation passed', { userId, tierId, subscriptionId });
+
+      // Get current subscription to check if this is a tier change
+      const subscriptionRef = db.collection('subscriptions').doc(userId);
+      const currentSub = await subscriptionRef.get();
+      const currentTier: string = currentSub.data()?.currentTier || 'free';
+
+      functions.logger.info('📋 Current subscription state', {
+        exists: currentSub.exists,
+        currentTier,
+        newTier: tierId
+      });
+
+      const now: Date = new Date();
+      let receiptsExcludedCount: number = 0;
+      const isTierChange: boolean = currentTier !== tierId;
+
+      // Start a batch for atomic updates
+      const batch: FirebaseFirestore.WriteBatch = db.batch();
+
+      if (isTierChange) {
+        functions.logger.info(`🔄 Tier change detected: ${currentTier} → ${tierId}, processing receipt exclusions...`);
+
+        // Get ALL existing receipts for this user
+        const receiptsQuery: FirebaseFirestore.Query = db.collection('receipts').where('userId', '==', userId);
+        const receiptsSnapshot: FirebaseFirestore.QuerySnapshot = await receiptsQuery.get();
+        receiptsExcludedCount = receiptsSnapshot.docs.length;
+
+        functions.logger.info(`📝 Found ${receiptsExcludedCount} receipts to exclude from new tier count`);
+
+        // Mark ALL existing receipts as excluded from the new tier's count
+        receiptsSnapshot.docs.forEach((receiptDoc: FirebaseFirestore.QueryDocumentSnapshot) => {
+          const updateData: FirestoreUpdateData = {
+            excludeFromMonthlyCount: true,
+            monthlyCountExcludedAt: admin.firestore.FieldValue.serverTimestamp(),
+            previousTier: currentTier,
+            upgradeProcessedAt: now
+          };
+          batch.update(receiptDoc.ref, updateData);
+        });
+
+        functions.logger.info(`✅ Prepared ${receiptsExcludedCount} receipts for exclusion in batch`);
+      } else {
+        functions.logger.info(`📝 No tier change detected: staying on ${currentTier}`);
+      }
+
+      // Prepare subscription update data
+      const subscriptionUpdateData = {
+        currentTier: tierId,
+        status: 'active',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastMonthlyCountResetAt: isTierChange ? admin.firestore.FieldValue.serverTimestamp() : currentSub.data()?.lastMonthlyCountResetAt,
+        billing: {
+          subscriptionId: subscriptionId,
+          currentPeriodStart: admin.firestore.FieldValue.serverTimestamp(),
+          currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+          lastPaymentProcessed: admin.firestore.FieldValue.serverTimestamp()
+        },
+        // Add metadata for tracking
+        lastUpgrade: isTierChange ? {
+          fromTier: currentTier,
+          toTier: tierId,
+          processedAt: admin.firestore.FieldValue.serverTimestamp(),
+          receiptsExcluded: receiptsExcludedCount
+        } : currentSub.data()?.lastUpgrade
+      } as const;
+
+      functions.logger.info('📝 Prepared subscription update data', {
+        currentTier: tierId,
+        isTierChange,
+        receiptsExcluded: receiptsExcludedCount
+      });
+
+      // Add subscription update to batch
+      if (currentSub.exists) {
+        batch.update(subscriptionRef, subscriptionUpdateData as FirestoreUpdateData);
+      } else {
+        // Create new subscription document if it doesn't exist
+        const createData: FirestoreDocumentData = {
+          ...subscriptionUpdateData,
+          userId: userId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+        batch.set(subscriptionRef, createData);
+      }
+
+      // Execute all updates atomically
+      try {
+        await batch.commit();
+        functions.logger.info('✅ Batch commit successful', {
+          subscriptionUpdated: true,
+          receiptsExcluded: receiptsExcludedCount,
+          tierChange: isTierChange
+        });
+      } catch (batchError) {
+        functions.logger.error('❌ Batch commit failed', batchError);
+        throw new HttpsError('internal', 'Failed to update subscription and receipts');
+      }
+
+      // Log successful completion
+      functions.logger.info('🎉 Subscription update completed successfully', {
+        userId,
+        oldTier: currentTier,
+        newTier: tierId,
+        receiptsExcluded: receiptsExcludedCount,
+        subscriptionId
+      });
+
+      return {
+        success: true,
+        receiptsExcluded: receiptsExcludedCount,
+        tierChange: isTierChange
+      };
+
+    } catch (error: unknown) {
+      functions.logger.error('❌ updateSubscriptionAfterPayment failed', error);
+
+      // Re-throw HttpsErrors as-is
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+
+      // Convert other errors to internal HttpsError
+      const errorMessage: string = error instanceof Error ? error.message : 'Unknown error occurred';
+      throw new HttpsError('internal', `Subscription update failed: ${errorMessage}`);
+    }
+  }
+);
+
+// Optional: Helper function to validate Stripe subscription (if you want to add Stripe verification)
+/*
+import Stripe from 'stripe';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2023-10-16',
+});
+
+const validateStripeSubscription = async (subscriptionId: string): Promise<boolean> => {
+  try {
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    return subscription.status === 'active' || subscription.status === 'trialing';
+  } catch (error) {
+    logger.error('Failed to validate Stripe subscription', { subscriptionId, error });
+    return false;
+  }
+};
+*/
 
 // ADDITIONAL FUNCTIONS FOR TESTING AND DEBUGGING
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -7,12 +7,13 @@ import {
   Modal,
   ScrollView,
   Alert,
-} from 'react-native';
-import { useTheme } from '../theme/ThemeProvider';
-import { SubscriptionTier } from '../context/SubscriptionContext';
-import { useStripePayments } from '../hooks/useStripePayments';
-import { useAuth } from '../context/AuthContext';
-import { SubscriptionTierKey } from '../services/stripe';
+} from "react-native";
+import { useTheme } from "../theme/ThemeProvider";
+import { SubscriptionTier } from "../context/SubscriptionContext";
+import { useStripePayments } from "../hooks/useStripePayments";
+import { useAuth } from "../context/AuthContext";
+import { SubscriptionTierKey } from "../services/stripe";
+import { useInAppNotifications } from "./InAppNotificationProvider";
 
 interface UpgradePromptProps {
   visible: boolean;
@@ -27,50 +28,57 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
   onClose,
   feature,
   description,
-  requiredTier = 'starter',
+  requiredTier = "starter",
 }) => {
   const { theme } = useTheme();
-  const { handleSubscription } = useStripePayments();
+  const { handleSubscriptionWithCloudFunction } = useStripePayments();
+  const { showNotification } = useInAppNotifications();
+
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
 
   // Map SubscriptionTier to SubscriptionTierKey for Stripe
   const mapTierToStripeKey = (tier: SubscriptionTier): SubscriptionTierKey => {
     switch (tier) {
-      case 'starter':
-        return 'starter';
-      case 'growth':
-        return 'growth';
-      case 'professional':
-        return 'professional';
+      case "starter":
+        return "starter";
+      case "growth":
+        return "growth";
+      case "professional":
+        return "professional";
       default:
-        return 'starter';
+        return "starter";
     }
   };
 
   const handleUpgrade = async () => {
     if (!user?.email) {
-      Alert.alert('Error', 'You must be logged in to upgrade');
+      Alert.alert("Error", "You must be logged in to upgrade");
       return;
     }
 
     setLoading(true);
     try {
       // Start the Stripe payment flow
-      const success = await handleSubscription(
+      const success = await handleSubscriptionWithCloudFunction(
         mapTierToStripeKey(requiredTier),
         user.email,
-        user.displayName || 'User'
+        user.displayName || "User"
       );
 
       if (success) {
+        showNotification({
+          type: "success",
+          title: "Subscription",
+          message: "Your subscription has been updated successfully.",
+        });
         onClose();
       }
     } catch (error) {
-      console.error('Upgrade failed:', error);
+      console.error("Upgrade failed:", error);
       Alert.alert(
-        'Error', 
-        'Failed to process payment. Please check your payment details and try again.'
+        "Error",
+        "Failed to process payment. Please check your payment details and try again."
       );
     } finally {
       setLoading(false);
@@ -79,14 +87,14 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
 
   const getTierInfo = (tier: SubscriptionTier) => {
     switch (tier) {
-      case 'starter':
-        return { name: 'Starter Plan', price: '$9.99', color: '#3B82F6' };
-      case 'growth':
-        return { name: 'Growth Plan', price: '$19.99', color: '#8B5CF6' };
-      case 'professional':
-        return { name: 'Professional Plan', price: '$39.99', color: '#F59E0B' };
+      case "starter":
+        return { name: "Starter Plan", price: "$9.99", color: "#3B82F6" };
+      case "growth":
+        return { name: "Growth Plan", price: "$19.99", color: "#8B5CF6" };
+      case "professional":
+        return { name: "Professional Plan", price: "$39.99", color: "#F59E0B" };
       default:
-        return { name: 'Starter Plan', price: '$9.99', color: '#3B82F6' };
+        return { name: "Starter Plan", price: "$9.99", color: "#3B82F6" };
     }
   };
 
@@ -99,7 +107,12 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <View style={[styles.container, { backgroundColor: theme.background.primary }]}>
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: theme.background.primary },
+        ]}
+      >
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
           {/* Header */}
           <View style={styles.header}>
@@ -112,34 +125,66 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
           </View>
 
           {/* Feature Preview */}
-          <View style={[styles.featureCard, { 
-            backgroundColor: theme.background.secondary,
-            borderColor: theme.border.primary 
-          }]}>
-            <Text style={[styles.featureIcon, { color: tierInfo.color }]}>🔒</Text>
+          <View
+            style={[
+              styles.featureCard,
+              {
+                backgroundColor: theme.background.secondary,
+                borderColor: theme.border.primary,
+              },
+            ]}
+          >
+            <Text style={[styles.featureIcon, { color: tierInfo.color }]}>
+              🔒
+            </Text>
             <Text style={[styles.featureTitle, { color: theme.text.primary }]}>
               Premium Feature
             </Text>
-            <Text style={[styles.featureDescription, { color: theme.text.secondary }]}>
+            <Text
+              style={[
+                styles.featureDescription,
+                { color: theme.text.secondary },
+              ]}
+            >
               This feature is available with {tierInfo.name} and above
             </Text>
           </View>
 
           {/* Upgrade Card */}
-          <View style={[styles.upgradeCard, { 
-            backgroundColor: tierInfo.color + '10',
-            borderColor: tierInfo.color 
-          }]}>
+          <View
+            style={[
+              styles.upgradeCard,
+              {
+                backgroundColor: tierInfo.color + "10",
+                borderColor: tierInfo.color,
+              },
+            ]}
+          >
             <View style={styles.upgradeHeader}>
               <Text style={[styles.upgradeTier, { color: tierInfo.color }]}>
                 {tierInfo.name}
               </Text>
-              <Text style={[styles.upgradePrice, { color: theme.text.primary }]}>
-                {tierInfo.price}<Text style={[styles.upgradePeriod, { color: theme.text.secondary }]}>/month</Text>
+              <Text
+                style={[styles.upgradePrice, { color: theme.text.primary }]}
+              >
+                {tierInfo.price}
+                <Text
+                  style={[
+                    styles.upgradePeriod,
+                    { color: theme.text.secondary },
+                  ]}
+                >
+                  /month
+                </Text>
               </Text>
             </View>
-            
-            <Text style={[styles.upgradeDescription, { color: theme.text.secondary }]}>
+
+            <Text
+              style={[
+                styles.upgradeDescription,
+                { color: theme.text.secondary },
+              ]}
+            >
               Get instant access to {feature} and all {tierInfo.name} features
             </Text>
           </View>
@@ -151,8 +196,14 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
             </Text>
             {getBenefits(requiredTier).map((benefit, index) => (
               <View key={index} style={styles.benefitItem}>
-                <Text style={[styles.benefitIcon, { color: theme.status.success }]}>✓</Text>
-                <Text style={[styles.benefitText, { color: theme.text.primary }]}>
+                <Text
+                  style={[styles.benefitIcon, { color: theme.status.success }]}
+                >
+                  ✓
+                </Text>
+                <Text
+                  style={[styles.benefitText, { color: theme.text.primary }]}
+                >
                   {benefit}
                 </Text>
               </View>
@@ -161,23 +212,27 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
         </ScrollView>
 
         {/* Action Buttons */}
-        <View style={[styles.actions, { borderTopColor: theme.border.primary }]}>
+        <View
+          style={[styles.actions, { borderTopColor: theme.border.primary }]}
+        >
           <TouchableOpacity
             style={[styles.cancelButton, { borderColor: theme.border.primary }]}
             onPress={onClose}
           >
-            <Text style={[styles.cancelButtonText, { color: theme.text.secondary }]}>
+            <Text
+              style={[styles.cancelButtonText, { color: theme.text.secondary }]}
+            >
               Maybe Later
             </Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity
             style={[styles.upgradeButton, { backgroundColor: tierInfo.color }]}
             onPress={handleUpgrade}
             disabled={loading}
           >
             <Text style={styles.upgradeButtonText}>
-              {loading ? 'Upgrading...' : `Upgrade to ${tierInfo.name}`}
+              {loading ? "Upgrading..." : `Upgrade to ${tierInfo.name}`}
             </Text>
           </TouchableOpacity>
         </View>
@@ -188,31 +243,31 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
 
 const getBenefits = (tier: SubscriptionTier): string[] => {
   switch (tier) {
-    case 'starter':
+    case "starter":
       return [
-        '50 receipt generations',
-        'LLC-specific expense categories',
-        'Educational content',
-        'Basic compliance features',
-        'Email support',
+        "50 receipt generations",
+        "LLC-specific expense categories",
+        "Educational content",
+        "Basic compliance features",
+        "Email support",
       ];
-    case 'growth':
+    case "growth":
       return [
-        'Everything in Starter',
-        'Advanced reporting',
-        'Tax preparation tools',
-        'Accounting software integrations',
-        'Priority support',
-        'Quarterly tax reminders',
+        "Everything in Starter",
+        "Advanced reporting",
+        "Tax preparation tools",
+        "Accounting software integrations",
+        "Priority support",
+        "Quarterly tax reminders",
       ];
-    case 'professional':
+    case "professional":
       return [
-        'Everything in Growth',
-        'Multi-business management',
-        'White-label options',
-        'API access',
-        'Dedicated account manager',
-        'Custom compliance workflows',
+        "Everything in Growth",
+        "Multi-business management",
+        "White-label options",
+        "API access",
+        "Dedicated account manager",
+        "Custom compliance workflows",
       ];
     default:
       return [];
@@ -228,26 +283,26 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   header: {
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 30,
     paddingTop: 20,
   },
   title: {
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: "bold",
     marginBottom: 8,
-    textAlign: 'center',
+    textAlign: "center",
   },
   subtitle: {
     fontSize: 16,
-    textAlign: 'center',
+    textAlign: "center",
     lineHeight: 24,
   },
   featureCard: {
     padding: 24,
     borderRadius: 16,
     borderWidth: 1,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: 24,
   },
   featureIcon: {
@@ -256,12 +311,12 @@ const styles = StyleSheet.create({
   },
   featureTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 8,
   },
   featureDescription: {
     fontSize: 16,
-    textAlign: 'center',
+    textAlign: "center",
   },
   upgradeCard: {
     padding: 20,
@@ -270,22 +325,22 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   upgradeHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 12,
   },
   upgradeTier: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   upgradePrice: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: "bold",
   },
   upgradePeriod: {
     fontSize: 16,
-    fontWeight: 'normal',
+    fontWeight: "normal",
   },
   upgradeDescription: {
     fontSize: 16,
@@ -296,12 +351,12 @@ const styles = StyleSheet.create({
   },
   benefitsTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 16,
   },
   benefitItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 12,
   },
   benefitIcon: {
@@ -314,7 +369,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actions: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
     padding: 20,
     borderTopWidth: 1,
@@ -324,21 +379,21 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    alignItems: 'center',
+    alignItems: "center",
   },
   cancelButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   upgradeButton: {
     flex: 2,
     padding: 16,
     borderRadius: 12,
-    alignItems: 'center',
+    alignItems: "center",
   },
   upgradeButtonText: {
     fontSize: 16,
-    fontWeight: '600',
-    color: 'white',
+    fontWeight: "600",
+    color: "white",
   },
 });
