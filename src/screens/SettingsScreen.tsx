@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { SettingsStackParamList } from '../navigation/AppNavigator';
 import { useTheme } from '../theme/ThemeProvider';
@@ -30,6 +30,8 @@ import { getAuth, updateProfile, EmailAuthProvider, updatePassword, reauthentica
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
 import { BankReceiptService, BankConnection } from '../services/BankReceiptService';
+import { PlaidService } from '../services/PlaidService';
+import { LinkSuccess, LinkExit } from 'react-native-plaid-link-sdk';
 
 interface SettingsSectionProps {
   title: string;
@@ -196,26 +198,14 @@ export const SettingsScreen: React.FC = () => {
     fetchUserData();
   }, [user]);
 
-  // Fetch bank connections
-  React.useEffect(() => {
-    if (!user) return;
-    
-    const fetchBankConnections = async () => {
-      try {
-        setLoadingBankConnections(true);
-        const bankReceiptService = BankReceiptService.getInstance();
-        const connections = await bankReceiptService.getBankConnections(user.uid);
-        setBankConnections(connections.filter(conn => conn.isActive));
-      } catch (error) {
-        console.error('Error fetching bank connections:', error);
-        setBankConnections([]);
-      } finally {
-        setLoadingBankConnections(false);
+  // Fetch bank connections on focus - this ensures it refreshes when navigating from Bank Sync
+  useFocusEffect(
+    React.useCallback(() => {
+      if (user) {
+        refreshBankConnections();
       }
-    };
-
-    fetchBankConnections();
-  }, [user]);
+    }, [user])
+  );
   const [currentPassword, setCurrentPassword] = React.useState('');
   const [newPassword, setNewPassword] = React.useState('');
   const [confirmPassword, setConfirmPassword] = React.useState('');
@@ -229,6 +219,10 @@ export const SettingsScreen: React.FC = () => {
   const [bankConnections, setBankConnections] = React.useState<BankConnection[]>([]);
   const [loadingBankConnections, setLoadingBankConnections] = React.useState(true);
   const [disconnectingAccount, setDisconnectingAccount] = React.useState<string | null>(null);
+  
+  // Services
+  const bankReceiptService = BankReceiptService.getInstance();
+  const plaidService = PlaidService.getInstance();
   const [showIOSPicker, setShowIOSPicker] = React.useState(false);
   const formatEIN = (ein: string) => {
     // Remove all non-numeric characters
@@ -480,6 +474,107 @@ export const SettingsScreen: React.FC = () => {
     );
   };
 
+  // Refresh bank connections
+  const refreshBankConnections = async () => {
+    if (!user) return;
+    
+    try {
+      setLoadingBankConnections(true);
+      const connections = await bankReceiptService.getBankConnections(user.uid);
+      setBankConnections(connections.filter(conn => conn.isActive));
+    } catch (error) {
+      console.error('Error fetching bank connections:', error);
+      setBankConnections([]);
+    } finally {
+      setLoadingBankConnections(false);
+    }
+  };
+
+  // Plaid connection functions
+  const connectBankAccount = async () => {
+    if (!user) return;
+
+    try {
+      // Create link token and immediately open Plaid
+      const token = await plaidService.createLinkToken(user.uid);
+      
+      // Import Plaid SDK and open directly
+      const { create, open } = await import('react-native-plaid-link-sdk');
+      
+      console.log('🔗 Creating and opening Plaid Link directly...');
+      
+      // Create Link with token
+      create({ token });
+      
+      // Wait a moment for create() to complete before opening
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Open Link with callbacks
+      open({
+        onSuccess: handlePlaidSuccess,
+        onExit: (exit: LinkExit) => {
+          console.log('Plaid Link exited:', exit);
+          if (exit.error) {
+            showError('Connection Error', exit.error.errorMessage || 'Failed to connect bank account.');
+          }
+        },
+      });
+      
+      console.log('🔗 Plaid Link opened successfully');
+      
+    } catch (error) {
+      console.error('Error opening Plaid Link:', error);
+      showError('Connection Error', 'Failed to prepare bank connection. Please try again.');
+    }
+  };
+
+  const handlePlaidSuccess = async (success: LinkSuccess) => {
+    if (!user) return;
+
+    try {
+      setIsLoading(true);
+      const accessToken = await plaidService.exchangePublicToken(success.publicToken);
+      const accounts = await plaidService.getAccounts(accessToken);
+      
+      // Create bank connection record
+      const bankConnection = {
+        id: `bank_${user.uid}_${Date.now()}`,
+        userId: user.uid,
+        accessToken,
+        institutionName: 'Connected Bank',
+        accounts: accounts.map(acc => ({
+          accountId: acc.account_id,
+          name: acc.name,
+          type: acc.type,
+          subtype: acc.subtype,
+          mask: acc.mask,
+        })),
+        connectedAt: new Date(),
+        lastSyncAt: new Date(),
+        isActive: true,
+      };
+
+      await bankReceiptService.saveBankConnectionLocally(bankConnection);
+      
+      showSuccess('Bank Connected!', 'Your bank account has been connected successfully.');
+      
+      // Refresh bank connections list
+      await refreshBankConnections();
+    } catch (error) {
+      console.error('Error handling Plaid success:', error);
+      showError('Connection Failed', 'Failed to complete bank connection. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePlaidExit = (exit: LinkExit) => {
+    console.log('Plaid Link exited:', exit);
+    if (exit.error) {
+      showError('Connection Error', exit.error.errorMessage || 'Failed to connect bank account.');
+    }
+  };
+
   const handleDeleteAccount = async () => {
     if (!user) return;
     
@@ -702,18 +797,10 @@ export const SettingsScreen: React.FC = () => {
               <Text style={[styles.noBankAccountsDescription, { color: theme.text.secondary }]}>
                 Connect your bank account to automatically generate receipts from your transactions
               </Text>
+              
               <TouchableOpacity
                 style={[styles.connectBankButton, { backgroundColor: theme.gold.primary }]}
-                onPress={() => {
-                  // Use custom alert instead of native Alert
-                  showInfo(
-                    'Connect Bank Account',
-                    'To connect a bank account, please go to the Transactions tab and tap "Connect Bank Account".',
-                    {
-                      primaryButtonText: 'OK'
-                    }
-                  );
-                }}
+                onPress={connectBankAccount}
               >
                 <Ionicons name="add" size={20} color="white" />
                 <Text style={styles.connectBankButtonText}>Connect Bank Account</Text>

@@ -26,12 +26,15 @@ export default async function handler(req: any, res: any) {
 
     const request: LinkTokenCreateRequest = {
       user: {
-        client_user_id: user_id,
+      client_user_id: user_id,
       },
       client_name: 'ReceiptGold',
       products: [Products.Transactions],
       country_codes: [CountryCode.Us],
       language: 'en',
+      ...(process.platform === 'android' 
+      ? { android_package_name: process.env.EXPO_PUBLIC_PLAID_REDIRECT_URI }
+      : { redirect_uri: process.env.EXPO_PUBLIC_PLAID_REDIRECT_URI })
     };
 
     const response = await client.linkTokenCreate(request);

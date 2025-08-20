@@ -13,8 +13,7 @@ service cloud.firestore {
         // Generated Receipts collection - users can only access their own generated receipts
         match /generatedReceipts/{receiptId} {
             allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
-            allow list: if isAuthenticated() && 
-            request.auth.uid == resource.data.userId;
+            allow list: if isAuthenticated();
             allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
             allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
         }
