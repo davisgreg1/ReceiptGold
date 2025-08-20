@@ -57,6 +57,18 @@ export interface PlaidAccount {
   type: string;
 }
 
+export interface PlaidInstitution {
+  institution_id: string;
+  name: string;
+  products: string[];
+  country_codes: string[];
+  url: string | null;
+  primary_color: string | null;
+  logo: string | null;
+  routing_numbers: string[];
+  oauth: boolean;
+}
+
 export class PlaidService {
   private static instance: PlaidService;
   private linkToken: string | null = null;
@@ -342,6 +354,40 @@ export class PlaidService {
   // Relaxed filter: accept all transactions
   return true;
     });
+  }
+
+  /**
+   * Get institution information using the access token
+   */
+  public async getInstitution(accessToken: string): Promise<PlaidInstitution | null> {
+    try {
+      console.log('🏦 Getting institution information...');
+      
+      const response = await fetch(`${API_BASE_URL}/api/plaid`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'get_institution',
+          access_token: accessToken,
+        }),
+      });
+      console.log("🚀 ~ PlaidService ~ getInstitution ~ response:", response)
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Failed to get institution info:', errorData.error);
+        return null;
+      }
+
+      const data = await response.json();
+      console.log('✅ Institution info received:', data.institution);
+      return data.institution;
+    } catch (error) {
+      console.error('❌ Error getting institution info:', error);
+      return null;
+    }
   }
 
   /**

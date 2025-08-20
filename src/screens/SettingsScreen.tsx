@@ -480,8 +480,12 @@ export const SettingsScreen: React.FC = () => {
     
     try {
       setLoadingBankConnections(true);
+      console.log('🔄 Refreshing bank connections for user:', user.uid);
       const connections = await bankReceiptService.getBankConnections(user.uid);
-      setBankConnections(connections.filter(conn => conn.isActive));
+      console.log('🔍 Raw connections:', connections.length, connections);
+      const activeConnections = connections.filter(conn => conn.isActive);
+      console.log('🔍 Active connections:', activeConnections.length, activeConnections);
+      setBankConnections(activeConnections);
     } catch (error) {
       console.error('Error fetching bank connections:', error);
       setBankConnections([]);
@@ -536,12 +540,18 @@ export const SettingsScreen: React.FC = () => {
       const accessToken = await plaidService.exchangePublicToken(success.publicToken);
       const accounts = await plaidService.getAccounts(accessToken);
       
+      // Get institution information
+      const institution = await plaidService.getInstitution(accessToken);
+      
       // Create bank connection record
       const bankConnection = {
         id: `bank_${user.uid}_${Date.now()}`,
         userId: user.uid,
         accessToken,
-        institutionName: 'Connected Bank',
+        institutionName: institution?.name || 'Connected Bank',
+        institutionId: institution?.institution_id,
+        institutionLogo: institution?.logo,
+        institutionColor: institution?.primary_color,
         accounts: accounts.map(acc => ({
           accountId: acc.account_id,
           name: acc.name,
@@ -556,7 +566,7 @@ export const SettingsScreen: React.FC = () => {
 
       await bankReceiptService.saveBankConnectionLocally(bankConnection);
       
-      showSuccess('Bank Connected!', 'Your bank account has been connected successfully.');
+      showSuccess('Bank Connected!', `${bankConnection.institutionName} has been connected successfully.`);
       
       // Refresh bank connections list
       await refreshBankConnections();
@@ -744,12 +754,20 @@ export const SettingsScreen: React.FC = () => {
                 }]}>
                   <View style={styles.bankConnectionInfo}>
                     <View style={styles.bankConnectionHeader}>
-                      <Ionicons 
-                        name="card" 
-                        size={24} 
-                        color={theme.gold.primary} 
-                        style={styles.bankIcon}
-                      />
+                      {connection.institutionLogo ? (
+                        <Image
+                          source={{ uri: connection.institutionLogo }}
+                          style={styles.bankLogo}
+                          onError={() => console.log('Failed to load bank logo:', connection.institutionLogo)}
+                        />
+                      ) : (
+                        <Ionicons 
+                          name="card" 
+                          size={24} 
+                          color={connection.institutionColor || theme.gold.primary} 
+                          style={styles.bankIcon}
+                        />
+                      )}
                       <View style={styles.bankConnectionDetails}>
                         <Text style={[styles.bankName, { color: theme.text.primary }]}>
                           {connection.institutionName}
@@ -781,10 +799,22 @@ export const SettingsScreen: React.FC = () => {
                   </TouchableOpacity>
                 </View>
               ))}
+              
+              {/* Add Another Bank Account Button */}
+              <View style={[styles.addBankAccountContainer, { borderTopColor: theme.border.primary }]}>
+                <TouchableOpacity
+                  style={[styles.addBankButton, { backgroundColor: theme.background.secondary, borderColor: theme.gold.primary }]}
+                  onPress={connectBankAccount}
+                >
+                  <Ionicons name="add" size={20} color={theme.gold.primary} />
+                  <Text style={[styles.addBankButtonText, { color: theme.gold.primary }]}>Add Another Bank Account</Text>
+                </TouchableOpacity>
+              </View>
+
               <View style={[styles.bankAccountsFooter, { borderTopColor: theme.border.primary }]}>
                 <Ionicons name="information-circle" size={16} color={theme.text.tertiary} />
                 <Text style={[styles.bankAccountsFooterText, { color: theme.text.tertiary }]}>
-                  Disconnecting will stop automatic receipt generation for these accounts
+                  Connect multiple banks to capture all your business transactions
                 </Text>
               </View>
             </>
@@ -795,7 +825,7 @@ export const SettingsScreen: React.FC = () => {
                 No Bank Accounts Connected
               </Text>
               <Text style={[styles.noBankAccountsDescription, { color: theme.text.secondary }]}>
-                Connect your bank account to automatically generate receipts from your transactions
+                Connect your bank accounts to automatically generate receipts from your transactions
               </Text>
               
               <TouchableOpacity
@@ -1647,6 +1677,12 @@ const styles = StyleSheet.create({
   bankIcon: {
     marginRight: 12,
   },
+  bankLogo: {
+    width: 24,
+    height: 24,
+    marginRight: 12,
+    borderRadius: 4,
+  },
   bankConnectionDetails: {
     flex: 1,
   },
@@ -1716,6 +1752,25 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: '600',
+    marginLeft: 6,
+  },
+  addBankAccountContainer: {
+    paddingTop: 16,
+    borderTopWidth: 1,
+    marginTop: 8,
+  },
+  addBankButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  addBankButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
     marginLeft: 6,
   },
 });
