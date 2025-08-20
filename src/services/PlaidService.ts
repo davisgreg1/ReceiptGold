@@ -351,7 +351,7 @@ export class PlaidService {
     try {
       console.log('🔌 Disconnecting bank account from Plaid again...');
       
-      const response = await fetch(`${API_BASE_URL}/api/plaid/remove_item`, {
+      const response = await fetch(`${API_BASE_URL}/api/plaid`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

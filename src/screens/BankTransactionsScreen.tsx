@@ -189,10 +189,11 @@ export const BankTransactionsScreen: React.FC = () => {
         const docId = (candidate as any)._id;
         if (!docId) continue;
         
-        // Query the generatedReceipts collection
+        // Query the generatedReceipts collection with userId filter for security
         const receiptsQuery = query(
           collection(db, 'generatedReceipts'),
-          where('candidateId', '==', docId)
+          where('candidateId', '==', docId),
+          where('userId', '==', user?.uid)
         );
         const receiptSnap = await getDocs(receiptsQuery);
         
@@ -400,11 +401,7 @@ export const BankTransactionsScreen: React.FC = () => {
       return newMap;
     });
     
-    showNotification({
-      type: 'info',
-      title: 'Transaction Dismissed',
-      message: 'This transaction has been removed from the list.',
-    });
+    // No notification needed - visual feedback is sufficient
   };
 
   const formatCurrency = (amount: number) => {

@@ -2,7 +2,7 @@ import { PlaidService, PlaidTransaction } from './PlaidService';
 import ReceiptServiceFactory, { ReceiptService } from './ReceiptServiceFactory';
 import { GeneratedReceipt } from './HTMLReceiptService'; // Using HTMLReceiptService as the common interface
 import { NotificationService } from './ExpoNotificationService';
-import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
+import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -123,10 +123,16 @@ export class BankReceiptService {
   public async monitorTransactions(userId: string): Promise<TransactionCandidate[]> {
     try {
       const bankConnections = await this.getBankConnections(userId);
+      
+      // Filter for only active connections
+      const activeConnections = bankConnections.filter(conn => conn.isActive);
 
-      // If no bank connections exist, return empty array
-      if (bankConnections.length === 0) {
-        console.log('ℹ️ No bank connections found for user:', userId);
+      // If no active bank connections exist, clear any cached data and return empty array
+      if (activeConnections.length === 0) {
+        console.log('ℹ️ No active bank connections found for user:', userId);
+        console.log(`🔍 Found ${bankConnections.length} total connections, but 0 are active`);
+        console.log('🗑️ Clearing any cached transaction data since no active connections exist');
+        await this.clearTransactionCache(userId);
         return [];
       }
 
@@ -140,9 +146,7 @@ export class BankReceiptService {
       console.log('🔄 Fetching fresh transaction data from Plaid...');
       const candidates: TransactionCandidate[] = [];
 
-      for (const connection of bankConnections) {
-        if (!connection.isActive) continue;
-
+      for (const connection of activeConnections) {
         // Get transactions from the last 30 days
         const endDate = new Date().toISOString().split('T')[0];
         const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -487,11 +491,15 @@ export class BankReceiptService {
     try {
       console.log('🔌 Disconnecting bank account...', connectionId);
 
-      // Get the bank connection to get access token
+      // Get the bank connection to get access token and account IDs
       const connection = await this.getBankConnection(userId, connectionId);
       if (!connection) {
         throw new Error('Bank connection not found');
       }
+
+      // Extract account IDs from this connection
+      const accountIds = connection.accounts.map(account => account.accountId);
+      console.log('🔍 Account IDs to remove transactions for:', accountIds);
 
       // Disconnect from Plaid
       await this.plaidService.disconnectBankAccount(connection.accessToken);
@@ -515,8 +523,8 @@ export class BankReceiptService {
       // Clear from local storage
       await this.removeBankConnectionLocally(userId, connectionId);
 
-      // Clear any cached transaction data
-      await this.clearTransactionCache(userId);
+      // Clear transaction data from the specific disconnected accounts
+      await this.clearTransactionCacheForAccounts(userId, accountIds);
 
       console.log('✅ Bank account disconnected successfully');
     } catch (error) {
@@ -621,7 +629,7 @@ export class BankReceiptService {
       const candidatesCount = cacheData.candidates?.length || 0;
 
       console.log(`📱 Found cached data: ${candidatesCount} candidates, ${Math.round(ageInMinutes)} minutes old`);
-
+      
       // Return cached data if it's less than 10 minutes old (reduced from 30 for testing)
       if (ageInMinutes < 10) {
         console.log('📱 Using cached data (fresh enough)');
@@ -648,6 +656,78 @@ export class BankReceiptService {
       console.log('🗑️ Cleared transaction cache for user:', userId);
     } catch (error) {
       console.error('Error clearing transaction cache:', error);
+    }
+  }
+
+  /**
+   * Clear transaction data (cache and Firestore) for specific account IDs
+   */
+  public async clearTransactionCacheForAccounts(userId: string, accountIds: string[]): Promise<void> {
+    try {
+      console.log('🗑️ Clearing transactions for account IDs:', accountIds);
+
+      // 1. Clean up Firestore transaction candidates for these accounts
+      const candidatesQuery = query(
+        collection(db, 'transactionCandidates'),
+        where('userId', '==', userId)
+      );
+      const candidatesSnapshot = await getDocs(candidatesQuery);
+      
+      const deletePromises: Promise<void>[] = [];
+      const candidateIds: string[] = [];
+      
+      let totalCandidates = candidatesSnapshot.docs.length;
+      let matchedCandidates = 0;
+      
+      candidatesSnapshot.docs.forEach(doc => {
+        const data = doc.data() as TransactionCandidate;
+        const transactionAccountId = data.transaction?.account_id;
+        
+        if (transactionAccountId && accountIds.includes(transactionAccountId)) {
+          console.log('🗑️ Deleting Firestore candidate for account:', transactionAccountId, 'transaction:', data.transaction?.name);
+          candidateIds.push(doc.id);
+          deletePromises.push(deleteDoc(doc.ref));
+          matchedCandidates++;
+        }
+      });
+
+      // Wait for all Firestore deletions to complete
+      await Promise.all(deletePromises);
+      console.log(`✅ Deleted ${deletePromises.length} of ${totalCandidates} transaction candidates from Firestore (matched ${matchedCandidates})`);
+
+      // 2. Clean up associated generated receipts to avoid permission errors
+      if (candidateIds.length > 0) {
+        try {
+          const generatedReceiptsQuery = query(
+            collection(db, 'generatedReceipts'),
+            where('userId', '==', userId)
+          );
+          const receiptsSnapshot = await getDocs(generatedReceiptsQuery);
+          
+          const receiptDeletePromises: Promise<void>[] = [];
+          receiptsSnapshot.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.candidateId && candidateIds.includes(data.candidateId)) {
+              console.log('🗑️ Deleting generated receipt for candidate:', data.candidateId);
+              receiptDeletePromises.push(deleteDoc(doc.ref));
+            }
+          });
+          
+          await Promise.all(receiptDeletePromises);
+          console.log(`✅ Deleted ${receiptDeletePromises.length} generated receipts from Firestore`);
+        } catch (receiptError) {
+          console.warn('⚠️ Could not clean up generated receipts:', receiptError);
+        }
+      }
+
+      // 3. Clear ALL AsyncStorage cache to ensure no orphaned data remains
+      console.log('🗑️ Clearing ALL transaction cache to prevent orphaned data...');
+      await this.clearTransactionCache(userId);
+
+      console.log('✅ Successfully cleaned up transactions for disconnected accounts');
+    } catch (error) {
+      console.error('❌ Error clearing transaction cache for accounts:', error);
+      throw error;
     }
   }
 }
