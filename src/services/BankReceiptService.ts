@@ -11,6 +11,9 @@ export interface BankConnection {
   userId: string;
   accessToken: string;
   institutionName: string;
+  institutionId?: string;
+  institutionLogo?: string | null;
+  institutionColor?: string | null;
   accounts: Array<{
     accountId: string;
     name: string;
@@ -56,25 +59,10 @@ export class BankReceiptService {
 
   /**
    * Connect a new bank account for a professional user
-   * Automatically disconnects any existing bank connections first
    */
   public async connectBankAccount(userId: string): Promise<BankConnection> {
     try {
-      // First, disconnect any existing bank connections
-      console.log('🔍 Checking for existing bank connections...');
-      const existingConnections = await this.getBankConnections(userId);
-
-      if (existingConnections.length > 0) {
-        console.log(`🔌 Found ${existingConnections.length} existing connection(s), disconnecting...`);
-        for (const connection of existingConnections) {
-          try {
-            await this.disconnectBankAccount(userId, connection.id);
-          } catch (error) {
-            console.warn('⚠️ Failed to disconnect existing connection:', connection.id, error);
-            // Continue with new connection even if old one fails to disconnect
-          }
-        }
-      }
+      console.log('🔍 Connecting new bank account for user:', userId);
 
       // Create link token
       const linkToken = await this.plaidService.createLinkToken(userId);
@@ -399,13 +387,15 @@ export class BankReceiptService {
   public async getBankConnections(userId: string): Promise<BankConnection[]> {
     try {
       // Try to get from local storage first for quick access
-      const localConnections = await AsyncStorage.getItem(`${BankReceiptService.BANK_CONNECTIONS_KEY}_${userId}`);
+      const key = `${BankReceiptService.BANK_CONNECTIONS_KEY}_${userId}`;
+      console.log('🔍 Getting bank connections with key:', key);
+      const localConnections = await AsyncStorage.getItem(key);
       if (localConnections) {
         const connections = JSON.parse(localConnections);
         console.log(`📱 Found ${connections.length} local bank connections for user:`, userId);
-        // Log access tokens for debugging (first 10 chars only)
+        // Log basic info for debugging
         connections.forEach((conn: BankConnection, index: number) => {
-          console.log(`  Connection ${index + 1}: ${conn.accessToken?.substring(0, 10)}...`);
+          console.log(`  Connection ${index + 1}: ${conn.institutionName} (${conn.accounts.length} accounts) - Active: ${conn.isActive}`);
         });
         return connections;
       }
@@ -422,19 +412,39 @@ export class BankReceiptService {
 
   /**
    * Save bank connection locally for quick access
-   * For receipt apps, users typically only need one active bank connection,
-   * so we replace any existing connections instead of adding to the list
+   * Supports multiple bank connections for comprehensive transaction coverage
    */
   public async saveBankConnectionLocally(connection: BankConnection): Promise<void> {
     try {
       const key = `${BankReceiptService.BANK_CONNECTIONS_KEY}_${connection.userId}`;
 
-      // Instead of adding to existing connections, replace them
-      // This ensures users only have one active bank connection at a time
-      const connections = [connection];
+      // Get existing connections
+      const existingConnectionsString = await AsyncStorage.getItem(key);
+      let connections: BankConnection[] = [];
+      
+      if (existingConnectionsString) {
+        connections = JSON.parse(existingConnectionsString);
+      }
+
+      // Check if this connection already exists (by access token or institution)
+      const existingIndex = connections.findIndex(conn => 
+        conn.accessToken === connection.accessToken || 
+        (conn.institutionName === connection.institutionName && 
+         conn.accounts.some(acc1 => connection.accounts.some(acc2 => acc1.accountId === acc2.accountId)))
+      );
+
+      if (existingIndex >= 0) {
+        // Update existing connection
+        connections[existingIndex] = connection;
+        console.log('💾 Updated existing bank connection');
+      } else {
+        // Add new connection
+        connections.push(connection);
+        console.log('💾 Added new bank connection');
+      }
 
       await AsyncStorage.setItem(key, JSON.stringify(connections));
-      console.log('💾 Saved bank connection (replaced any existing connections)');
+      console.log(`💾 Total bank connections: ${connections.length}`);
     } catch (error) {
       console.error('Error saving bank connection locally:', error);
     }
@@ -633,7 +643,11 @@ export class BankReceiptService {
       // Return cached data if it's less than 10 minutes old (reduced from 30 for testing)
       if (ageInMinutes < 10) {
         console.log('📱 Using cached data (fresh enough)');
-        return cacheData.candidates || [];
+        const candidates = cacheData.candidates || [];
+        // Filter out rejected candidates
+        const activeCandidates = candidates.filter((c: TransactionCandidate) => c.status !== 'rejected');
+        console.log(`📱 Filtered out rejected candidates: ${candidates.length} -> ${activeCandidates.length}`);
+        return activeCandidates;
       } else {
         console.log('📱 Cache expired, clearing and will fetch fresh data');
         // Clear expired cache
@@ -727,6 +741,41 @@ export class BankReceiptService {
       console.log('✅ Successfully cleaned up transactions for disconnected accounts');
     } catch (error) {
       console.error('❌ Error clearing transaction cache for accounts:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Dismiss/reject a transaction candidate
+   */
+  public async dismissCandidate(candidateId: string, userId: string): Promise<void> {
+    try {
+      console.log('🗑️ Dismissing candidate:', candidateId);
+      
+      // Update the candidate status in Firestore
+      const candidateRef = doc(db, 'transactionCandidates', candidateId);
+      await updateDoc(candidateRef, {
+        status: 'rejected'
+      });
+
+      // Update cache to remove this candidate
+      const cacheKey = `transaction_candidates_${userId}`;
+      const cached = await AsyncStorage.getItem(cacheKey);
+      if (cached) {
+        const cacheData = JSON.parse(cached);
+        if (cacheData.candidates && Array.isArray(cacheData.candidates)) {
+          const updatedCandidates = cacheData.candidates.filter((c: any) => c._id !== candidateId);
+          const updatedCacheData = {
+            ...cacheData,
+            candidates: updatedCandidates
+          };
+          await AsyncStorage.setItem(cacheKey, JSON.stringify(updatedCacheData));
+        }
+      }
+      
+      console.log('✅ Successfully dismissed candidate:', candidateId);
+    } catch (error) {
+      console.error('❌ Error dismissing candidate:', error);
       throw error;
     }
   }

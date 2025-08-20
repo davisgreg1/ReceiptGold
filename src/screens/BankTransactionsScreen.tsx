@@ -147,7 +147,8 @@ export const BankTransactionsScreen: React.FC = () => {
       const { db } = await import('../config/firebase');
       const candidatesQuery = query(
         collection(db, 'transactionCandidates'),
-        where('userId', '==', user.uid)
+        where('userId', '==', user.uid),
+        where('status', '!=', 'rejected')
       );
       const snapshot = await getDocs(candidatesQuery);
       const allCandidates = snapshot.docs.map(doc => ({ _id: doc.id, ...(doc.data() as TransactionCandidate) }));
@@ -313,7 +314,7 @@ export const BankTransactionsScreen: React.FC = () => {
 
   const generateReceipt = async (candidate: TransactionCandidate, candidateId: string) => {
     try {
-      console.log('🔍 Generate receipt called for candidate:', candidateId);
+      console.log('� Generate receipt called for candidate:', candidateId);
       console.log('🔍 Current user:', user);
       console.log('🔍 User UID:', user?.uid);
       
@@ -392,16 +393,38 @@ export const BankTransactionsScreen: React.FC = () => {
     }
   };
 
-  const rejectCandidate = (candidateId: string) => {
-    // Remove by Firestore doc id to avoid colliding transaction ids
-    setCandidates(prev => prev.filter(c => (c as any)._id !== candidateId));
-    setGeneratedReceipts(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(candidateId);
-      return newMap;
-    });
-    
-    // No notification needed - visual feedback is sufficient
+  const rejectCandidate = async (candidateId: string) => {
+    try {
+      console.log('🗑️ Reject candidate called for:', candidateId);
+      
+      if (!user?.uid) {
+        showNotification({
+          type: 'error',
+          title: 'Authentication Error',
+          message: 'You must be logged in to dismiss transactions.',
+        });
+        return;
+      }
+
+      // Call the service to dismiss the candidate in Firestore
+      await bankReceiptService.dismissCandidate(candidateId, user.uid);
+      
+      // Remove from local state
+      setCandidates(prev => prev.filter(c => (c as any)._id !== candidateId));
+      setGeneratedReceipts(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(candidateId);
+        return newMap;
+      });
+      
+    } catch (error) {
+      console.error('Error dismissing candidate:', error);
+      showNotification({
+        type: 'error',
+        title: 'Dismiss Failed',
+        message: 'Failed to dismiss transaction. Please try again.',
+      });
+    }
   };
 
   const formatCurrency = (amount: number) => {

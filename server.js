@@ -105,6 +105,30 @@ app.post("/api/plaid", async (req, res) => {
         });
         break;
         
+      case 'get_institution':
+        console.log('🏦 Getting institution info for access_token:', body.access_token?.substring(0, 20) + '...');
+        
+        // First get the item to get institution_id
+        const itemResponse = await plaidClient.itemGet({
+          access_token: body.access_token,
+        });
+        
+        const institutionId = itemResponse.data.item.institution_id;
+        console.log('🏦 Institution ID:', institutionId);
+        
+        // Then get the institution details
+        const institutionResponse = await plaidClient.institutionsGetById({
+          institution_id: institutionId,
+          country_codes: ['US'],
+        });
+        
+        console.log('✅ Institution info retrieved:', institutionResponse.data.institution.name);
+        
+        res.json({
+          institution: institutionResponse.data.institution,
+        });
+        break;
+        
       default:
         res.status(400).json({ error: 'Invalid action' });
     }
