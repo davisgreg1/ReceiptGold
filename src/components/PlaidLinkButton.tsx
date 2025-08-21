@@ -28,7 +28,10 @@ export const PlaidLinkButton: React.FC<PlaidLinkButtonProps> = ({
     try {
       // Create Link with token - simple object structure
       console.log('🔗 Creating Plaid Link from component...');
-      create({ token: linkToken });
+      create({ 
+        token: linkToken,
+        noLoadingState: false 
+      });
       
       // Wait a moment for create() to complete before opening
       await new Promise(resolve => setTimeout(resolve, 500));

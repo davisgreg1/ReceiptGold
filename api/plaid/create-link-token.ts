@@ -18,7 +18,7 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const { user_id } = req.body;
+    const { user_id, android_package_name, redirect_uri } = req.body;
 
     if (!user_id) {
       return res.status(400).json({ error: 'user_id is required' });
@@ -26,16 +26,24 @@ export default async function handler(req: any, res: any) {
 
     const request: LinkTokenCreateRequest = {
       user: {
-      client_user_id: user_id,
+        client_user_id: user_id,
       },
       client_name: 'ReceiptGold',
       products: [Products.Transactions],
       country_codes: [CountryCode.Us],
       language: 'en',
-      ...(process.platform === 'android' 
-      ? { android_package_name: process.env.EXPO_PUBLIC_PLAID_REDIRECT_URI }
-      : { redirect_uri: process.env.EXPO_PUBLIC_PLAID_REDIRECT_URI })
     };
+
+    // For Android: use android_package_name (no redirect_uri)
+    if (android_package_name) {
+      request.android_package_name = android_package_name;
+      console.log('🤖 Creating Android link token with package name:', android_package_name);
+    } 
+    // For iOS/Web: use redirect_uri (no android_package_name)
+    else if (redirect_uri) {
+      request.redirect_uri = redirect_uri;
+      console.log('🍎 Creating iOS/Web link token with redirect URI:', redirect_uri);
+    }
 
     const response = await client.linkTokenCreate(request);
     const linkToken = response.data.link_token;

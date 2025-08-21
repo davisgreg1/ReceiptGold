@@ -7,6 +7,7 @@ import {
   create,
   open
 } from 'react-native-plaid-link-sdk';
+import { Platform } from 'react-native';
 
 // Base URL for the backend API - use local IP for React Native
 const API_BASE_URL = 'http://10.0.0.84:3000';
@@ -91,14 +92,27 @@ export class PlaidService {
     try {
       console.log('Creating link token for user:', userId);
       
+      // Prepare the request body with Android package name for OAuth
+      const requestBody: any = {
+        user_id: userId,
+      };
+
+      // For Android, pass the package name instead of redirect URI
+      if (Platform.OS === 'android') {
+        requestBody.android_package_name = process.env.EXPO_PUBLIC_PLAID_ANDROID_PACKAGE_NAME;
+        console.log('🤖 Android: Using package name for OAuth');
+      } else {
+        // For iOS, still use redirect URI
+        requestBody.redirect_uri = process.env.EXPO_PUBLIC_PLAID_IOS_REDIRECT_URI;
+        console.log('🍎 iOS: Using redirect URI for OAuth');
+      }
+      
       const response = await fetch(`${API_BASE_URL}/api/plaid/create-link-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          user_id: userId,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await response.json();
