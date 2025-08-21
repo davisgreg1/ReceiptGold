@@ -10,6 +10,8 @@ import {
 import { OCRScanningOverlay } from "../components/OCRScanningOverlay";
 import { CaptureOptions } from "../components/CaptureOptions";
 import { CameraView, CameraType, useCameraPermissions } from "expo-camera";
+import { VisionCamera } from "../components/VisionCamera";
+import { Camera, PhotoFile } from "react-native-vision-camera";
 import { SaveFormat } from "expo-image-manipulator";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../theme/ThemeProvider";
@@ -182,6 +184,8 @@ export const ScanReceiptScreen = () => {
   const [facing] = useState<CameraType>("back");
   const [permission, requestPermission] = useCameraPermissions();
   const [showCamera, setShowCamera] = useState(false);
+  const [useVisionCamera, setUseVisionCamera] = useState(Platform.OS === 'android'); // Use VisionCamera on Android by default
+  const [visionCameraError, setVisionCameraError] = useState<string | null>(null);
   
   const checkReceiptLimit = async (): Promise<{ canAdd: boolean; currentCount: number }> => {
     if (!user?.uid) {
@@ -532,6 +536,309 @@ export const ScanReceiptScreen = () => {
     }
   };
 
+  // Handler for VisionCamera errors - fallback to expo-camera
+  const handleVisionCameraError = useCallback((error: string) => {
+    console.error('VisionCamera error, falling back to expo-camera:', error);
+    setVisionCameraError(error);
+    setUseVisionCamera(false);
+    showWarning(
+      'Camera Issue',
+      'Switching to backup camera. The app will continue to work normally.',
+      {
+        primaryButtonText: 'OK',
+      }
+    );
+  }, [showWarning]);
+
+  // Handler for VisionCamera on Android
+  const handleVisionCameraPhoto = async (photo: PhotoFile) => {
+    if (!user || isCapturing) return;
+
+    // Check receipt limit before capturing
+    const { canAdd } = await checkReceiptLimit();
+    if (!canAdd) {
+      return;
+    }
+
+    try {
+      setIsCapturing(true);
+      setOcrStatus("Processing photo...");
+
+      // Set captured image and show scanning overlay
+      setCapturedImageUri(`file://${photo.path}`);
+      setShowScanning(true);
+      setScanningError(null);
+
+      // Continue with the same processing logic as handleCapture
+      setOcrStatus("Optimizing image...");
+
+      // Optimize the image
+      const optimizedImage = await ImageManipulator.manipulateAsync(
+        `file://${photo.path}`,
+        [{ resize: { width: 1200 } }],
+        { compress: 0.8, format: SaveFormat.JPEG }
+      );
+
+      // Continue with OCR processing (same as handleCapture)
+      await processImageWithOCR(optimizedImage.uri);
+
+    } catch (error) {
+      console.error("VisionCamera photo processing error:", error);
+      setScanningError("Failed to process photo. Please try again.");
+      setShowScanning(false);
+      setCapturedImageUri(null);
+    } finally {
+      setIsCapturing(false);
+    }
+  };
+
+  // Extract the OCR processing logic to reuse
+  const processImageWithOCR = async (imageUri: string) => {
+    try {
+      // FIRST: Analyze the image to validate it's a receipt BEFORE uploading
+      setIsAnalyzing(true);
+      setOcrStatus("Validating receipt...");
+      console.log("Validating image as receipt with OCR...");
+
+      let ocrData;
+      let receiptData;
+      try {
+        // Use real OCR service to validate and analyze receipt
+        ocrData = await receiptOCRService.analyzeReceipt(imageUri);
+        console.log("Receipt validation successful:", ocrData);
+        setOcrStatus("Receipt validated! Uploading...");
+
+        // Get the receipt category based on the OCR data
+        let category: ReceiptCategory = 'other';
+        const result = await ReceiptCategoryService.determineCategory(ocrData);
+        category = result.category;
+        console.log('Determined category:', { 
+          merchantName: ocrData.merchantName, 
+          category,
+          confidence: result.confidence 
+        });
+
+        // Analyze tax deductibility using AI
+        setOcrStatus("Analyzing tax deductibility...");
+        const taxAnalysis = await taxDeductibleService.determineTaxDeductibility(ocrData, category);
+        console.log('Tax deductible analysis:', taxAnalysis);
+
+        // Add tax analysis to OCR data for later use
+        (ocrData as any).taxAnalysis = taxAnalysis;
+
+      } catch (validationError: any) {
+        console.error("Receipt validation failed:", validationError);
+        setIsAnalyzing(false);
+        setShowScanning(false);
+        setCapturedImageUri(null);
+        
+        // Show specific error message to user
+        showWarning(
+          "Is this a receipt?", 
+          validationError.message || "This image does not appear to be a receipt. Please try again with a clear photo of a receipt."
+        );
+        return; // Stop processing - don't upload or save anything
+      }
+
+      // SECOND: Upload the validated image to Firebase Storage
+      setOcrStatus("Uploading image...");
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+
+      const receiptId = Date.now().toString();
+      const fileName = `receipts/${user!.uid}/${receiptId}.jpg`;
+      const storageRef = ref(storage, fileName);
+
+      console.log("Uploading to Firebase Storage:", fileName);
+      const uploadTask = uploadBytesResumable(storageRef, blob);
+
+      await new Promise<void>((resolve, reject) => {
+        uploadTask.on(
+          "state_changed",
+          (snapshot) => {
+            const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+            setOcrStatus(`Uploading... ${Math.round(progress)}%`);
+          },
+          reject,
+          resolve
+        );
+      });
+
+      const downloadURL = await getDownloadURL(storageRef);
+      console.log("✅ Upload successful:", downloadURL);
+
+      // THIRD: Process with OCR and save to Firestore
+      setOcrStatus("Processing receipt data...");
+      setIsAnalyzing(true);
+
+      try {
+        console.log("🚀 ~ processImageWithOCR ~ USE_DUMMY_DATA:", USE_DUMMY_DATA);
+        
+        if (USE_DUMMY_DATA) {
+          console.log("Using dummy data for receipt processing");
+          logDummyDataStatus();
+          
+          const dummyData = generateDummyReceiptData();
+          console.log("Generated dummy data:", dummyData);
+
+          // Create receipt record with dummy data
+          receiptData = {
+            userId: user!.uid,
+            images: [
+              {
+                url: downloadURL,
+                size: blob.size,
+                uploadedAt: new Date(),
+              },
+            ],
+            ...dummyData, // Spread all the dummy data
+          };
+        } else {
+          // Use the tax analysis from earlier OCR processing
+          const taxAnalysis = (ocrData as any).taxAnalysis;
+          
+          // Category was already determined in validation step
+          const category = ocrData.category || 'other';
+          
+          receiptData = {
+            userId: user!.uid,
+            images: [
+              {
+                url: downloadURL,
+                size: blob.size,
+                uploadedAt: new Date(),
+              },
+            ],
+            status: "processed" as const,
+            vendor: ocrData.merchantName || "",
+            amount: ocrData.total || 0,
+            currency: "USD",
+            date: ocrData.transactionDate || new Date(),
+            description: `Receipt from ${ocrData.merchantName || "Unknown Vendor"}`,
+            tax: {
+              deductible: taxAnalysis?.isDeductible ?? true,
+              deductionPercentage: taxAnalysis?.deductionPercentage ?? 100,
+              taxYear: new Date().getFullYear(),
+              category: taxAnalysis?.category || "business_expense",
+            },
+            category: category, // Use the determined category
+            tags: taxAnalysis?.tags || [],
+            extractedData: {
+              vendor: ocrData.merchantName || "",
+              amount: ocrData.total || 0,
+              tax: ocrData.tax || 0,
+              date:
+                ocrData.transactionDate instanceof Date
+                  ? ocrData.transactionDate.toISOString()
+                  : new Date().toISOString(),
+              confidence: 0.9, // Azure Document Intelligence typically has high confidence
+              items:
+                ocrData.items?.map((item) => ({
+                  description: item.description || "",
+                  amount: item.price || 0,
+                  quantity: item.quantity || 1,
+                })) || [],
+            },
+            processingErrors: [],
+          };
+        }
+
+        await receiptService.createReceipt(receiptData);
+        console.log("✅ Receipt successfully saved to Firestore");
+        
+      } catch (ocrError: any) {
+        console.error("OCR Analysis failed:", ocrError);
+        setOcrStatus("OCR failed, saving without analysis...");
+
+        // Still save the receipt even if OCR fails - ensure no undefined values
+        const fallbackReceiptData = {
+          userId: user!.uid,
+          images: [
+            {
+              url: downloadURL,
+              size: blob.size,
+              uploadedAt: new Date(),
+            },
+          ],
+          status: "error" as const, // Mark as error since OCR failed
+          vendor: "",
+          amount: 0,
+          currency: "USD",
+          date: new Date(),
+          description: "Scanned Receipt (Manual entry required)",
+          tax: {
+            deductible: true,
+            deductionPercentage: 100,
+            taxYear: new Date().getFullYear(),
+            category: "business_expense",
+          },
+          category: "other", // Default category when OCR fails
+          tags: ["manual-entry-required"],
+          extractedData: {
+            vendor: "",
+            amount: 0,
+            tax: 0,
+            date: new Date().toISOString(),
+            confidence: 0,
+            items: [],
+          },
+          processingErrors: [ocrError.message || "OCR analysis failed"],
+        };
+
+        await receiptService.createReceipt(fallbackReceiptData);
+        console.log("✅ Fallback receipt successfully saved to Firestore");
+
+        // Show OCR error but don't prevent saving
+        showWarning(
+          "Receipt Saved",
+          "The receipt was saved successfully, but automatic data extraction failed. You can manually edit the receipt details."
+        );
+      }
+
+      // Refresh receipt count after upload
+      await refreshReceiptCount();
+      
+      // Verify the count is correct by checking Firestore directly
+      console.log("🚀 Verifying receipt count after upload...");
+      const manualCount = await getMonthlyReceiptCount(user!.uid);
+      console.log("🚀 Manual count check result:", manualCount);
+      console.log("🚀 Context count:", currentReceiptCount);
+
+      // Check if we can add more receipts after this one
+      if (!canAddReceipt(currentReceiptCount)) {
+        showWarning(
+          "Monthly Limit Reached",
+          "You have reached your monthly receipt limit. The receipt was saved successfully, but you cannot add more receipts until next month or upgrading your plan."
+        );
+      }
+
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      let errorMessage = "Failed to upload receipt. ";
+
+      if (error.code === "storage/unauthorized") {
+        errorMessage += "Please check your permissions.";
+      } else if (error.code === "storage/canceled") {
+        errorMessage += "Upload was canceled.";
+      } else if (error.code === "storage/retry-limit-exceeded") {
+        errorMessage += "Poor network connection. Please try again.";
+      } else {
+        errorMessage += error.message || "Please try again.";
+      }
+
+      setScanningError(errorMessage);
+    } finally {
+      setIsCapturing(false);
+      setIsAnalyzing(false);
+      setOcrStatus("");
+      setShowScanning(false);
+      setCapturedImageUri(null);
+      
+      // Navigate back to receipts list
+      navigation.goBack();
+    }
+  };
+
   if (!permission) {
     return <View />;
   }
@@ -868,42 +1175,53 @@ export const ScanReceiptScreen = () => {
       style={[styles.container, { backgroundColor: theme.background.primary }]}
     >
       {showCamera ? (
-        <CameraView ref={cameraRef} style={styles.camera} facing={facing}>
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity
-              style={[
-                styles.captureButton,
-                { backgroundColor: theme.gold.primary },
-                isCapturing && { opacity: 0.7 },
-              ]}
-              onPress={handleCapture}
-              disabled={isCapturing}
-            >
-              {isCapturing ? (
-                <>
-                  <ActivityIndicator color="white" />
-                  <Text style={[styles.captureText, { marginTop: 8 }]}>
-                    {isAnalyzing ? "Analyzing Receipt..." : "Capturing..."}
-                  </Text>
-                  {ocrStatus && (
-                    <Text style={styles.ocrStatus}>{ocrStatus}</Text>
-                  )}
-                </>
-              ) : (
-                <Text style={styles.captureText}>📸 Capture Receipt</Text>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.backButton,
-                { backgroundColor: theme.gold.primary },
-              ]}
-              onPress={() => setShowCamera(false)}
-            >
-              <Text style={styles.captureText}>Back</Text>
-            </TouchableOpacity>
-          </View>
-        </CameraView>
+        (useVisionCamera && Platform.OS === 'android') ? (
+          <VisionCamera
+            onPhotoTaken={handleVisionCameraPhoto}
+            onClose={() => setShowCamera(false)}
+            isActive={true}
+            isProcessing={isCapturing}
+            processingMessage={ocrStatus}
+            onError={handleVisionCameraError}
+          />
+        ) : (
+          <CameraView ref={cameraRef} style={styles.camera} facing={facing}>
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.captureButton,
+                  { backgroundColor: theme.gold.primary },
+                  isCapturing && { opacity: 0.7 },
+                ]}
+                onPress={handleCapture}
+                disabled={isCapturing}
+              >
+                {isCapturing ? (
+                  <>
+                    <ActivityIndicator color="white" />
+                    <Text style={[styles.captureText, { marginTop: 8 }]}>
+                      {isAnalyzing ? "Analyzing Receipt..." : "Capturing..."}
+                    </Text>
+                    {ocrStatus && (
+                      <Text style={styles.ocrStatus}>{ocrStatus}</Text>
+                    )}
+                  </>
+                ) : (
+                  <Text style={styles.captureText}>📸 Capture Receipt</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.backButton,
+                  { backgroundColor: theme.gold.primary },
+                ]}
+                onPress={() => setShowCamera(false)}
+              >
+                <Text style={styles.captureText}>Back</Text>
+              </TouchableOpacity>
+            </View>
+          </CameraView>
+        )
       ) : (
         <CaptureOptions
           onSelectCamera={() => setShowCamera(true)}
@@ -911,6 +1229,37 @@ export const ScanReceiptScreen = () => {
           isLoading={isAnalyzing}
           ocrStatus={ocrStatus}
         />
+      )}
+      
+      {/* Show camera type toggle on Android for testing */}
+      {Platform.OS === 'android' && showCamera && (
+        <View style={{
+          position: 'absolute',
+          top: 100,
+          right: 20,
+          zIndex: 1000,
+          backgroundColor: 'rgba(0,0,0,0.7)',
+          borderRadius: 8,
+          padding: 8,
+        }}>
+          <TouchableOpacity
+            onPress={() => setUseVisionCamera(!useVisionCamera)}
+            style={{
+              padding: 8,
+              backgroundColor: theme.gold.primary,
+              borderRadius: 4,
+            }}
+          >
+            <Text style={{ color: 'white', fontSize: 12 }}>
+              {useVisionCamera ? 'Use Expo Camera' : 'Use Vision Camera'}
+            </Text>
+          </TouchableOpacity>
+          {visionCameraError && (
+            <Text style={{ color: '#ff6b6b', fontSize: 10, marginTop: 4 }}>
+              VisionCamera Error
+            </Text>
+          )}
+        </View>
       )}
       {capturedImageUri && (showScanning || scanningError) && (
         <OCRScanningOverlay
