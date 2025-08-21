@@ -1,6 +1,7 @@
 import { PlaidService, PlaidTransaction } from './PlaidService';
 import ReceiptServiceFactory, { ReceiptService } from './ReceiptServiceFactory';
 import { GeneratedReceipt } from './HTMLReceiptService'; // Using HTMLReceiptService as the common interface
+import { PDFReceiptService, GeneratedReceiptPDF } from './PDFReceiptService';
 import { NotificationService } from './ExpoNotificationService';
 import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -29,6 +30,7 @@ export interface BankConnection {
 export interface TransactionCandidate {
   transaction: PlaidTransaction;
   generatedReceipt?: GeneratedReceipt;
+  generatedReceiptPDF?: GeneratedReceiptPDF;
   status: 'pending' | 'approved' | 'rejected' | 'generated';
   createdAt: Date;
   userId: string;
@@ -38,6 +40,7 @@ export class BankReceiptService {
   private static instance: BankReceiptService;
   private plaidService: PlaidService;
   private receiptService: ReceiptService;
+  private pdfReceiptService: PDFReceiptService;
   private notificationService: NotificationService;
 
   // Storage keys
@@ -47,6 +50,7 @@ export class BankReceiptService {
   private constructor() {
     this.plaidService = PlaidService.getInstance();
     this.receiptService = ReceiptServiceFactory.getReceiptService();
+    this.pdfReceiptService = PDFReceiptService.getInstance();
     this.notificationService = NotificationService.getInstance();
   }
 
@@ -200,21 +204,23 @@ export class BankReceiptService {
   }
 
   /**
-   * Generate receipt for a transaction candidate
+   * Generate PDF receipt for a transaction candidate
    */
   public async generateReceiptForTransaction(
     candidateId: string,
     transaction: PlaidTransaction,
     userId: string
-  ): Promise<GeneratedReceipt> {
+  ): Promise<GeneratedReceiptPDF> {
     try {
-      // Generate receipt using selected service (AI or HTML)
-      const generatedReceipt = await this.receiptService.generateReceiptFromTransaction(transaction);
-      console.log('🔍 Generated receipt structure:', JSON.stringify(generatedReceipt, null, 2));
-
-      // The receipt service already provides the image URL (base64 for HTML, URL for AI)
-      const finalReceipt = generatedReceipt;
-      console.log('🔍 Final receipt structure:', JSON.stringify(finalReceipt.receiptData, null, 2));
+      console.log('📄 Generating PDF receipt for transaction...');
+      
+      // Generate PDF receipt using the new PDF service
+      const generatedReceiptPDF = await this.pdfReceiptService.generatePDFReceiptFromTransaction(transaction);
+      console.log('🔍 Generated PDF receipt structure:', {
+        pdfPath: generatedReceiptPDF.receiptPdfPath,
+        businessName: generatedReceiptPDF.receiptData.businessName,
+        total: generatedReceiptPDF.receiptData.total
+      });
 
       // Update candidate status in Firebase
       console.log('🔍 Updating candidate with userId:', userId);
@@ -235,31 +241,9 @@ export class BankReceiptService {
         throw new Error('Permission denied: candidate belongs to different user');
       }
 
-      // Flatten the receipt data for Firestore storage
-      const firestoreReceiptData = {
-        receiptImageUrl: finalReceipt.receiptImageUrl,
-        receiptData: {
-          businessName: finalReceipt.receiptData?.businessName || 'Unknown Business',
-          address: finalReceipt.receiptData?.address || '',
-          date: finalReceipt.receiptData?.date || new Date().toISOString(),
-          time: finalReceipt.receiptData?.time || '',
-          subtotal: finalReceipt.receiptData?.subtotal || 0,
-          tax: finalReceipt.receiptData?.tax || 0,
-          total: finalReceipt.receiptData?.total || 0,
-          paymentMethod: finalReceipt.receiptData?.paymentMethod || 'Card',
-          transactionId: finalReceipt.receiptData?.transactionId || '',
-          items: (finalReceipt.receiptData?.items || []).map((item: any) => ({
-            description: item.description || 'Unknown Item',
-            amount: item.amount || 0,
-          })),
-        },
-        status: 'generated',
-      };
-
-      // Instead of updating the existing candidate document which might have complex nested objects,
-      // let's create a simple status update and store the receipt data separately
+      // Store the PDF receipt data
       try {
-        // First, try to just update the status
+        // Update candidate status
         console.log('🔍 Attempting to update candidate status for:', candidateId);
         await updateDoc(candidateRef, {
           status: 'generated',
@@ -267,37 +251,39 @@ export class BankReceiptService {
         });
         console.log('✅ Successfully updated candidate status');
 
-        // Store the receipt data in a separate collection to avoid nested entity issues
-        console.log('🔍 Storing receipt data for userId:', userId);
+        // Store the PDF receipt data in Firestore
+        console.log('🔍 Storing PDF receipt data for userId:', userId);
         const receiptDoc = {
-          userId: userId, // Add userId for Firestore rules
+          userId: userId,
           candidateId: candidateId,
-          receiptImageUrl: finalReceipt.receiptImageUrl,
-          businessName: finalReceipt.receiptData?.businessName || 'Unknown Business',
-          address: finalReceipt.receiptData?.address || '',
-          date: finalReceipt.receiptData?.date || new Date().toISOString().split('T')[0],
-          time: finalReceipt.receiptData?.time || '',
-          subtotal: Number(finalReceipt.receiptData?.subtotal) || 0,
-          tax: Number(finalReceipt.receiptData?.tax) || 0,
-          total: Number(finalReceipt.receiptData?.total) || 0,
-          paymentMethod: finalReceipt.receiptData?.paymentMethod || 'Card',
-          transactionId: finalReceipt.receiptData?.transactionId || '',
-          items: (finalReceipt.receiptData?.items || []).map((item: any) => ({
-            description: String(item.description || 'Unknown Item'),
-            amount: Number(item.amount || 0),
+          receiptPdfUrl: generatedReceiptPDF.receiptPdfUrl,
+          receiptPdfPath: generatedReceiptPDF.receiptPdfPath,
+          businessName: generatedReceiptPDF.receiptData.businessName,
+          address: generatedReceiptPDF.receiptData.address,
+          date: generatedReceiptPDF.receiptData.date,
+          time: generatedReceiptPDF.receiptData.time,
+          subtotal: generatedReceiptPDF.receiptData.subtotal,
+          tax: generatedReceiptPDF.receiptData.tax,
+          total: generatedReceiptPDF.receiptData.total,
+          paymentMethod: generatedReceiptPDF.receiptData.paymentMethod,
+          transactionId: generatedReceiptPDF.receiptData.transactionId,
+          items: generatedReceiptPDF.receiptData.items.map((item: any) => ({
+            description: item.description,
+            amount: item.amount,
           })),
+          type: 'pdf', // Mark this as a PDF receipt
           createdAt: new Date().toISOString(),
         };
 
         const receiptDocRef = await addDoc(collection(db, 'generatedReceipts'), receiptDoc);
-        console.log('✅ Receipt data stored successfully with ID:', receiptDocRef.id);
+        console.log('✅ PDF receipt data stored successfully with ID:', receiptDocRef.id);
 
       } catch (updateError) {
         console.error('❌ Failed to update candidate document:', updateError);
         console.log('🔍 Attempting fallback: creating status document for userId:', userId);
         // If we can't update the existing document, create a new status document
         await addDoc(collection(db, 'candidateStatus'), {
-          userId: userId, // Add userId for Firestore rules
+          userId: userId,
           candidateId: candidateId,
           status: 'generated',
           generatedAt: new Date().toISOString(),
@@ -305,10 +291,10 @@ export class BankReceiptService {
         console.log('✅ Fallback status document created successfully');
       }
 
-      console.log('✅ Receipt generated successfully');
-      return finalReceipt;
+      console.log('✅ PDF receipt generated successfully');
+      return generatedReceiptPDF;
     } catch (error) {
-      console.error('❌ Error generating receipt:', error);
+      console.error('❌ Error generating PDF receipt:', error);
       throw error;
     }
   }
@@ -377,6 +363,124 @@ export class BankReceiptService {
       return receiptRef.id;
     } catch (error) {
       console.error('❌ Error saving generated receipt:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Save generated PDF receipt as a regular receipt in the system
+   */
+  public async saveGeneratedPDFReceiptAsReceipt(
+    userId: string,
+    generatedReceiptPDF: GeneratedReceiptPDF,
+    candidateId: string
+  ): Promise<string> {
+    try {
+      // Create receipt document for Firebase with PDF data
+      const receiptDoc = {
+        userId,
+        pdfUrl: generatedReceiptPDF.receiptPdfUrl,
+        pdfPath: generatedReceiptPDF.receiptPdfPath,
+        businessName: generatedReceiptPDF.receiptData.businessName || 'Unknown Business',
+        amount: Number(generatedReceiptPDF.receiptData.total) || 0,
+        date: generatedReceiptPDF.receiptData.date,
+        category: 'Generated from Bank Transaction',
+        items: generatedReceiptPDF.receiptData.items,
+        receiptData: generatedReceiptPDF.receiptData, // Store complete receipt data for regeneration
+        metadata: {
+          source: 'bank_transaction',
+          originalTransactionId: generatedReceiptPDF.receiptData.transactionId,
+          generatedAt: new Date(),
+          type: 'pdf',
+        },
+        type: 'pdf', // Mark as PDF receipt
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      console.log('🔍 Adding PDF receipt to receipts collection for userId:', userId);
+      const receiptRef = await addDoc(collection(db, 'receipts'), receiptDoc);
+      console.log('✅ PDF receipt added to receipts collection with ID:', receiptRef.id);
+
+      // Update candidate status
+      console.log('🔍 Updating candidate status for candidateId:', candidateId);
+      const candidateRef = doc(db, 'transactionCandidates', candidateId);
+      const candidateSnap = await getDoc(candidateRef);
+
+      if (!candidateSnap.exists()) {
+        console.error('❌ Candidate document not found:', candidateId);
+        throw new Error('Transaction candidate not found');
+      }
+
+      const candidateData = candidateSnap.data();
+      if (candidateData?.userId !== userId) {
+        console.error('❌ User ID mismatch - candidate belongs to different user');
+        throw new Error('Permission denied: candidate belongs to different user');
+      }
+
+      await updateDoc(candidateRef, {
+        status: 'approved',
+        receiptId: receiptRef.id,
+      });
+      console.log('✅ Candidate status updated to approved');
+
+      console.log('✅ Generated PDF receipt saved as regular receipt');
+      return receiptRef.id;
+    } catch (error) {
+      console.error('❌ Error saving generated PDF receipt:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Regenerate PDF when a receipt is edited
+   */
+  public async regeneratePDFForReceipt(receiptId: string, userId: string): Promise<void> {
+    try {
+      console.log('🔄 Regenerating PDF for receipt:', receiptId);
+      
+      // Get the receipt document
+      const receiptRef = doc(db, 'receipts', receiptId);
+      const receiptSnap = await getDoc(receiptRef);
+
+      if (!receiptSnap.exists()) {
+        throw new Error('Receipt not found');
+      }
+
+      const receiptData = receiptSnap.data();
+      
+      // Verify ownership
+      if (receiptData?.userId !== userId) {
+        throw new Error('Permission denied: receipt belongs to different user');
+      }
+
+      // Only regenerate if it's a PDF receipt
+      if (receiptData?.type !== 'pdf' || !receiptData?.receiptData) {
+        console.log('ℹ️ Receipt is not a PDF receipt, skipping regeneration');
+        return;
+      }
+
+      // Delete old PDF file
+      if (receiptData.pdfPath) {
+        await this.pdfReceiptService.deletePDFReceipt(receiptData.pdfPath);
+      }
+
+      // Regenerate PDF with current receipt data
+      const regeneratedPDF = await this.pdfReceiptService.regeneratePDFReceipt(
+        receiptData.receiptData,
+        receiptData.metadata?.originalTransactionId || receiptId
+      );
+
+      // Update receipt document with new PDF path
+      await updateDoc(receiptRef, {
+        pdfUrl: regeneratedPDF.receiptPdfUrl,
+        pdfPath: regeneratedPDF.receiptPdfPath,
+        updatedAt: new Date(),
+      });
+
+      console.log('✅ PDF regenerated successfully for receipt:', receiptId);
+    } catch (error) {
+      console.error('❌ Error regenerating PDF for receipt:', error);
       throw error;
     }
   }

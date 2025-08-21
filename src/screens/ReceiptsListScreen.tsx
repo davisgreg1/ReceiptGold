@@ -192,7 +192,9 @@ export const ReceiptsListScreen: React.FC = () => {
           receiptId: r.receiptId,
           date: r.date,
           status: r.status,
-          vendor: r.vendor
+          vendor: r.vendor,
+          businessName: (r as any).businessName,
+          type: (r as any).type
         }))
       });
       
@@ -228,6 +230,7 @@ export const ReceiptsListScreen: React.FC = () => {
 
     const filtered = receipts.filter(receipt => 
       receipt.vendor?.toLowerCase().includes(query.toLowerCase()) ||
+      (receipt as any).businessName?.toLowerCase().includes(query.toLowerCase()) ||
       receipt.category?.toLowerCase().includes(query.toLowerCase()) ||
       receipt.amount?.toString().includes(query) ||
   receipt.createdAt.toLocaleDateString().includes(query)
@@ -270,14 +273,19 @@ export const ReceiptsListScreen: React.FC = () => {
           }
           setSelectedReceipts(newSelected);
         } else {
-          // Get the image URL from either the images array or imageUrl field
+          // Get the image URL or PDF path from the receipt
           const imageUrl = receipt.images?.[0]?.url || '';
+          const pdfPath = (receipt as any).pdfPath || '';
+          const pdfUrl = (receipt as any).pdfUrl || '';
+          
+          // For PDF receipts, use businessName as vendor, otherwise use vendor field
+          const vendor = (receipt as any).businessName || receipt.vendor || 'Unknown Vendor';
           
           // Convert the local receipt format to the format expected by EditReceipt
           const firebaseReceipt: FirebaseReceipt = {
             receiptId: receipt.receiptId,
             userId: receipt.userId,
-            vendor: receipt.vendor || 'Unknown Vendor',
+            vendor: vendor,
             amount: receipt.amount || 0,
             currency: 'USD', // Default currency
             date: receipt.date,
@@ -299,7 +307,11 @@ export const ReceiptsListScreen: React.FC = () => {
             status: 'processed' as const,
             processingErrors: [],
             createdAt: receipt.createdAt,
-            updatedAt: receipt.updatedAt
+            updatedAt: receipt.updatedAt,
+            // Add PDF fields for EditReceipt to handle
+            ...(pdfPath && { pdfPath, pdfUrl, type: 'pdf' }),
+            // Pass through metadata for regeneration logic
+            metadata: (receipt as any).metadata
           };
           
           navigation.navigate('EditReceipt', {
@@ -345,7 +357,7 @@ export const ReceiptsListScreen: React.FC = () => {
             {receipt.category ? ReceiptCategoryService.getCategoryDisplayName(receipt.category as any) : 'Uncategorized'}
           </Text>
           <Text style={[styles.receiptDate, { color: theme.text.tertiary }]}>
-            {receipt.vendor || 'Unknown Vendor'}
+            {(receipt as any).businessName || receipt.vendor || 'Unknown Vendor'}
           </Text>
         </View>
       </View>
