@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { Text } from '../components/Text';
 import { receiptService } from '../services/firebaseService';
@@ -19,6 +20,8 @@ import { CategoryPicker } from '../components/CategoryPicker';
 import { ReceiptCategory } from '../services/ReceiptCategoryService';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
+import { BankReceiptService } from '../services/BankReceiptService';
+import { useAuth } from '../context/AuthContext';
 
 const styles = StyleSheet.create({
   container: {
@@ -38,6 +41,37 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'contain',
+  },
+  pdfPreview: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  pdfIcon: {
+    marginBottom: 12,
+  },
+  pdfText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  pdfPath: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  regenerateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  regenerateText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontWeight: '500',
   },
   section: {
     marginBottom: 24,
@@ -147,7 +181,9 @@ type EditReceiptScreenProps = NativeStackScreenProps<RootStackParamList, 'EditRe
 export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, navigation }) => {
   const { receipt } = route.params;
   const { theme } = useTheme();
+  const { user } = useAuth();
   const { showError, showSuccess, showFirebaseError, hideAlert } = useCustomAlert();
+  const bankReceiptService = BankReceiptService.getInstance();
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -173,6 +209,24 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       taxYear: receipt.tax?.taxYear || new Date().getFullYear(),
     }
   });
+
+  const handleRegeneratePDF = async () => {
+    if (!user?.uid || !receipt.receiptId) {
+      showError('Error', 'Cannot regenerate PDF - missing user or receipt ID');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await bankReceiptService.regeneratePDFForReceipt(receipt.receiptId, user.uid);
+      showSuccess('Success', 'PDF receipt has been regenerated successfully');
+    } catch (error) {
+      console.error('Error regenerating PDF:', error);
+      showError('Error', 'Failed to regenerate PDF. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSave = async () => {
     try {
@@ -277,14 +331,53 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]} edges={['top']}>
       <ScrollView style={styles.content}>
-        {/* Image Section */}
+        {/* Image/PDF Section */}
         <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>Receipt Image</Text>
+          <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
+            {(receipt as any).type === 'pdf' ? 'Receipt PDF' : 'Receipt Image'}
+          </Text>
           <View style={[styles.imageContainer, { backgroundColor: theme.background.secondary }]}>
-            <Image
-              source={{ uri: receipt.images[0]?.url }}
-              style={styles.image}
-            />
+            {(receipt as any).type === 'pdf' ? (
+              // PDF Preview
+              <View style={styles.pdfPreview}>
+                <Ionicons 
+                  name="document-text" 
+                  size={80} 
+                  color={theme.text.accent}
+                  style={styles.pdfIcon}
+                />
+                <Text style={[styles.pdfText, { color: theme.text.primary }]}>
+                  PDF Receipt
+                </Text>
+                <Text style={[styles.pdfPath, { color: theme.text.secondary }]}>
+                  {(receipt as any).pdfPath ? (receipt as any).pdfPath.split('/').pop() : 'Receipt.pdf'}
+                </Text>
+                {(receipt as any).metadata?.source === 'bank_transaction' && (
+                  <TouchableOpacity 
+                    style={[styles.regenerateButton, { backgroundColor: theme.background.tertiary }]}
+                    onPress={handleRegeneratePDF}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <ActivityIndicator size="small" color={theme.text.primary} />
+                    ) : (
+                      <>
+                        <Ionicons name="refresh" size={16} color={theme.text.primary} />
+                        <Text style={[styles.regenerateText, { color: theme.text.primary }]}>
+                          Regenerate PDF
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              // Image Preview
+              <Image
+                source={{ uri: receipt.images[0]?.url }}
+                style={styles.image}
+              />
+            )}
           </View>
         </View>
 
