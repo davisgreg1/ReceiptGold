@@ -427,6 +427,16 @@ export const BankTransactionsScreen: React.FC = () => {
     }
   };
 
+  const discardGeneratedReceipt = (candidateId: string) => {
+    console.log('🗑️ Discarding generated receipt for:', candidateId);
+    // Just remove the generated receipt from state, keep the candidate
+    setGeneratedReceipts(prev => {
+      const newMap = new Map(prev);
+      newMap.delete(candidateId);
+      return newMap;
+    });
+  };
+
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -551,7 +561,7 @@ export const BankTransactionsScreen: React.FC = () => {
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionButton, styles.rejectButton]}
-                onPress={() => rejectCandidate(docId)}
+                onPress={() => discardGeneratedReceipt(docId)}
               >
                 <Text style={[styles.buttonText, styles.rejectButtonText]}>
                   Discard
