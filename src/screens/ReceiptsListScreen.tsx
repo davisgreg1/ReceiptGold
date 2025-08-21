@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,8 +8,11 @@ import {
   ActivityIndicator,
   TextInput,
   RefreshControl,
+  SectionList,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { deleteReceiptAndImage } from '../utils/deleteReceipt';
 import { getMonthlyReceiptCount } from '../utils/getMonthlyReceipts';
 import { checkReceiptLimit } from '../utils/navigationGuards';
@@ -56,6 +59,171 @@ export const ReceiptsListScreen: React.FC = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [isUpgradePromptDismissed, setIsUpgradePromptDismissed] = useState(false);
   const [isLimitReachedPromptDismissed, setIsLimitReachedPromptDismissed] = useState(false);
+  const [groupByDate, setGroupByDate] = useState(true); // New state for grouping
+  const [selectedFilter, setSelectedFilter] = useState<string | null>(null); // Category filter
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateRangeFilter, setDateRangeFilter] = useState<{
+    startDate: Date | null;
+    endDate: Date | null;
+    active: boolean;
+  }>({
+    startDate: null,
+    endDate: null,
+    active: false,
+  });
+  const [datePickerMode, setDatePickerMode] = useState<'start' | 'end'>('start');
+  
+  // Quick filter categories
+  const quickFilters = ['Food', 'Transportation', 'Office', 'Entertainment', 'Healthcare'];
+  
+  // Quick date range filters
+  const quickDateFilters = [
+    { label: 'Today', days: 0 },
+    { label: 'Last 7 Days', days: 7 },
+    { label: 'Last 30 Days', days: 30 },
+    { label: 'Last 90 Days', days: 90 },
+  ];
+  
+  // Ref for the main SectionList
+  const sectionListRef = useRef<SectionList>(null);
+  
+  // Handle quick filter selection
+  const handleQuickFilter = useCallback((category: string) => {
+    if (selectedFilter === category) {
+      // Deselect filter
+      setSelectedFilter(null);
+      setFilteredReceipts(receipts);
+      setSearchQuery('');
+    } else {
+      // Apply filter
+      setSelectedFilter(category);
+      setSearchQuery('');
+      const filtered = receipts.filter(receipt => 
+        ReceiptCategoryService.getCategoryDisplayName(receipt.category as any) === category
+      );
+      setFilteredReceipts(filtered);
+    }
+  }, [receipts, selectedFilter]);
+  
+  // Group receipts by date using useMemo for performance
+  const groupedReceipts = useMemo(() => {
+    if (!groupByDate) {
+      return [{
+        title: 'All Receipts',
+        data: filteredReceipts,
+      }];
+    }
+
+    const groups = filteredReceipts.reduce<Record<string, FirebaseReceipt[]>>((acc, receipt) => {
+      const date = receipt.createdAt;
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const receiptDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      
+      let groupKey: string;
+      const diffTime = today.getTime() - receiptDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays === 0) {
+        groupKey = 'Today';
+      } else if (diffDays === 1) {
+        groupKey = 'Yesterday';
+      } else if (diffDays < 7) {
+        groupKey = 'This Week';
+      } else if (diffDays < 30) {
+        groupKey = 'This Month';
+      } else if (date.getFullYear() === now.getFullYear()) {
+        const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'];
+        groupKey = monthNames[date.getMonth()];
+      } else {
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        groupKey = `${monthNames[date.getMonth()]} ${date.getFullYear()}`;
+      }
+      
+      if (!acc[groupKey]) {
+        acc[groupKey] = [];
+      }
+      acc[groupKey].push(receipt);
+      return acc;
+    }, {});
+
+    // Convert to section list format and sort
+    const sections = Object.entries(groups)
+      .map(([title, data]) => ({ title, data }))
+      .sort((a, b) => {
+        // Custom sorting logic for time-based groups
+        const timeOrder = ['Today', 'Yesterday', 'This Week', 'This Month'];
+        const aIndex = timeOrder.indexOf(a.title);
+        const bIndex = timeOrder.indexOf(b.title);
+        
+        if (aIndex !== -1 && bIndex !== -1) {
+          return aIndex - bIndex;
+        } else if (aIndex !== -1) {
+          return -1;
+        } else if (bIndex !== -1) {
+          return 1;
+        } else {
+          // For month/year groups, sort by date
+          return b.title.localeCompare(a.title);
+        }
+      });
+
+    return sections;
+  }, [filteredReceipts, groupByDate]);
+
+  // Separate recent sections (Today, Yesterday, This Week) from the rest
+  const recentSections = useMemo(() => {
+    const recentKeys = ['Today', 'Yesterday', 'This Week'];
+    return groupedReceipts.filter(section => recentKeys.includes(section.title));
+  }, [groupedReceipts]);
+
+  const otherSections = useMemo(() => {
+    const recentKeys = ['Today', 'Yesterday', 'This Week'];
+    return groupedReceipts.filter(section => !recentKeys.includes(section.title));
+  }, [groupedReceipts]);
+
+  // Handle scroll to section
+  const scrollToSection = useCallback((sectionTitle: string) => {
+    if (!sectionListRef.current) return;
+    
+    const sectionIndex = groupedReceipts.findIndex(section => section.title === sectionTitle);
+    if (sectionIndex !== -1 && groupedReceipts[sectionIndex]?.data.length > 0) {
+      try {
+        sectionListRef.current.scrollToLocation({
+          sectionIndex,
+          itemIndex: 0,
+          animated: true,
+          viewPosition: 0, // Position section header at the very top
+          viewOffset: 77, // Small offset to account for any fixed headers
+        });
+      } catch (error) {
+        console.log('Scroll to section failed:', error);
+      }
+    }
+  }, [groupedReceipts]);
+
+  // Handle scroll to index failed
+  const onScrollToIndexFailed = useCallback((info: any) => {
+    console.log('Scroll to index failed:', info);
+    // Wait a bit and retry
+    setTimeout(() => {
+      if (sectionListRef.current && info.index < groupedReceipts.length) {
+        try {
+          sectionListRef.current.scrollToLocation({
+            sectionIndex: info.index,
+            itemIndex: 0,
+            animated: true,
+            viewPosition: 0,
+            viewOffset: 80,
+          });
+        } catch (retryError) {
+          console.log('Retry scroll failed:', retryError);
+        }
+      }
+    }, 100);
+  }, [groupedReceipts]);
   
   const fetchReceipts = useCallback(async () => {
     if (!user?.uid) {
@@ -228,20 +396,32 @@ export const ReceiptsListScreen: React.FC = () => {
       return;
     }
 
-    const filtered = receipts.filter(receipt => 
-      receipt.vendor?.toLowerCase().includes(query.toLowerCase()) ||
-      (receipt as any).businessName?.toLowerCase().includes(query.toLowerCase()) ||
-      receipt.category?.toLowerCase().includes(query.toLowerCase()) ||
-      receipt.amount?.toString().includes(query) ||
-  receipt.createdAt.toLocaleDateString().includes(query)
-    );
-    
+    const searchTerms = query.toLowerCase().trim().split(' ');
+    const filtered = receipts.filter(receipt => {
+      const searchFields = [
+        receipt.vendor || '',
+        (receipt as any).businessName || '',
+        receipt.description || '',
+        receipt.amount?.toString() || '',
+        receipt.category || '',
+        ReceiptCategoryService.getCategoryDisplayName(receipt.category as any) || '',
+        receipt.date?.toLocaleDateString() || '',
+        receipt.createdAt?.toLocaleDateString() || '',
+      ].map(field => field.toLowerCase());
+
+      // Check if all search terms are found in any of the fields
+      return searchTerms.every(term =>
+        searchFields.some(field => field.includes(term))
+      );
+    });
+
     setFilteredReceipts(filtered);
   }, [receipts]);
 
   // Handle search query changes
   const handleSearchChange = useCallback((query: string) => {
     setSearchQuery(query);
+    setSelectedFilter(null); // Clear category filter when searching
     filterReceipts(query);
   }, [filterReceipts]);
 
@@ -560,6 +740,16 @@ export const ReceiptsListScreen: React.FC = () => {
                   color={theme.text.primary} 
                 />
               </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.searchButton}
+                onPress={() => setGroupByDate(!groupByDate)}
+              >
+                <Ionicons 
+                  name={groupByDate ? "list-outline" : "calendar-outline"} 
+                  size={24} 
+                  color={groupByDate ? theme.gold.primary : theme.text.primary} 
+                />
+              </TouchableOpacity>
               {filteredReceipts.length > 0 && (
                 <TouchableOpacity
                   style={styles.selectButton}
@@ -578,24 +768,101 @@ export const ReceiptsListScreen: React.FC = () => {
 
           {/* Search Bar */}
           {showSearch && (
-            <View style={[styles.searchContainer, { 
-              backgroundColor: theme.background.secondary,
-              borderColor: theme.border.primary 
-            }]}>
-              <Ionicons name="search" size={20} color={theme.text.tertiary} />
-              <TextInput
-                style={[styles.searchInput, { color: theme.text.primary }]}
-                placeholder="Search receipts..."
-                placeholderTextColor={theme.text.tertiary}
-                value={searchQuery}
-                onChangeText={handleSearchChange}
-                autoFocus={showSearch}
-              />
-              {searchQuery.length > 0 && (
-                <TouchableOpacity onPress={() => handleSearchChange('')}>
-                  <Ionicons name="close-circle" size={20} color={theme.text.tertiary} />
-                </TouchableOpacity>
+            <View>
+              <View style={[styles.searchContainer, { 
+                backgroundColor: theme.background.secondary,
+                borderColor: theme.border.primary 
+              }]}>
+                <Ionicons name="search" size={20} color={theme.text.tertiary} />
+                <TextInput
+                  style={[styles.searchInput, { color: theme.text.primary }]}
+                  placeholder="Search receipts by vendor, amount, category..."
+                  placeholderTextColor={theme.text.tertiary}
+                  value={searchQuery}
+                  onChangeText={handleSearchChange}
+                  autoFocus={showSearch}
+                />
+                {searchQuery.length > 0 && (
+                  <TouchableOpacity onPress={() => handleSearchChange('')}>
+                    <Ionicons name="close-circle" size={20} color={theme.text.tertiary} />
+                  </TouchableOpacity>
+                )}
+              </View>
+              {(searchQuery.length > 0 || selectedFilter) && (
+                <Text style={[styles.searchResultsText, { color: theme.text.secondary }]}>
+                  {selectedFilter 
+                    ? `${filteredReceipts.length} ${selectedFilter.toLowerCase()} receipts`
+                    : `${filteredReceipts.length} ${filteredReceipts.length === 1 ? 'receipt' : 'receipts'} found`
+                  }
+                </Text>
               )}
+              {/* Quick Filter Buttons */}
+              <View style={styles.quickFiltersContainer}>
+                {quickFilters.map((filter) => (
+                  <TouchableOpacity
+                    key={filter}
+                    style={[
+                      styles.quickFilterButton,
+                      {
+                        backgroundColor: selectedFilter === filter 
+                          ? theme.gold.primary 
+                          : theme.background.secondary,
+                        borderColor: selectedFilter === filter 
+                          ? theme.gold.primary 
+                          : theme.border.primary,
+                      }
+                    ]}
+                    onPress={() => handleQuickFilter(filter)}
+                  >
+                    <Text style={[
+                      styles.quickFilterText,
+                      {
+                        color: selectedFilter === filter 
+                          ? 'white' 
+                          : theme.text.secondary
+                      }
+                    ]}>
+                      {filter}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Recent Receipts Quick Access */}
+          {groupByDate && recentSections.length > 0 && (
+            <View style={styles.recentReceiptsContainer}>
+              <Text style={[styles.recentReceiptsTitle, { color: theme.text.primary }]}>
+                Recent
+              </Text>
+              <View style={styles.recentSections}>
+                {recentSections.map(section => (
+                  <TouchableOpacity
+                    key={section.title}
+                    style={[styles.recentSectionCard, {
+                      backgroundColor: theme.background.secondary,
+                      borderColor: theme.border.primary,
+                    }]}
+                    onPress={() => scrollToSection(section.title)}
+                  >
+                    <Text style={[styles.recentSectionTitle, { color: theme.text.primary }]}>
+                      {section.title}
+                    </Text>
+                    <Text style={[styles.recentSectionCount, { color: theme.text.secondary }]}>
+                      {section.data.length} {section.data.length === 1 ? 'receipt' : 'receipts'}
+                    </Text>
+                    {section.data.length > 0 && (
+                      <Text style={[styles.recentSectionAmount, { color: theme.gold.primary }]}>
+                        ${section.data.reduce((sum, receipt) => sum + (receipt.amount || 0), 0).toFixed(2)}
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={[styles.recentSectionNote, { color: theme.text.tertiary }]}>
+                Tap cards to jump to sections below
+              </Text>
             </View>
           )}
 
@@ -646,153 +913,320 @@ export const ReceiptsListScreen: React.FC = () => {
           )}
         </View>
 
-        {/* Receipts FlatList */}
-        <FlatList
-          data={[
-            ...filteredReceipts,
-            // Add limit reached prompt for users who have reached their limit
-            ...(remainingReceipts === 0 && !isLimitReachedPromptDismissed 
-              ? [{ isLimitReachedPrompt: true }] 
-              : []
-            ),
-            // Add upgrade prompt as last item for free users with remaining receipts
-            ...(subscription?.currentTier === 'free' && remainingReceipts > 0 && !isUpgradePromptDismissed 
-              ? [{ isUpgradePrompt: true }] 
-              : []
-            )
-          ]}
-          renderItem={({ item }) => {
-            // Check if this is the limit reached prompt item
-            if ('isLimitReachedPrompt' in item) {
-              return (
-                <View style={[styles.limitReachedPromptCard, {
-                  backgroundColor: theme.background.secondary,
-                  borderColor: theme.border.primary,
-                }]}>
-                  <TouchableOpacity
-                    style={styles.limitReachedPromptClose}
-                    onPress={() => setIsLimitReachedPromptDismissed(true)}
-                  >
-                    <Ionicons name="close" size={24} color={theme.text.secondary} />
-                  </TouchableOpacity>
-                  <View style={styles.limitReachedPromptIcon}>
-                    <Ionicons name="warning" size={48} color="#ff6b35" />
-                  </View>
-                  <Text style={[styles.limitReachedPromptTitle, { color: "#ff6b35" }]}>
-                    🚫 Monthly Limit Reached
-                  </Text>
-                  <Text style={[styles.limitReachedPromptDescription, { color: theme.text.secondary }]}>
-                    You've used all your receipts for this month. Upgrade your plan for unlimited storage or wait until next month.
-                  </Text>
-                  <TouchableOpacity 
-                    style={[styles.limitReachedPromptButton, { 
-                      backgroundColor: "#ff6b35",
-                    }]}
-                    onPress={async () => {
-                      setIsUpgrading(true);
-                      try {
-                        const success = await handleSubscriptionWithCloudFunction(
-                          'growth',
-                          user?.email || '',
-                          user?.displayName || 'User'
-                        );
-                        if (!success) {
-                          showError('Error', 'Failed to process payment. Please try again.');
+        {/* Receipts List - Conditional rendering based on grouping */}
+        {groupByDate ? (
+          <SectionList
+            ref={sectionListRef}
+            sections={groupedReceipts.map(section => ({
+              ...section,
+              data: [
+                ...section.data,
+                // Add prompts to the last section only
+                ...(section === groupedReceipts[groupedReceipts.length - 1] ? [
+                  // Add limit reached prompt for users who have reached their limit
+                  ...(remainingReceipts === 0 && !isLimitReachedPromptDismissed 
+                    ? [{ isLimitReachedPrompt: true }] 
+                    : []
+                  ),
+                  // Add upgrade prompt as last item for free users with remaining receipts
+                  ...(subscription?.currentTier === 'free' && remainingReceipts > 0 && !isUpgradePromptDismissed 
+                    ? [{ isUpgradePrompt: true }] 
+                    : []
+                  )
+                ] : [])
+              ]
+            }))}
+            renderItem={({ item }) => {
+              // Check if this is the limit reached prompt item
+              if ('isLimitReachedPrompt' in item) {
+                return (
+                  <View style={[styles.limitReachedPromptCard, {
+                    backgroundColor: theme.background.secondary,
+                    borderColor: theme.border.primary,
+                  }]}>
+                    <TouchableOpacity
+                      style={styles.limitReachedPromptClose}
+                      onPress={() => setIsLimitReachedPromptDismissed(true)}
+                    >
+                      <Ionicons name="close" size={24} color={theme.text.secondary} />
+                    </TouchableOpacity>
+                    <View style={styles.limitReachedPromptIcon}>
+                      <Ionicons name="warning" size={48} color="#ff6b35" />
+                    </View>
+                    <Text style={[styles.limitReachedPromptTitle, { color: "#ff6b35" }]}>
+                      🚫 Monthly Limit Reached
+                    </Text>
+                    <Text style={[styles.limitReachedPromptDescription, { color: theme.text.secondary }]}>
+                      You've used all your receipts for this month. Upgrade your plan for unlimited storage or wait until next month.
+                    </Text>
+                    <TouchableOpacity 
+                      style={[styles.limitReachedPromptButton, { 
+                        backgroundColor: "#ff6b35",
+                      }]}
+                      onPress={async () => {
+                        setIsUpgrading(true);
+                        try {
+                          const success = await handleSubscriptionWithCloudFunction(
+                            'growth',
+                            user?.email || '',
+                            user?.displayName || 'User'
+                          );
+                          if (!success) {
+                            showError('Error', 'Failed to process payment. Please try again.');
+                          }
+                        } finally {
+                          setIsUpgrading(false);
                         }
-                      } finally {
-                        setIsUpgrading(false);
-                      }
-                    }}
-                    disabled={isUpgrading}
-                  >
-                    {isUpgrading ? (
-                      <ActivityIndicator size="small" color="white" />
-                    ) : (
-                      <Text style={styles.limitReachedPromptButtonText}>Upgrade Now</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              );
-            }
-            // Check if this is the upgrade prompt item
-            if ('isUpgradePrompt' in item) {
-              return (
-                <View style={[styles.upgradePromptCard, {
-                  backgroundColor: theme.gold.background,
-                  borderColor: theme.gold.primary,
-                }]}>
-                  <TouchableOpacity
-                    style={styles.upgradePromptClose}
-                    onPress={() => setIsUpgradePromptDismissed(true)}
-                  >
-                    <Ionicons name="close" size={20} color={theme.text.secondary} />
-                  </TouchableOpacity>
-                  
-                  <View style={styles.upgradePromptIcon}>
-                    <Ionicons name="sparkles" size={24} color={theme.gold.primary} />
+                      }}
+                      disabled={isUpgrading}
+                    >
+                      {isUpgrading ? (
+                        <ActivityIndicator size="small" color="white" />
+                      ) : (
+                        <Text style={styles.limitReachedPromptButtonText}>Upgrade Now</Text>
+                      )}
+                    </TouchableOpacity>
                   </View>
-                  
-                  <Text style={[styles.upgradePromptTitle, { color: theme.gold.primary }]}>
-                    ✨ Unlock More Receipts
-                  </Text>
-                  
-                  <Text style={[styles.upgradePromptDescription, { color: theme.text.secondary }]}>
-                    Get 50 receipts per month with our Starter Plan. Never worry about running out of space for your receipts again!
-                  </Text>
-                  
-                  <TouchableOpacity
-                    style={[styles.upgradePromptButton, { 
-                      backgroundColor: theme.gold.primary,
-                      opacity: isUpgrading ? 0.7 : 1,
-                    }]}
-                    onPress={handleUpgrade}
-                    disabled={isUpgrading}
-                  >
-                    {isUpgrading ? (
-                      <ActivityIndicator color="white" size="small" />
-                    ) : (
-                      <>
-                        <Ionicons name="arrow-up" size={16} color="white" style={{ marginRight: 8 }} />
-                        <Text style={styles.upgradePromptButtonText}>Upgrade Now</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              );
-            }
+                );
+              }
+              // Check if this is the upgrade prompt item
+              if ('isUpgradePrompt' in item) {
+                return (
+                  <View style={[styles.upgradePromptCard, {
+                    backgroundColor: theme.gold.background,
+                    borderColor: theme.gold.primary,
+                  }]}>
+                    <TouchableOpacity
+                      style={styles.upgradePromptClose}
+                      onPress={() => setIsUpgradePromptDismissed(true)}
+                    >
+                      <Ionicons name="close" size={20} color={theme.text.secondary} />
+                    </TouchableOpacity>
+                    
+                    <View style={styles.upgradePromptIcon}>
+                      <Ionicons name="sparkles" size={24} color={theme.gold.primary} />
+                    </View>
+                    
+                    <Text style={[styles.upgradePromptTitle, { color: theme.gold.primary }]}>
+                      ✨ Unlock More Receipts
+                    </Text>
+                    
+                    <Text style={[styles.upgradePromptDescription, { color: theme.text.secondary }]}>
+                      Get 50 receipts per month with our Starter Plan. Never worry about running out of space for your receipts again!
+                    </Text>
+                    
+                    <TouchableOpacity
+                      style={[styles.upgradePromptButton, { 
+                        backgroundColor: theme.gold.primary,
+                        opacity: isUpgrading ? 0.7 : 1,
+                      }]}
+                      onPress={handleUpgrade}
+                      disabled={isUpgrading}
+                    >
+                      {isUpgrading ? (
+                        <ActivityIndicator color="white" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="arrow-up" size={16} color="white" style={{ marginRight: 8 }} />
+                          <Text style={styles.upgradePromptButtonText}>Upgrade Now</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
+              }
 
-            // Regular receipt item
-            const receipt = item as FirebaseReceipt;
-            return renderReceiptItem({ item: receipt });
-          }}
-          keyExtractor={(item) => {
-            if ('isLimitReachedPrompt' in item) return 'limit-reached-prompt';
-            if ('isUpgradePrompt' in item) return 'upgrade-prompt';
-            return (item as FirebaseReceipt).receiptId;
-          }}
-          ListHeaderComponent={ListHeaderComponent}
-          ListEmptyComponent={ListEmptyComponent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={theme.gold.primary}
-              colors={[theme.gold.primary]}
-            />
-          }
-          contentContainerStyle={{ 
-            paddingBottom: 100
-          }}
-          showsVerticalScrollIndicator={false}
-          getItemLayout={(data, index) => ({
-            length: 100, // Approximate height of receipt card
-            offset: 100 * index,
-            index,
-          })}
-          initialNumToRender={10}
-          maxToRenderPerBatch={5}
-          windowSize={10}
-        />
+              // Regular receipt item
+              const receipt = item as FirebaseReceipt;
+              return renderReceiptItem({ item: receipt });
+            }}
+            renderSectionHeader={({ section: { title } }) => (
+              <View style={[styles.sectionHeader, { backgroundColor: theme.background.primary }]}>
+                <Text style={[styles.sectionHeaderText, { color: theme.text.primary }]}>
+                  {title}
+                </Text>
+              </View>
+            )}
+            keyExtractor={(item, index) => {
+              if ('isLimitReachedPrompt' in item) return 'limit-reached-prompt';
+              if ('isUpgradePrompt' in item) return 'upgrade-prompt';
+              return (item as FirebaseReceipt).receiptId || index.toString();
+            }}
+            ListHeaderComponent={ListHeaderComponent}
+            ListEmptyComponent={ListEmptyComponent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={theme.gold.primary}
+                colors={[theme.gold.primary]}
+              />
+            }
+            contentContainerStyle={{ 
+              paddingBottom: 100
+            }}
+            showsVerticalScrollIndicator={false}
+            stickySectionHeadersEnabled={true}
+            onScrollToIndexFailed={onScrollToIndexFailed}
+            getItemLayout={(data, index) => {
+              // Provide approximate layout for better scroll performance
+              const ITEM_HEIGHT = 100; // Approximate height of each receipt card
+              const HEADER_HEIGHT = 50; // Approximate height of section headers
+              return {
+                length: ITEM_HEIGHT,
+                offset: ITEM_HEIGHT * index + HEADER_HEIGHT * Math.floor(index / 10), // Rough estimate
+                index,
+              };
+            }}
+          />
+        ) : (
+          <FlatList
+            data={[
+              ...filteredReceipts,
+              // Add limit reached prompt for users who have reached their limit
+              ...(remainingReceipts === 0 && !isLimitReachedPromptDismissed 
+                ? [{ isLimitReachedPrompt: true }] 
+                : []
+              ),
+              // Add upgrade prompt as last item for free users with remaining receipts
+              ...(subscription?.currentTier === 'free' && remainingReceipts > 0 && !isUpgradePromptDismissed 
+                ? [{ isUpgradePrompt: true }] 
+                : []
+              )
+            ]}
+            renderItem={({ item }) => {
+              // Check if this is the limit reached prompt item
+              if ('isLimitReachedPrompt' in item) {
+                return (
+                  <View style={[styles.limitReachedPromptCard, {
+                    backgroundColor: theme.background.secondary,
+                    borderColor: theme.border.primary,
+                  }]}>
+                    <TouchableOpacity
+                      style={styles.limitReachedPromptClose}
+                      onPress={() => setIsLimitReachedPromptDismissed(true)}
+                    >
+                      <Ionicons name="close" size={24} color={theme.text.secondary} />
+                    </TouchableOpacity>
+                    <View style={styles.limitReachedPromptIcon}>
+                      <Ionicons name="warning" size={48} color="#ff6b35" />
+                    </View>
+                    <Text style={[styles.limitReachedPromptTitle, { color: "#ff6b35" }]}>
+                      🚫 Monthly Limit Reached
+                    </Text>
+                    <Text style={[styles.limitReachedPromptDescription, { color: theme.text.secondary }]}>
+                      You've used all your receipts for this month. Upgrade your plan for unlimited storage or wait until next month.
+                    </Text>
+                    <TouchableOpacity 
+                      style={[styles.limitReachedPromptButton, { 
+                        backgroundColor: "#ff6b35",
+                      }]}
+                      onPress={async () => {
+                        setIsUpgrading(true);
+                        try {
+                          const success = await handleSubscriptionWithCloudFunction(
+                            'growth',
+                            user?.email || '',
+                            user?.displayName || 'User'
+                          );
+                          if (!success) {
+                            showError('Error', 'Failed to process payment. Please try again.');
+                          }
+                        } finally {
+                          setIsUpgrading(false);
+                        }
+                      }}
+                      disabled={isUpgrading}
+                    >
+                      {isUpgrading ? (
+                        <ActivityIndicator size="small" color="white" />
+                      ) : (
+                        <Text style={styles.limitReachedPromptButtonText}>Upgrade Now</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
+              }
+              // Check if this is the upgrade prompt item
+              if ('isUpgradePrompt' in item) {
+                return (
+                  <View style={[styles.upgradePromptCard, {
+                    backgroundColor: theme.gold.background,
+                    borderColor: theme.gold.primary,
+                  }]}>
+                    <TouchableOpacity
+                      style={styles.upgradePromptClose}
+                      onPress={() => setIsUpgradePromptDismissed(true)}
+                    >
+                      <Ionicons name="close" size={20} color={theme.text.secondary} />
+                    </TouchableOpacity>
+                    
+                    <View style={styles.upgradePromptIcon}>
+                      <Ionicons name="sparkles" size={24} color={theme.gold.primary} />
+                    </View>
+                    
+                    <Text style={[styles.upgradePromptTitle, { color: theme.gold.primary }]}>
+                      ✨ Unlock More Receipts
+                    </Text>
+                    
+                    <Text style={[styles.upgradePromptDescription, { color: theme.text.secondary }]}>
+                      Get 50 receipts per month with our Starter Plan. Never worry about running out of space for your receipts again!
+                    </Text>
+                    
+                    <TouchableOpacity
+                      style={[styles.upgradePromptButton, { 
+                        backgroundColor: theme.gold.primary,
+                        opacity: isUpgrading ? 0.7 : 1,
+                      }]}
+                      onPress={handleUpgrade}
+                      disabled={isUpgrading}
+                    >
+                      {isUpgrading ? (
+                        <ActivityIndicator color="white" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="arrow-up" size={16} color="white" style={{ marginRight: 8 }} />
+                          <Text style={styles.upgradePromptButtonText}>Upgrade Now</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                );
+              }
+
+              // Regular receipt item
+              const receipt = item as FirebaseReceipt;
+              return renderReceiptItem({ item: receipt });
+            }}
+            keyExtractor={(item) => {
+              if ('isLimitReachedPrompt' in item) return 'limit-reached-prompt';
+              if ('isUpgradePrompt' in item) return 'upgrade-prompt';
+              return (item as FirebaseReceipt).receiptId;
+            }}
+            ListHeaderComponent={ListHeaderComponent}
+            ListEmptyComponent={ListEmptyComponent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={theme.gold.primary}
+                colors={[theme.gold.primary]}
+              />
+            }
+            contentContainerStyle={{ 
+              paddingBottom: 100
+            }}
+            showsVerticalScrollIndicator={false}
+            getItemLayout={(data, index) => ({
+              length: 100, // Approximate height of receipt card
+              offset: 100 * index,
+              index,
+            })}
+            initialNumToRender={10}
+            maxToRenderPerBatch={5}
+            windowSize={10}
+          />
+        )}
       </View>
 
       {/* Floating Action Button - Always Visible */}
@@ -866,6 +1300,28 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
+  },
+  searchResultsText: {
+    fontSize: 14,
+    marginTop: 8,
+    marginLeft: 4,
+    fontStyle: 'italic',
+  },
+  quickFiltersContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 12,
+    gap: 8,
+  },
+  quickFilterButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  quickFilterText: {
+    fontSize: 14,
+    fontWeight: '500',
   },
   selectionBar: {
     flexDirection: 'row',
@@ -1155,5 +1611,55 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 6,
     zIndex: 10,
+  },
+  sectionHeader: {
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  sectionHeaderText: {
+    fontSize: 18,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  recentReceiptsContainer: {
+    marginBottom: 16,
+  },
+  recentReceiptsTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  recentSections: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  recentSectionCard: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  recentSectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  recentSectionCount: {
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  recentSectionAmount: {
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  recentSectionNote: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 8,
+    fontStyle: 'italic',
   },
 });
