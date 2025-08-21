@@ -366,7 +366,7 @@ export const BankTransactionsScreen: React.FC = () => {
       showNotification({
         type: 'success',
         title: 'Receipt Saved!',
-        message: 'AI generated and saved your receipt successfully.',
+        message: 'We saved your receipt successfully.',
       });
     } catch (error) {
       console.error('Error generating and saving receipt:', error);
