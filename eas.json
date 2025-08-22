@@ -1,0 +1,49 @@
+{
+  "cli": {
+    "version": ">= 13.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      }
+    },
+    "production": {
+      "ios": {
+        "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      }
+    }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "appleId": "com.receiptgold.app",
+        "ascAppId": "6751426301",
+        "appleTeamId": "UGZ3U996YX"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./functions/serviceAccountKey.json",
+        "track": "internal"
+      }
+    }
+  }
+}
