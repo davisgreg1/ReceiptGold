@@ -33,6 +33,7 @@ import { db } from "../config/firebase";
 import { useAuth } from "../context/AuthContext";
 import { useFocusEffect } from "@react-navigation/native";
 import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
+import { formatCurrency } from '../utils/formatCurrency';
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 
 interface Receipt {
@@ -305,7 +306,7 @@ export const DetailedBreakdownScreen = () => {
         <Card.Content>
           <View style={styles.statsGrid}>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>${totalExpenses.toFixed(2)}</Text>
+              <Text style={styles.statValue}>{formatCurrency(totalExpenses)}</Text>
               <Text style={styles.statLabel}>Total Expenses</Text>
             </View>
             <View style={styles.statItem}>
@@ -313,7 +314,7 @@ export const DetailedBreakdownScreen = () => {
               <Text style={styles.statLabel}>Transactions</Text>
             </View>
             <View style={styles.statItem}>
-              <Text style={styles.statValue}>${averageTransaction.toFixed(2)}</Text>
+              <Text style={styles.statValue}>{formatCurrency(averageTransaction)}</Text>
               <Text style={styles.statLabel}>Average</Text>
             </View>
             <View style={styles.statItem}>
@@ -350,9 +351,9 @@ export const DetailedBreakdownScreen = () => {
               </View>
               
               <View style={styles.categoryStats}>
-                <Text style={styles.categoryAmount}>${insight.total.toFixed(2)}</Text>
+                <Text style={styles.categoryAmount}>{formatCurrency(insight.total)}</Text>
                 <Text style={styles.categoryDetails}>
-                  {insight.count} transactions • ${insight.average.toFixed(2)} avg
+                  {insight.count} transactions • {formatCurrency(insight.average)} avg
                 </Text>
               </View>
               
@@ -385,9 +386,9 @@ export const DetailedBreakdownScreen = () => {
                 </Text>
               </View>
               <View style={styles.merchantStats}>
-                <Text style={styles.merchantAmount}>${merchant.total.toFixed(2)}</Text>
+                <Text style={styles.merchantAmount}>{formatCurrency(merchant.total)}</Text>
                 <Text style={styles.merchantDetails}>
-                  {merchant.count} visits • ${merchant.averageTransaction.toFixed(2)} avg
+                  {merchant.count} visits • {formatCurrency(merchant.averageTransaction)} avg
                 </Text>
               </View>
             </View>
@@ -403,7 +404,7 @@ export const DetailedBreakdownScreen = () => {
             <View key={month.month} style={styles.monthItem}>
               <Text style={styles.monthName}>{month.month}</Text>
               <View style={styles.monthStats}>
-                <Text style={styles.monthAmount}>${month.total.toFixed(2)}</Text>
+                <Text style={styles.monthAmount}>{formatCurrency(month.total)}</Text>
                 <Text style={styles.monthDetails}>
                   {month.count} transactions • Top: {ReceiptCategoryService.getCategoryDisplayName(month.topCategory as any)}
                 </Text>
