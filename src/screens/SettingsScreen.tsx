@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import {
   View,
   Text,
@@ -13,43 +13,71 @@ import {
   TextInput,
   Dimensions,
   Platform,
-} from 'react-native';
-import { Picker } from '@react-native-picker/picker';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { StackNavigationProp } from '@react-navigation/stack';
-import { SettingsStackParamList } from '../navigation/AppNavigator';
-import { useTheme } from '../theme/ThemeProvider';
-import { useSubscription } from '../context/SubscriptionContext';
-import { useAuth } from '../context/AuthContext';
-import { useBusiness } from '../context/BusinessContext';
-import { useStripePayments } from '../hooks/useStripePayments';
-import { Ionicons } from '@expo/vector-icons';
-import { doc, updateDoc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
-import { db } from '../config/firebase';
-import { getAuth, updateProfile, EmailAuthProvider, updatePassword, reauthenticateWithCredential, deleteUser } from 'firebase/auth';
-import { useCustomAlert } from '../hooks/useCustomAlert';
-import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
-import { BankReceiptService, BankConnection } from '../services/BankReceiptService';
-import { PlaidService } from '../services/PlaidService';
-import { LinkSuccess, LinkExit } from 'react-native-plaid-link-sdk';
+} from "react-native";
+import { Picker } from "@react-native-picker/picker";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { StackNavigationProp } from "@react-navigation/stack";
+import { SettingsStackParamList } from "../navigation/AppNavigator";
+import { useTheme } from "../theme/ThemeProvider";
+import { useSubscription } from "../context/SubscriptionContext";
+import { useAuth } from "../context/AuthContext";
+import { useBusiness } from "../context/BusinessContext";
+import { useStripePayments } from "../hooks/useStripePayments";
+import { Ionicons } from "@expo/vector-icons";
+import {
+  doc,
+  updateDoc,
+  getDoc,
+  deleteDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  writeBatch,
+} from "firebase/firestore";
+import { db } from "../config/firebase";
+import {
+  getAuth,
+  updateProfile,
+  EmailAuthProvider,
+  updatePassword,
+  reauthenticateWithCredential,
+  deleteUser,
+} from "firebase/auth";
+import { useCustomAlert } from "../hooks/useCustomAlert";
+import { FirebaseErrorScenarios } from "../utils/firebaseErrorHandler";
+import {
+  BankReceiptService,
+  BankConnection,
+} from "../services/BankReceiptService";
+import { PlaidService } from "../services/PlaidService";
+import { LinkSuccess, LinkExit } from "react-native-plaid-link-sdk";
 
 interface SettingsSectionProps {
   title: string;
   children: React.ReactNode;
 }
 
-const SettingsSection: React.FC<SettingsSectionProps> = ({ title, children }) => {
+const SettingsSection: React.FC<SettingsSectionProps> = ({
+  title,
+  children,
+}) => {
   const { theme } = useTheme();
   return (
     <View style={styles.section}>
       <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
         {title}
       </Text>
-      <View style={[styles.sectionContent, { 
-        backgroundColor: theme.background.secondary,
-        borderColor: theme.border.primary,
-      }]}>
+      <View
+        style={[
+          styles.sectionContent,
+          {
+            backgroundColor: theme.background.secondary,
+            borderColor: theme.border.primary,
+          },
+        ]}
+      >
         {children}
       </View>
     </View>
@@ -89,7 +117,10 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
           <Switch
             value={switchValue}
             onValueChange={onSwitchChange}
-            trackColor={{ false: theme.text.tertiary, true: theme.gold.primary }}
+            trackColor={{
+              false: theme.text.tertiary,
+              true: theme.gold.primary,
+            }}
           />
         ) : rightElement ? (
           rightElement
@@ -98,11 +129,17 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
             {value}
           </Text>
         ) : (
-          <Ionicons name="chevron-forward" size={20} color={theme.text.tertiary} />
+          <Ionicons
+            name="chevron-forward"
+            size={20}
+            color={theme.text.tertiary}
+          />
         )}
       </View>
       {description && (
-        <Text style={[styles.settingsDescription, { color: theme.text.tertiary }]}>
+        <Text
+          style={[styles.settingsDescription, { color: theme.text.tertiary }]}
+        >
           {description}
         </Text>
       )}
@@ -127,47 +164,57 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
   );
 };
 
-
 export const SettingsScreen: React.FC = () => {
   const { theme, themeMode, toggleTheme } = useTheme();
   const { subscription, canAccessFeature } = useSubscription();
-  console.log("🚀 ~ SettingsScreen ~ subscription:", subscription)
+  console.log("🚀 ~ SettingsScreen ~ subscription:", subscription);
   const { user, logout, refreshUser } = useAuth();
   const { businesses, selectedBusiness } = useBusiness();
-  const { handleSubscriptionWithCloudFunction, SUBSCRIPTION_TIERS } = useStripePayments();
-  const navigation = useNavigation<StackNavigationProp<SettingsStackParamList>>();
-  const { showSuccess, showError, showWarning, showInfo, showFirebaseError, hideAlert } = useCustomAlert();
-  
-  const [userData, setUserData] = React.useState<{ firstName?: string; lastName?: string; }>({});
+  const { handleSubscriptionWithCloudFunction, SUBSCRIPTION_TIERS } =
+    useStripePayments();
+  const navigation =
+    useNavigation<StackNavigationProp<SettingsStackParamList>>();
+  const {
+    showSuccess,
+    showError,
+    showWarning,
+    showInfo,
+    showFirebaseError,
+    hideAlert,
+  } = useCustomAlert();
+
+  const [userData, setUserData] = React.useState<{
+    firstName?: string;
+    lastName?: string;
+  }>({});
   const [emailUpdates, setEmailUpdates] = React.useState(true);
   const [isUpgrading, setIsUpgrading] = React.useState(false);
   const [showNameDialog, setShowNameDialog] = React.useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = React.useState(false);
-  const [showDeleteAccountDialog, setShowDeleteAccountDialog] = React.useState(false);
-  const [firstName, setFirstName] = React.useState('');
-  const [lastName, setLastName] = React.useState('');
-  const [deleteConfirmPassword, setDeleteConfirmPassword] = React.useState('');
+  const [showDeleteAccountDialog, setShowDeleteAccountDialog] =
+    React.useState(false);
+  const [firstName, setFirstName] = React.useState("");
+  const [lastName, setLastName] = React.useState("");
+  const [deleteConfirmPassword, setDeleteConfirmPassword] = React.useState("");
   const [showDeletePassword, setShowDeletePassword] = React.useState(false);
 
-  const canUseBankConnection = canAccessFeature('bankConnection');
-
+  const canUseBankConnection = canAccessFeature("bankConnection");
 
   // Fetch user data from Firestore
   React.useEffect(() => {
     if (!user) return;
-    
+
     const fetchUserData = async () => {
       try {
-        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        const userDoc = await getDoc(doc(db, "users", user.uid));
         if (userDoc.exists()) {
           const data = userDoc.data();
           setUserData(data);
-          setFirstName(data.firstName || '');
-          setLastName(data.lastName || '');
-          
+          setFirstName(data.firstName || "");
+          setLastName(data.lastName || "");
         }
       } catch (error) {
-        console.error('Error fetching user data:', error);
+        console.error("Error fetching user data:", error);
       }
     };
 
@@ -182,116 +229,122 @@ export const SettingsScreen: React.FC = () => {
       }
     }, [user])
   );
-  const [currentPassword, setCurrentPassword] = React.useState('');
-  const [newPassword, setNewPassword] = React.useState('');
-  const [confirmPassword, setConfirmPassword] = React.useState('');
+  const [currentPassword, setCurrentPassword] = React.useState("");
+  const [newPassword, setNewPassword] = React.useState("");
+  const [confirmPassword, setConfirmPassword] = React.useState("");
   const [showCurrentPassword, setShowCurrentPassword] = React.useState(false);
   const [showNewPassword, setShowNewPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
-  
+
   // Bank accounts state
-  const [bankConnections, setBankConnections] = React.useState<BankConnection[]>([]);
-  const [loadingBankConnections, setLoadingBankConnections] = React.useState(true);
-  const [disconnectingAccount, setDisconnectingAccount] = React.useState<string | null>(null);
-  
+  const [bankConnections, setBankConnections] = React.useState<
+    BankConnection[]
+  >([]);
+  const [loadingBankConnections, setLoadingBankConnections] =
+    React.useState(true);
+  const [disconnectingAccount, setDisconnectingAccount] = React.useState<
+    string | null
+  >(null);
+
   // Services
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
 
-  
   const handleNameChange = async () => {
     if (!user || !firstName.trim()) return;
-    
+
     setIsLoading(true);
     try {
       const trimmedFirstName = firstName.trim();
       const trimmedLastName = lastName.trim();
-      const fullName = `${trimmedFirstName}${trimmedLastName ? ' ' + trimmedLastName : ''}`;
-      
+      const fullName = `${trimmedFirstName}${
+        trimmedLastName ? " " + trimmedLastName : ""
+      }`;
+
       const auth = getAuth();
       await updateProfile(auth.currentUser!, {
-        displayName: fullName
+        displayName: fullName,
       });
-      
+
       // Update Firestore user document with both displayName and split name fields
       const updatedData = {
         displayName: fullName,
         firstName: trimmedFirstName,
         lastName: trimmedLastName,
       };
-      
-      await updateDoc(doc(db, 'users', user.uid), updatedData);
-      
+
+      await updateDoc(doc(db, "users", user.uid), updatedData);
+
       // Update local state
-      setUserData(prev => ({ ...prev, ...updatedData }));
-      
+      setUserData((prev) => ({ ...prev, ...updatedData }));
+
       // Refresh the Firebase user to get updated displayName
       await refreshUser();
-      
+
       setShowNameDialog(false);
-      showSuccess('Success', 'Name updated successfully');
+      showSuccess("Success", "Name updated successfully");
     } catch (error: any) {
-      showFirebaseError(error, 'Failed to Update Name');
+      showFirebaseError(error, "Failed to Update Name");
     } finally {
       setIsLoading(false);
     }
   };
 
   const handlePasswordChange = async () => {
-    console.log('handlePasswordChange called', { 
-      hasUser: !!user, 
+    console.log("handlePasswordChange called", {
+      hasUser: !!user,
       currentPasswordLength: currentPassword?.length || 0,
       newPasswordLength: newPassword?.length || 0,
-      confirmPasswordLength: confirmPassword?.length || 0
+      confirmPasswordLength: confirmPassword?.length || 0,
     });
 
     if (!user || !currentPassword || !newPassword || !confirmPassword) {
-      console.log('Missing required fields for password change');
-      showError('Error', 'Please fill in all password fields');
+      console.log("Missing required fields for password change");
+      showError("Error", "Please fill in all password fields");
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      console.log('Passwords do not match');
-      showError('Error', 'New passwords do not match');
+      console.log("Passwords do not match");
+      showError("Error", "New passwords do not match");
       return;
     }
 
     if (newPassword.length < 8) {
-      console.log('Password too short');
-      showError('Error', 'New password must be at least 8 characters');
+      console.log("Password too short");
+      showError("Error", "New password must be at least 8 characters");
       return;
     }
 
     setIsLoading(true);
     try {
-      console.log('Starting password change process');
+      console.log("Starting password change process");
       const auth = getAuth();
       const credential = EmailAuthProvider.credential(
         user.email!,
         currentPassword
       );
-      
+
       // First reauthenticate
-      console.log('Reauthenticating user');
+      console.log("Reauthenticating user");
       await reauthenticateWithCredential(auth.currentUser!, credential);
-      
+
       // Then update password
-      console.log('Updating password');
+      console.log("Updating password");
       await updatePassword(auth.currentUser!, newPassword);
-      
-      console.log('Password updated successfully');
+
+      console.log("Password updated successfully");
       setShowPasswordDialog(false);
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
       setShowCurrentPassword(false);
       setShowNewPassword(false);
       setShowConfirmPassword(false);
-      showSuccess('Success', 'Password updated successfully');
+      showSuccess("Success", "Password updated successfully");
     } catch (error: any) {
-      console.error('Password change error:', error);
+      console.error("Password change error:", error);
       showFirebaseError(error, FirebaseErrorScenarios.AUTH.PROFILE_UPDATE);
     } finally {
       setIsLoading(false);
@@ -300,35 +353,39 @@ export const SettingsScreen: React.FC = () => {
 
   const handleUpgrade = async (tierId: string) => {
     if (!user?.email) {
-      showError('Error', 'You must be logged in to upgrade');
+      showError("Error", "You must be logged in to upgrade");
       return;
     }
 
     setIsUpgrading(true);
     try {
-      const showAlert = (type: 'error' | 'success' | 'warning', title: string, message: string) => {
+      const showAlert = (
+        type: "error" | "success" | "warning",
+        title: string,
+        message: string
+      ) => {
         switch (type) {
-          case 'error':
+          case "error":
             showError(title, message);
             break;
-          case 'success':
+          case "success":
             showSuccess(title, message);
             break;
-          case 'warning':
+          case "warning":
             showWarning(title, message);
             break;
         }
       };
-      
+
       await handleSubscriptionWithCloudFunction(
         tierId as any,
         user.email,
-        user.displayName || 'User',
+        user.displayName || "User",
         undefined,
         showAlert
       );
     } catch (error) {
-      console.error('Failed to upgrade:', error);
+      console.error("Failed to upgrade:", error);
     } finally {
       setIsUpgrading(false);
     }
@@ -336,17 +393,17 @@ export const SettingsScreen: React.FC = () => {
 
   const handleThemeChange = async (isDark: boolean) => {
     if (!user) return;
-    const newTheme = isDark ? 'dark' : 'light';
+    const newTheme = isDark ? "dark" : "light";
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
+      await updateDoc(doc(db, "users", user.uid), {
         settings: {
           theme: newTheme,
-          defaultCurrency: 'USD', // Preserve existing currency setting
+          defaultCurrency: "USD", // Preserve existing currency setting
         },
       });
       toggleTheme(); // Update the theme in ThemeProvider
     } catch (error) {
-      console.error('Failed to update theme setting:', error);
+      console.error("Failed to update theme setting:", error);
     }
   };
 
@@ -354,35 +411,42 @@ export const SettingsScreen: React.FC = () => {
     if (!user) return;
     setEmailUpdates(value);
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
+      await updateDoc(doc(db, "users", user.uid), {
         notificationSettings: {
           emailUpdates: value,
         },
       });
     } catch (error) {
-      console.error('Failed to update email settings:', error);
+      console.error("Failed to update email settings:", error);
     }
   };
-
 
   // Bank account handlers
   const handleDisconnectBankAccount = async (connection: BankConnection) => {
     const performDisconnect = async () => {
       if (!user) return;
-      
+
       try {
         hideAlert(); // Close the alert first
         setDisconnectingAccount(connection.id);
         const bankReceiptService = BankReceiptService.getInstance();
         await bankReceiptService.disconnectBankAccount(user.uid, connection.id);
-        
+
         // Update local state
-        setBankConnections(prev => prev.filter(conn => conn.id !== connection.id));
-        
-        showSuccess('Success', `${connection.institutionName} disconnected successfully`);
+        setBankConnections((prev) =>
+          prev.filter((conn) => conn.id !== connection.id)
+        );
+
+        showSuccess(
+          "Success",
+          `${connection.institutionName} disconnected successfully`
+        );
       } catch (error: any) {
-        console.error('Error disconnecting bank account:', error);
-        showError('Error', 'Failed to disconnect bank account. Please try again.');
+        console.error("Error disconnecting bank account:", error);
+        showError(
+          "Error",
+          "Failed to disconnect bank account. Please try again."
+        );
       } finally {
         setDisconnectingAccount(null);
       }
@@ -390,13 +454,13 @@ export const SettingsScreen: React.FC = () => {
 
     // Use custom alert with warning type and two buttons
     showWarning(
-      'Disconnect Bank Account',
+      "Disconnect Bank Account",
       `Are you sure you want to disconnect ${connection.institutionName}? This will stop automatic receipt generation for this account.`,
       {
-        primaryButtonText: 'Disconnect',
-        secondaryButtonText: 'Cancel',
+        primaryButtonText: "Disconnect",
+        secondaryButtonText: "Cancel",
         onPrimaryPress: performDisconnect,
-        onSecondaryPress: hideAlert // Properly close the alert
+        onSecondaryPress: hideAlert, // Properly close the alert
       }
     );
   };
@@ -404,17 +468,21 @@ export const SettingsScreen: React.FC = () => {
   // Refresh bank connections
   const refreshBankConnections = async () => {
     if (!user) return;
-    
+
     try {
       setLoadingBankConnections(true);
-      console.log('🔄 Refreshing bank connections for user:', user.uid);
+      console.log("🔄 Refreshing bank connections for user:", user.uid);
       const connections = await bankReceiptService.getBankConnections(user.uid);
-      console.log('🔍 Raw connections:', connections.length, connections);
-      const activeConnections = connections.filter(conn => conn.isActive);
-      console.log('🔍 Active connections:', activeConnections.length, activeConnections);
+      console.log("🔍 Raw connections:", connections.length, connections);
+      const activeConnections = connections.filter((conn) => conn.isActive);
+      console.log(
+        "🔍 Active connections:",
+        activeConnections.length,
+        activeConnections
+      );
       setBankConnections(activeConnections);
     } catch (error) {
-      console.error('Error fetching bank connections:', error);
+      console.error("Error fetching bank connections:", error);
       setBankConnections([]);
     } finally {
       setLoadingBankConnections(false);
@@ -428,34 +496,39 @@ export const SettingsScreen: React.FC = () => {
     try {
       // Create link token and immediately open Plaid
       const token = await plaidService.createLinkToken(user.uid);
-      
+
       // Import Plaid SDK and open directly
-      const { create, open } = await import('react-native-plaid-link-sdk');
-      
-      console.log('🔗 Creating and opening Plaid Link directly...');
-      
+      const { create, open } = await import("react-native-plaid-link-sdk");
+
+      console.log("🔗 Creating and opening Plaid Link directly...");
+
       // Create Link with token
       create({ token });
-      
+
       // Wait a moment for create() to complete before opening
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
       // Open Link with callbacks
       open({
         onSuccess: handlePlaidSuccess,
         onExit: (exit: LinkExit) => {
-          console.log('Plaid Link exited:', exit);
+          console.log("Plaid Link exited:", exit);
           if (exit.error) {
-            showError('Connection Error', exit.error.errorMessage || 'Failed to connect bank account.');
+            showError(
+              "Connection Error",
+              exit.error.errorMessage || "Failed to connect bank account."
+            );
           }
         },
       });
-      
-      console.log('🔗 Plaid Link opened successfully');
-      
+
+      console.log("🔗 Plaid Link opened successfully");
     } catch (error) {
-      console.error('Error opening Plaid Link:', error);
-      showError('Connection Error', 'Failed to prepare bank connection. Please try again.');
+      console.error("Error opening Plaid Link:", error);
+      showError(
+        "Connection Error",
+        "Failed to prepare bank connection. Please try again."
+      );
     }
   };
 
@@ -464,22 +537,24 @@ export const SettingsScreen: React.FC = () => {
 
     try {
       setIsLoading(true);
-      const accessToken = await plaidService.exchangePublicToken(success.publicToken);
+      const accessToken = await plaidService.exchangePublicToken(
+        success.publicToken
+      );
       const accounts = await plaidService.getAccounts(accessToken);
-      
+
       // Get institution information
       const institution = await plaidService.getInstitution(accessToken);
-      
+
       // Create bank connection record
       const bankConnection = {
         id: `bank_${user.uid}_${Date.now()}`,
         userId: user.uid,
         accessToken,
-        institutionName: institution?.name || 'Connected Bank',
+        institutionName: institution?.name || "Connected Bank",
         institutionId: institution?.institution_id,
         institutionLogo: institution?.logo,
         institutionColor: institution?.primary_color,
-        accounts: accounts.map(acc => ({
+        accounts: accounts.map((acc) => ({
           accountId: acc.account_id,
           name: acc.name,
           type: acc.type,
@@ -492,58 +567,79 @@ export const SettingsScreen: React.FC = () => {
       };
 
       await bankReceiptService.saveBankConnectionLocally(bankConnection);
-      
-      showSuccess('Bank Connected!', `${bankConnection.institutionName} has been connected successfully.`);
-      
+
+      showSuccess(
+        "Bank Connected!",
+        `${bankConnection.institutionName} has been connected successfully.`
+      );
+
       // Refresh bank connections list
       await refreshBankConnections();
     } catch (error) {
-      console.error('Error handling Plaid success:', error);
-      showError('Connection Failed', 'Failed to complete bank connection. Please try again.');
+      console.error("Error handling Plaid success:", error);
+      showError(
+        "Connection Failed",
+        "Failed to complete bank connection. Please try again."
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
   const handlePlaidExit = (exit: LinkExit) => {
-    console.log('Plaid Link exited:', exit);
+    console.log("Plaid Link exited:", exit);
     if (exit.error) {
-      showError('Connection Error', exit.error.errorMessage || 'Failed to connect bank account.');
+      showError(
+        "Connection Error",
+        exit.error.errorMessage || "Failed to connect bank account."
+      );
     }
   };
 
   const handleDeleteAccount = async () => {
     if (!user) return;
-    
+
     // Validate password
     if (!deleteConfirmPassword.trim()) {
-      showError('Error', 'Please enter your password to confirm account deletion');
+      showError(
+        "Error",
+        "Please enter your password to confirm account deletion"
+      );
       return;
     }
 
     setIsLoading(true);
     try {
       // Re-authenticate user before deletion
-      const credential = EmailAuthProvider.credential(user.email!, deleteConfirmPassword);
+      const credential = EmailAuthProvider.credential(
+        user.email!,
+        deleteConfirmPassword
+      );
       await reauthenticateWithCredential(user, credential);
 
       // Delete all user data from Firestore
       const batch = writeBatch(db);
-      
+
       // Delete user document
-      batch.delete(doc(db, 'users', user.uid));
-      
+      batch.delete(doc(db, "users", user.uid));
+
       // Delete all receipts
-      const receiptsQuery = query(collection(db, 'receipts'), where('userId', '==', user.uid));
+      const receiptsQuery = query(
+        collection(db, "receipts"),
+        where("userId", "==", user.uid)
+      );
       const receiptsSnapshot = await getDocs(receiptsQuery);
-      receiptsSnapshot.docs.forEach(doc => {
+      receiptsSnapshot.docs.forEach((doc) => {
         batch.delete(doc.ref);
       });
 
       // Delete all budgets
-      const budgetsQuery = query(collection(db, 'budgets'), where('userId', '==', user.uid));
+      const budgetsQuery = query(
+        collection(db, "budgets"),
+        where("userId", "==", user.uid)
+      );
       const budgetsSnapshot = await getDocs(budgetsQuery);
-      budgetsSnapshot.docs.forEach(doc => {
+      budgetsSnapshot.docs.forEach((doc) => {
         batch.delete(doc.ref);
       });
 
@@ -554,44 +650,48 @@ export const SettingsScreen: React.FC = () => {
       await deleteUser(user);
 
       showSuccess(
-        'Account Deleted',
-        'Your account and all associated data have been permanently deleted.'
+        "Account Deleted",
+        "Your account and all associated data have been permanently deleted."
       );
     } catch (error: any) {
-      showFirebaseError(error, 'Failed to Delete Account');
+      showFirebaseError(error, "Failed to Delete Account");
     } finally {
       setIsLoading(false);
       setShowDeleteAccountDialog(false);
-      setDeleteConfirmPassword('');
+      setDeleteConfirmPassword("");
       setShowDeletePassword(false);
     }
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
+    <SafeAreaView
+      style={[styles.container, { backgroundColor: theme.background.primary }]}
+    >
       <ScrollView style={styles.content}>
         {/* Account Section */}
         <SettingsSection title="Account">
-          <SettingsRow
-            label="Email"
-            value={user?.email || 'Not signed in'}
-          />
+          <SettingsRow label="Email" value={user?.email || "Not signed in"} />
           <SettingsRow
             label="Member Since"
-            value={user?.metadata?.creationTime ? 
-              new Date(user.metadata.creationTime).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-              }) : 'Unknown'
+            value={
+              user?.metadata?.creationTime
+                ? new Date(user.metadata.creationTime).toLocaleDateString(
+                    "en-US",
+                    {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    }
+                  )
+                : "Unknown"
             }
           />
           <SettingsRow
             label="Name"
-            value={user?.displayName || 'Not set'}
+            value={user?.displayName || "Not set"}
             onPress={() => {
-              setFirstName(userData.firstName || '');
-              setLastName(userData.lastName || '');
+              setFirstName(userData.firstName || "");
+              setLastName(userData.lastName || "");
               setShowNameDialog(true);
             }}
           />
@@ -601,77 +701,29 @@ export const SettingsScreen: React.FC = () => {
           />
         </SettingsSection>
 
-        {/* Subscription Section */}
-        <SettingsSection title="Subscription">
-          <SettingsRow
-            label="Current Plan"
-            value={subscription.currentTier.charAt(0).toUpperCase() + subscription.currentTier.slice(1)}
-            description={subscription.isActive ? 
-              `Your plan renews on ${subscription.expiresAt?.toLocaleDateString() || 'N/A'}` : 
-              subscription.currentTier === 'free' ? 
-                'Free plan' : 
-                `Your plan has expired`}
-          />
-          <View style={[styles.planSelector, { backgroundColor: theme.background.tertiary }]}>
-            {Object.values(SUBSCRIPTION_TIERS).filter(tier => tier.id !== 'free').map((tierInfo) => {
-              const isSelected = subscription.currentTier === tierInfo.id;
-              const tierDescription = tierInfo.features[0];
-
-              return (
-                <TouchableOpacity
-                  key={tierInfo.id}
-                  style={[
-                    styles.planOption,
-                    { 
-                      borderColor: isSelected ? theme.gold.primary : theme.border.primary,
-                      backgroundColor: isSelected ? theme.gold.primary + '10' : 'transparent'
-                    }
-                  ]}
-                  onPress={() => handleUpgrade(tierInfo.id)}
-                  disabled={isUpgrading || isSelected}
-                >
-                  <View style={styles.planHeader}>
-                    <Text style={[styles.planName, { 
-                      color: isSelected ? theme.gold.primary : theme.text.primary,
-                      fontWeight: isSelected ? '700' : '600'
-                    }]}>
-                      {tierInfo.name}
-                    </Text>
-                    {isSelected && (
-                      <View style={[styles.currentPlanBadge, { backgroundColor: theme.gold.primary }]}>
-                        <Text style={styles.currentPlanText}>Current Plan</Text>
-                      </View>
-                    )}
-                  </View>
-                  <Text style={[styles.planPrice, { 
-                    color: isSelected ? theme.gold.primary : theme.text.primary 
-                  }]}>
-                    ${tierInfo.price}/mo
-                  </Text>
-                  <Text style={[styles.planDescription, { color: theme.text.secondary }]}>
-                    {tierDescription}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-          {isUpgrading && (
-            <View style={styles.loadingOverlay}>
-              <ActivityIndicator color={theme.gold.primary} size="large" />
-            </View>
-          )}
-        </SettingsSection>
-
         {/* Business Management Section */}
         <SettingsSection title="Business Management">
           <SettingsRow
             label="Manage Businesses"
-            value={businesses.length === 0 ? 'Get started' : `${businesses.length} business${businesses.length !== 1 ? 'es' : ''}`}
-            onPress={() => navigation.navigate('BusinessManagement')}
-            rightElement={<Ionicons name="chevron-forward" size={20} color={theme.text.secondary} />}
-            description={businesses.length === 0 
-              ? "Set up your business profile to start tracking receipts"
-              : canAccessFeature('multiBusinessManagement')
+            value={
+              businesses.length === 0
+                ? "Get started"
+                : `${businesses.length} business${
+                    businesses.length !== 1 ? "es" : ""
+                  }`
+            }
+            onPress={() => navigation.navigate("BusinessManagement")}
+            rightElement={
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={theme.text.secondary}
+              />
+            }
+            description={
+              businesses.length === 0
+                ? "Set up your business profile to start tracking receipts"
+                : canAccessFeature("multiBusinessManagement")
                 ? "Create and manage multiple business entities"
                 : "Manage your business information and settings"
             }
@@ -684,111 +736,226 @@ export const SettingsScreen: React.FC = () => {
             {loadingBankConnections ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator color={theme.gold.primary} />
-                <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
-                  Loading bank connections...
-              </Text>
-            </View>
-          ) : bankConnections.length > 0 ? (
-            <>
-              {bankConnections.map((connection) => (
-                <View key={connection.id} style={[styles.bankConnectionRow, { 
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}>
-                  <View style={styles.bankConnectionInfo}>
-                    <View style={styles.bankConnectionHeader}>
-                      {connection.institutionLogo ? (
-                        <Image
-                          source={{ uri: connection.institutionLogo }}
-                          style={styles.bankLogo}
-                          onError={() => console.log('Failed to load bank logo:', connection.institutionLogo)}
-                        />
-                      ) : (
-                        <Ionicons 
-                          name="card" 
-                          size={24} 
-                          color={connection.institutionColor || theme.gold.primary} 
-                          style={styles.bankIcon}
-                        />
-                      )}
-                      <View style={styles.bankConnectionDetails}>
-                        <Text style={[styles.bankName, { color: theme.text.primary }]}>
-                          {connection.institutionName}
-                        </Text>
-                        <Text style={[styles.bankAccountsCount, { color: theme.text.secondary }]}>
-                          {connection.accounts.length} account{connection.accounts.length !== 1 ? 's' : ''} connected
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.bankConnectionDate, { color: theme.text.tertiary }]}>
-                      Connected {new Date(connection.connectedAt).toLocaleDateString()}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.disconnectButton, { 
-                      borderColor: theme.status.error,
-                      opacity: disconnectingAccount === connection.id ? 0.6 : 1 
-                    }]}
-                    onPress={() => handleDisconnectBankAccount(connection)}
-                    disabled={disconnectingAccount === connection.id}
-                  >
-                    {disconnectingAccount === connection.id ? (
-                      <ActivityIndicator size="small" color={theme.status.error} />
-                    ) : (
-                      <Text style={[styles.disconnectButtonText, { color: theme.status.error }]}>
-                        Disconnect
-                      </Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              ))}
-              
-              {/* Add Another Bank Account Button */}
-              <View style={[styles.addBankAccountContainer, { borderTopColor: theme.border.primary }]}>
-                <TouchableOpacity
-                  style={[styles.addBankButton, { backgroundColor: theme.background.secondary, borderColor: theme.gold.primary }]}
-                  onPress={connectBankAccount}
+                <Text
+                  style={[styles.loadingText, { color: theme.text.secondary }]}
                 >
-                  <Ionicons name="add" size={20} color={theme.gold.primary} />
-                  <Text style={[styles.addBankButtonText, { color: theme.gold.primary }]}>Add Another Bank Account</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={[styles.bankAccountsFooter, { borderTopColor: theme.border.primary }]}>
-                <Ionicons name="information-circle" size={16} color={theme.text.tertiary} />
-                <Text style={[styles.bankAccountsFooterText, { color: theme.text.tertiary }]}>
-                  Connect multiple banks to capture all your business transactions
+                  Loading bank connections...
                 </Text>
               </View>
-            </>
-          ) : (
-            <View style={styles.noBankAccountsContainer}>
-              <Ionicons name="card-outline" size={48} color={theme.text.tertiary} />
-              <Text style={[styles.noBankAccountsTitle, { color: theme.text.primary }]}>
-                No Bank Accounts Connected
-              </Text>
-              <Text style={[styles.noBankAccountsDescription, { color: theme.text.secondary }]}>
-                Connect your bank accounts to automatically generate receipts from your transactions
-              </Text>
-              
-              <TouchableOpacity
-                style={[styles.connectBankButton, { backgroundColor: theme.gold.primary }]}
-                onPress={connectBankAccount}
-              >
-                <Ionicons name="add" size={20} color="white" />
-                <Text style={styles.connectBankButtonText}>Connect Bank Account</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+            ) : bankConnections.length > 0 ? (
+              <>
+                {bankConnections.map((connection) => (
+                  <View
+                    key={connection.id}
+                    style={[
+                      styles.bankConnectionRow,
+                      {
+                        backgroundColor: theme.background.tertiary,
+                        borderColor: theme.border.primary,
+                      },
+                    ]}
+                  >
+                    <View style={styles.bankConnectionInfo}>
+                      <View style={styles.bankConnectionHeader}>
+                        {connection.institutionLogo ? (
+                          <Image
+                            source={{ uri: connection.institutionLogo }}
+                            style={styles.bankLogo}
+                            onError={() =>
+                              console.log(
+                                "Failed to load bank logo:",
+                                connection.institutionLogo
+                              )
+                            }
+                          />
+                        ) : (
+                          <Ionicons
+                            name="card"
+                            size={24}
+                            color={
+                              connection.institutionColor || theme.gold.primary
+                            }
+                            style={styles.bankIcon}
+                          />
+                        )}
+                        <View style={styles.bankConnectionDetails}>
+                          <Text
+                            style={[
+                              styles.bankName,
+                              { color: theme.text.primary },
+                            ]}
+                          >
+                            {connection.institutionName}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.bankAccountsCount,
+                              { color: theme.text.secondary },
+                            ]}
+                          >
+                            {connection.accounts.length} account
+                            {connection.accounts.length !== 1 ? "s" : ""}{" "}
+                            connected
+                          </Text>
+                        </View>
+                      </View>
+                      <Text
+                        style={[
+                          styles.bankConnectionDate,
+                          { color: theme.text.tertiary },
+                        ]}
+                      >
+                        Connected{" "}
+                        {new Date(connection.connectedAt).toLocaleDateString()}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[
+                        styles.disconnectButton,
+                        {
+                          borderColor: theme.status.error,
+                          opacity:
+                            disconnectingAccount === connection.id ? 0.6 : 1,
+                        },
+                      ]}
+                      onPress={() => handleDisconnectBankAccount(connection)}
+                      disabled={disconnectingAccount === connection.id}
+                    >
+                      {disconnectingAccount === connection.id ? (
+                        <ActivityIndicator
+                          size="small"
+                          color={theme.status.error}
+                        />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.disconnectButtonText,
+                            { color: theme.status.error },
+                          ]}
+                        >
+                          Disconnect
+                        </Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ))}
+
+                {/* Add Another Bank Account Button */}
+                <View
+                  style={[
+                    styles.addBankAccountContainer,
+                    { borderTopColor: theme.border.primary },
+                  ]}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.addBankButton,
+                      {
+                        backgroundColor: theme.background.secondary,
+                        borderColor: theme.gold.primary,
+                      },
+                    ]}
+                    onPress={connectBankAccount}
+                  >
+                    <Ionicons name="add" size={20} color={theme.gold.primary} />
+                    <Text
+                      style={[
+                        styles.addBankButtonText,
+                        { color: theme.gold.primary },
+                      ]}
+                    >
+                      Add Another Bank Account
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                <View
+                  style={[
+                    styles.bankAccountsFooter,
+                    { borderTopColor: theme.border.primary },
+                  ]}
+                >
+                  <Ionicons
+                    name="information-circle"
+                    size={16}
+                    color={theme.text.tertiary}
+                  />
+                  <Text
+                    style={[
+                      styles.bankAccountsFooterText,
+                      { color: theme.text.tertiary },
+                    ]}
+                  >
+                    Connect multiple banks to capture all your business
+                    transactions
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <View style={styles.noBankAccountsContainer}>
+                <Ionicons
+                  name="card-outline"
+                  size={48}
+                  color={theme.text.tertiary}
+                />
+                <Text
+                  style={[
+                    styles.noBankAccountsTitle,
+                    { color: theme.text.primary },
+                  ]}
+                >
+                  No Bank Accounts Connected
+                </Text>
+                <Text
+                  style={[
+                    styles.noBankAccountsDescription,
+                    { color: theme.text.secondary },
+                  ]}
+                >
+                  Connect your bank accounts to automatically generate receipts
+                  from your transactions
+                </Text>
+
+                <TouchableOpacity
+                  style={[
+                    styles.connectBankButton,
+                    { backgroundColor: theme.gold.primary },
+                  ]}
+                  onPress={connectBankAccount}
+                >
+                  <Ionicons name="add" size={20} color="white" />
+                  <Text style={styles.connectBankButtonText}>
+                    Connect Bank Account
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </SettingsSection>
+        )}
+
+        {/* Appearance Section */}
+        <SettingsSection title="Appearance">
+          <SettingsRow
+            label="Dark Mode"
+            isSwitch
+            switchValue={themeMode === "dark"}
+            onSwitchChange={handleThemeChange}
+            description="Toggle between light and dark theme"
+          />
         </SettingsSection>
-      )}
 
         {/* Notifications Section */}
         <SettingsSection title="Notifications">
           <SettingsRow
             label="Notification Settings"
-            onPress={() => navigation.navigate('Notifications')}
-            rightElement={<Ionicons name="chevron-forward" size={20} color={theme.text.secondary} />}
+            onPress={() => navigation.navigate("Notifications")}
+            rightElement={
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={theme.text.secondary}
+              />
+            }
             description="Manage push notifications, quiet hours, and notification types"
           />
           <SettingsRow
@@ -800,35 +967,128 @@ export const SettingsScreen: React.FC = () => {
           />
         </SettingsSection>
 
-        {/* Appearance Section */}
-        <SettingsSection title="Appearance">
+        {/* Subscription Section */}
+        <SettingsSection title="Subscription">
           <SettingsRow
-            label="Dark Mode"
-            isSwitch
-            switchValue={themeMode === 'dark'}
-            onSwitchChange={handleThemeChange}
-            description="Toggle between light and dark theme"
+            label="Current Plan"
+            value={
+              subscription.currentTier.charAt(0).toUpperCase() +
+              subscription.currentTier.slice(1)
+            }
+            description={
+              subscription.isActive
+                ? `Your plan renews on ${
+                    subscription.expiresAt?.toLocaleDateString() || "N/A"
+                  }`
+                : subscription.currentTier === "free"
+                ? "Free plan"
+                : `Your plan has expired`
+            }
           />
-        </SettingsSection>
+          <View
+            style={[
+              styles.planSelector,
+              { backgroundColor: theme.background.tertiary },
+            ]}
+          >
+            {Object.values(SUBSCRIPTION_TIERS)
+              .filter((tier) => tier.id !== "free")
+              .map((tierInfo) => {
+                const isSelected = subscription.currentTier === tierInfo.id;
+                const tierDescription = tierInfo.features[0];
 
+                return (
+                  <TouchableOpacity
+                    key={tierInfo.id}
+                    style={[
+                      styles.planOption,
+                      {
+                        borderColor: isSelected
+                          ? theme.gold.primary
+                          : theme.border.primary,
+                        backgroundColor: isSelected
+                          ? theme.gold.primary + "10"
+                          : "transparent",
+                      },
+                    ]}
+                    onPress={() => handleUpgrade(tierInfo.id)}
+                    disabled={isUpgrading || isSelected}
+                  >
+                    <View style={styles.planHeader}>
+                      <Text
+                        style={[
+                          styles.planName,
+                          {
+                            color: isSelected
+                              ? theme.gold.primary
+                              : theme.text.primary,
+                            fontWeight: isSelected ? "700" : "600",
+                          },
+                        ]}
+                      >
+                        {tierInfo.name}
+                      </Text>
+                      {isSelected && (
+                        <View
+                          style={[
+                            styles.currentPlanBadge,
+                            { backgroundColor: theme.gold.primary },
+                          ]}
+                        >
+                          <Text style={styles.currentPlanText}>
+                            Current Plan
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text
+                      style={[
+                        styles.planPrice,
+                        {
+                          color: isSelected
+                            ? theme.gold.primary
+                            : theme.text.primary,
+                        },
+                      ]}
+                    >
+                      ${tierInfo.price}/mo
+                    </Text>
+                    <Text
+                      style={[
+                        styles.planDescription,
+                        { color: theme.text.secondary },
+                      ]}
+                    >
+                      {tierDescription}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+          </View>
+          {isUpgrading && (
+            <View style={styles.loadingOverlay}>
+              <ActivityIndicator color={theme.gold.primary} size="large" />
+            </View>
+          )}
+        </SettingsSection>
 
         {/* Support Section */}
         <SettingsSection title="Support">
           <SettingsRow
             label="Help Center"
-            onPress={() => navigation.navigate('Help')}
+            onPress={() => navigation.navigate("Help")}
           />
           <SettingsRow
             label="Contact Support"
-            onPress={() => navigation.navigate('ContactSupport')}
+            onPress={() => navigation.navigate("ContactSupport")}
           />
           <SettingsRow
             label="Privacy Policy"
-            onPress={() => navigation.navigate('PrivacyPolicy')}
+            onPress={() => navigation.navigate("PrivacyPolicy")}
           />
           <SettingsRow
             label="Terms of Service"
-            onPress={() => navigation.navigate('TermsOfService')}
+            onPress={() => navigation.navigate("TermsOfService")}
           />
         </SettingsSection>
 
@@ -838,19 +1098,29 @@ export const SettingsScreen: React.FC = () => {
             style={[styles.signOutButton, { borderColor: theme.status.error }]}
             onPress={logout}
           >
-            <Text style={[styles.signOutButtonText, { color: theme.status.error }]}>
+            <Text
+              style={[styles.signOutButtonText, { color: theme.status.error }]}
+            >
               Sign Out
             </Text>
           </TouchableOpacity>
-          
+
           <TouchableOpacity
-            style={[styles.deleteAccountButton, { 
-              borderColor: theme.status.error,
-              backgroundColor: theme.status.error + '10'
-            }]}
+            style={[
+              styles.deleteAccountButton,
+              {
+                borderColor: theme.status.error,
+                backgroundColor: theme.status.error + "10",
+              },
+            ]}
             onPress={() => setShowDeleteAccountDialog(true)}
           >
-            <Text style={[styles.deleteAccountButtonText, { color: theme.status.error }]}>
+            <Text
+              style={[
+                styles.deleteAccountButtonText,
+                { color: theme.status.error },
+              ]}
+            >
               Delete Account
             </Text>
           </TouchableOpacity>
@@ -859,15 +1129,30 @@ export const SettingsScreen: React.FC = () => {
 
       {/* Name Change Dialog */}
       {showNameDialog && (
-        <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
-          <View style={[styles.dialog, { backgroundColor: theme.background.secondary }]}>
-            <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>Change Name</Text>
+        <View
+          style={[
+            styles.modalOverlay,
+            { backgroundColor: theme.background.overlay },
+          ]}
+        >
+          <View
+            style={[
+              styles.dialog,
+              { backgroundColor: theme.background.secondary },
+            ]}
+          >
+            <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>
+              Change Name
+            </Text>
             <TextInput
-              style={[styles.input, { 
-                color: theme.text.primary,
-                backgroundColor: theme.background.tertiary,
-                borderColor: theme.border.primary 
-              }]}
+              style={[
+                styles.input,
+                {
+                  color: theme.text.primary,
+                  backgroundColor: theme.background.tertiary,
+                  borderColor: theme.border.primary,
+                },
+              ]}
               placeholder="First name"
               placeholderTextColor={theme.text.tertiary}
               value={firstName}
@@ -875,11 +1160,14 @@ export const SettingsScreen: React.FC = () => {
               autoCapitalize="words"
             />
             <TextInput
-              style={[styles.input, { 
-                color: theme.text.primary,
-                backgroundColor: theme.background.tertiary,
-                borderColor: theme.border.primary 
-              }]}
+              style={[
+                styles.input,
+                {
+                  color: theme.text.primary,
+                  backgroundColor: theme.background.tertiary,
+                  borderColor: theme.border.primary,
+                },
+              ]}
               placeholder="Last name (optional)"
               placeholderTextColor={theme.text.tertiary}
               value={lastName}
@@ -888,24 +1176,39 @@ export const SettingsScreen: React.FC = () => {
             />
             <View style={styles.dialogButtons}>
               <TouchableOpacity
-                style={[styles.dialogButton, { borderColor: theme.border.primary }]}
+                style={[
+                  styles.dialogButton,
+                  { borderColor: theme.border.primary },
+                ]}
                 onPress={() => {
                   setShowNameDialog(false);
-                  setFirstName('');
-                  setLastName('');
+                  setFirstName("");
+                  setLastName("");
                 }}
               >
-                <Text style={[styles.dialogButtonText, { color: theme.text.primary }]}>Cancel</Text>
+                <Text
+                  style={[
+                    styles.dialogButtonText,
+                    { color: theme.text.primary },
+                  ]}
+                >
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.dialogButton, { backgroundColor: theme.gold.primary }]}
+                style={[
+                  styles.dialogButton,
+                  { backgroundColor: theme.gold.primary },
+                ]}
                 onPress={handleNameChange}
                 disabled={isLoading}
               >
                 {isLoading ? (
                   <ActivityIndicator color="white" />
                 ) : (
-                  <Text style={[styles.dialogButtonText, { color: 'white' }]}>Save</Text>
+                  <Text style={[styles.dialogButtonText, { color: "white" }]}>
+                    Save
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -913,19 +1216,33 @@ export const SettingsScreen: React.FC = () => {
         </View>
       )}
 
-
       {/* Password Change Dialog */}
       {showPasswordDialog && (
-        <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
-          <View style={[styles.dialog, { backgroundColor: theme.background.secondary }]}>
-            <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>Change Password</Text>
+        <View
+          style={[
+            styles.modalOverlay,
+            { backgroundColor: theme.background.overlay },
+          ]}
+        >
+          <View
+            style={[
+              styles.dialog,
+              { backgroundColor: theme.background.secondary },
+            ]}
+          >
+            <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>
+              Change Password
+            </Text>
             <View style={styles.passwordInputContainer}>
               <TextInput
-                style={[styles.passwordInput, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
+                style={[
+                  styles.passwordInput,
+                  {
+                    color: theme.text.primary,
+                    backgroundColor: theme.background.tertiary,
+                    borderColor: theme.border.primary,
+                  },
+                ]}
                 placeholder="Current password"
                 placeholderTextColor={theme.text.tertiary}
                 value={currentPassword}
@@ -937,7 +1254,7 @@ export const SettingsScreen: React.FC = () => {
                 onPress={() => setShowCurrentPassword(!showCurrentPassword)}
               >
                 <Ionicons
-                  name={showCurrentPassword ? 'eye-off' : 'eye'}
+                  name={showCurrentPassword ? "eye-off" : "eye"}
                   size={20}
                   color={theme.text.tertiary}
                 />
@@ -945,11 +1262,14 @@ export const SettingsScreen: React.FC = () => {
             </View>
             <View style={styles.passwordInputContainer}>
               <TextInput
-                style={[styles.passwordInput, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
+                style={[
+                  styles.passwordInput,
+                  {
+                    color: theme.text.primary,
+                    backgroundColor: theme.background.tertiary,
+                    borderColor: theme.border.primary,
+                  },
+                ]}
                 placeholder="New password"
                 placeholderTextColor={theme.text.tertiary}
                 value={newPassword}
@@ -961,7 +1281,7 @@ export const SettingsScreen: React.FC = () => {
                 onPress={() => setShowNewPassword(!showNewPassword)}
               >
                 <Ionicons
-                  name={showNewPassword ? 'eye-off' : 'eye'}
+                  name={showNewPassword ? "eye-off" : "eye"}
                   size={20}
                   color={theme.text.tertiary}
                 />
@@ -969,11 +1289,14 @@ export const SettingsScreen: React.FC = () => {
             </View>
             <View style={styles.passwordInputContainer}>
               <TextInput
-                style={[styles.passwordInput, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
+                style={[
+                  styles.passwordInput,
+                  {
+                    color: theme.text.primary,
+                    backgroundColor: theme.background.tertiary,
+                    borderColor: theme.border.primary,
+                  },
+                ]}
                 placeholder="Confirm new password"
                 placeholderTextColor={theme.text.tertiary}
                 value={confirmPassword}
@@ -985,7 +1308,7 @@ export const SettingsScreen: React.FC = () => {
                 onPress={() => setShowConfirmPassword(!showConfirmPassword)}
               >
                 <Ionicons
-                  name={showConfirmPassword ? 'eye-off' : 'eye'}
+                  name={showConfirmPassword ? "eye-off" : "eye"}
                   size={20}
                   color={theme.text.tertiary}
                 />
@@ -993,28 +1316,43 @@ export const SettingsScreen: React.FC = () => {
             </View>
             <View style={styles.dialogButtons}>
               <TouchableOpacity
-                style={[styles.dialogButton, { borderColor: theme.border.primary }]}
+                style={[
+                  styles.dialogButton,
+                  { borderColor: theme.border.primary },
+                ]}
                 onPress={() => {
                   setShowPasswordDialog(false);
-                  setCurrentPassword('');
-                  setNewPassword('');
-                  setConfirmPassword('');
+                  setCurrentPassword("");
+                  setNewPassword("");
+                  setConfirmPassword("");
                   setShowCurrentPassword(false);
                   setShowNewPassword(false);
                   setShowConfirmPassword(false);
                 }}
               >
-                <Text style={[styles.dialogButtonText, { color: theme.text.primary }]}>Cancel</Text>
+                <Text
+                  style={[
+                    styles.dialogButtonText,
+                    { color: theme.text.primary },
+                  ]}
+                >
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.dialogButton, { backgroundColor: theme.gold.primary }]}
+                style={[
+                  styles.dialogButton,
+                  { backgroundColor: theme.gold.primary },
+                ]}
                 onPress={handlePasswordChange}
                 disabled={isLoading}
               >
                 {isLoading ? (
                   <ActivityIndicator color="white" />
                 ) : (
-                  <Text style={[styles.dialogButtonText, { color: 'white' }]}>Update</Text>
+                  <Text style={[styles.dialogButtonText, { color: "white" }]}>
+                    Update
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -1024,22 +1362,48 @@ export const SettingsScreen: React.FC = () => {
 
       {/* Delete Account Dialog */}
       {showDeleteAccountDialog && (
-        <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
-          <View style={[styles.dialog, { backgroundColor: theme.background.secondary }]}>
-            <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>Delete Account</Text>
-            <Text style={[styles.dialogText, { color: theme.text.secondary, marginBottom: 16 }]}>
-              This action cannot be undone. All your receipts, data, and account information will be permanently deleted.
+        <View
+          style={[
+            styles.modalOverlay,
+            { backgroundColor: theme.background.overlay },
+          ]}
+        >
+          <View
+            style={[
+              styles.dialog,
+              { backgroundColor: theme.background.secondary },
+            ]}
+          >
+            <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>
+              Delete Account
             </Text>
-            <Text style={[styles.dialogText, { color: theme.text.secondary, marginBottom: 16 }]}>
+            <Text
+              style={[
+                styles.dialogText,
+                { color: theme.text.secondary, marginBottom: 16 },
+              ]}
+            >
+              This action cannot be undone. All your receipts, data, and account
+              information will be permanently deleted.
+            </Text>
+            <Text
+              style={[
+                styles.dialogText,
+                { color: theme.text.secondary, marginBottom: 16 },
+              ]}
+            >
               Please enter your password to confirm:
             </Text>
             <View style={styles.passwordInputContainer}>
               <TextInput
-                style={[styles.passwordInput, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
+                style={[
+                  styles.passwordInput,
+                  {
+                    color: theme.text.primary,
+                    backgroundColor: theme.background.tertiary,
+                    borderColor: theme.border.primary,
+                  },
+                ]}
                 placeholder="Current password"
                 placeholderTextColor={theme.text.tertiary}
                 value={deleteConfirmPassword}
@@ -1051,7 +1415,7 @@ export const SettingsScreen: React.FC = () => {
                 onPress={() => setShowDeletePassword(!showDeletePassword)}
               >
                 <Ionicons
-                  name={showDeletePassword ? 'eye-off' : 'eye'}
+                  name={showDeletePassword ? "eye-off" : "eye"}
                   size={20}
                   color={theme.text.tertiary}
                 />
@@ -1059,36 +1423,50 @@ export const SettingsScreen: React.FC = () => {
             </View>
             <View style={styles.dialogButtons}>
               <TouchableOpacity
-                style={[styles.dialogButton, { borderColor: theme.border.primary }]}
+                style={[
+                  styles.dialogButton,
+                  { borderColor: theme.border.primary },
+                ]}
                 onPress={() => {
                   setShowDeleteAccountDialog(false);
-                  setDeleteConfirmPassword('');
+                  setDeleteConfirmPassword("");
                   setShowDeletePassword(false);
                 }}
               >
-                <Text style={[styles.dialogButtonText, { color: theme.text.primary }]}>Cancel</Text>
+                <Text
+                  style={[
+                    styles.dialogButtonText,
+                    { color: theme.text.primary },
+                  ]}
+                >
+                  Cancel
+                </Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.dialogButton, { backgroundColor: theme.status.error }]}
+                style={[
+                  styles.dialogButton,
+                  { backgroundColor: theme.status.error },
+                ]}
                 onPress={handleDeleteAccount}
                 disabled={isLoading}
               >
                 {isLoading ? (
                   <ActivityIndicator color="white" />
                 ) : (
-                  <Text style={[styles.dialogButtonText, { color: 'white' }]}>Delete Account</Text>
+                  <Text style={[styles.dialogButtonText, { color: "white" }]}>
+                    Delete Account
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
           </View>
         </View>
       )}
-      
     </SafeAreaView>
   );
 };
 
-const { width } = Dimensions.get('window');
+const { width } = Dimensions.get("window");
 
 const styles = StyleSheet.create({
   container: {
@@ -1105,9 +1483,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   planHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 8,
   },
   planName: {
@@ -1119,40 +1497,40 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   currentPlanText: {
-    color: 'white',
+    color: "white",
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   planPrice: {
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: "700",
     marginBottom: 8,
   },
   planDescription: {
     fontSize: 14,
   },
   loadingOverlay: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "rgba(0,0,0,0.3)",
+    justifyContent: "center",
+    alignItems: "center",
     borderRadius: 12,
   },
   pickerContainer: {
-    height: Platform.OS === 'android' ? 56 : 48,
+    height: Platform.OS === "android" ? 56 : 48,
     borderWidth: 1,
     borderRadius: 8,
     marginBottom: 12,
-    justifyContent: 'center',
-    overflow: 'hidden',
+    justifyContent: "center",
+    overflow: "hidden",
   },
   picker: {
-    height: Platform.OS === 'android' ? 56 : 48,
-    width: '100%',
+    height: Platform.OS === "android" ? 56 : 48,
+    width: "100%",
     ...Platform.select({
       android: {
         marginTop: -8,
@@ -1165,9 +1543,9 @@ const styles = StyleSheet.create({
     }),
   },
   iosPickerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     height: 48,
     paddingHorizontal: 12,
   },
@@ -1176,13 +1554,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   hiddenPicker: {
-    position: 'absolute',
+    position: "absolute",
     opacity: 0,
-    width: '100%',
-    height: '100%',
+    width: "100%",
+    height: "100%",
   },
   iosPickerModal: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
@@ -1190,19 +1568,19 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 16,
   },
   iosPickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     padding: 16,
     borderBottomWidth: 1,
   },
   iosPickerAction: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   iosPickerTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   iosPickerWheel: {
     height: 200,
@@ -1216,25 +1594,25 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 8,
     marginLeft: 8,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
     letterSpacing: 0.5,
   },
   sectionContent: {
     borderRadius: 12,
     borderWidth: 1,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   settingsRow: {
     padding: 16,
     borderBottomWidth: 1,
   },
   settingsRowMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   settingsLabel: {
     fontSize: 16,
@@ -1249,9 +1627,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   upgradeButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     padding: 16,
     marginHorizontal: 16,
     marginVertical: 8,
@@ -1261,9 +1639,9 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   upgradeButtonText: {
-    color: 'white',
+    color: "white",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   signOutButton: {
     padding: 16,
@@ -1271,11 +1649,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginHorizontal: 16,
     marginVertical: 8,
-    alignItems: 'center',
+    alignItems: "center",
   },
   signOutButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   deleteAccountButton: {
     padding: 16,
@@ -1283,36 +1661,36 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginHorizontal: 16,
     marginVertical: 8,
-    alignItems: 'center',
+    alignItems: "center",
   },
   deleteAccountButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   modalOverlay: {
-    position: 'absolute',
+    position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   modalContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     padding: 20,
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   dialog: {
     width: width - 48,
     borderRadius: 16,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: {
       width: 0,
       height: 2,
@@ -1323,14 +1701,14 @@ const styles = StyleSheet.create({
   },
   dialogTitle: {
     fontSize: 20,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 16,
-    textAlign: 'center',
+    textAlign: "center",
   },
   dialogText: {
     fontSize: 16,
     lineHeight: 24,
-    textAlign: 'center',
+    textAlign: "center",
   },
   input: {
     height: 48,
@@ -1341,25 +1719,25 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   dialogButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginTop: 8,
   },
   dialogButton: {
     flex: 1,
     height: 48,
     borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginHorizontal: 6,
     borderWidth: 1,
   },
   dialogButtonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   passwordInputContainer: {
-    position: 'relative',
+    position: "relative",
     marginBottom: 12,
   },
   passwordInput: {
@@ -1371,14 +1749,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   passwordToggle: {
-    position: 'absolute',
+    position: "absolute",
     right: 12,
     top: 12,
     padding: 4,
   },
   // Bank Accounts Styles
   loadingContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     padding: 20,
   },
   loadingText: {
@@ -1386,8 +1764,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   bankConnectionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     padding: 16,
     borderRadius: 12,
     marginHorizontal: 16,
@@ -1399,8 +1777,8 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   bankConnectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 4,
   },
   bankIcon: {
@@ -1417,7 +1795,7 @@ const styles = StyleSheet.create({
   },
   bankName: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 2,
   },
   bankAccountsCount: {
@@ -1433,16 +1811,16 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
     minWidth: 90,
-    alignItems: 'center',
+    alignItems: "center",
   },
   disconnectButtonText: {
     fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
+    fontWeight: "600",
+    textAlign: "center",
   },
   bankAccountsFooter: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     padding: 12,
     marginHorizontal: 16,
     marginTop: 8,
@@ -1455,32 +1833,32 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   noBankAccountsContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     padding: 32,
   },
   noBankAccountsTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
     marginTop: 16,
     marginBottom: 8,
   },
   noBankAccountsDescription: {
     fontSize: 14,
-    textAlign: 'center',
+    textAlign: "center",
     lineHeight: 20,
     marginBottom: 24,
   },
   connectBankButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 8,
   },
   connectBankButtonText: {
-    color: 'white',
+    color: "white",
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     marginLeft: 6,
   },
   addBankAccountContainer: {
@@ -1489,9 +1867,9 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   addBankButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 6,
@@ -1499,7 +1877,7 @@ const styles = StyleSheet.create({
   },
   addBankButtonText: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: "500",
     marginLeft: 6,
   },
 });
