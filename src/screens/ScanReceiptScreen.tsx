@@ -17,6 +17,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
 import { useSubscription } from "../context/SubscriptionContext";
+import { useBusiness } from "../context/BusinessContext";
+import BusinessSelector from "../components/BusinessSelector";
 import { useFocusEffect } from "@react-navigation/native";
 import { useReceiptsNavigation } from "../navigation/navigationHelpers";
 import { getMonthlyReceiptCount } from '../utils/getMonthlyReceipts';
@@ -88,6 +90,24 @@ const styles = StyleSheet.create({
     marginTop: 4,
     opacity: 0.9,
   },
+  businessSelectorOverlay: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    zIndex: 1000,
+  },
+  businessSelectorLabel: {
+    fontSize: 16,
+    fontWeight: "500",
+    marginRight: 12,
+  },
+  businessSelectorContainer: {
+    flex: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
 });
 
 export const ScanReceiptScreen = () => {
@@ -95,6 +115,7 @@ export const ScanReceiptScreen = () => {
   const navigation = useReceiptsNavigation();
   const { subscription, canAddReceipt, getRemainingReceipts, currentReceiptCount, refreshReceiptCount } =
     useSubscription();
+  const { selectedBusiness, selectBusiness } = useBusiness();
   const { theme } = useTheme();
   const { showError, showSuccess, showWarning, showFirebaseError } = useCustomAlert();
   const cameraRef = useRef<CameraView>(null);
@@ -345,6 +366,7 @@ export const ScanReceiptScreen = () => {
             // Create receipt record with dummy data
             receiptData = {
               userId: user.uid,
+              businessId: selectedBusiness?.id,
               images: [
                 {
                   url: downloadURL,
@@ -369,6 +391,7 @@ export const ScanReceiptScreen = () => {
             // Create receipt record in Firestore with OCR data - ensure no undefined values
             receiptData = {
               userId: user.uid,
+              businessId: selectedBusiness?.id,
               images: [
                 {
                   url: downloadURL,
@@ -428,6 +451,7 @@ export const ScanReceiptScreen = () => {
           // Still save the receipt even if OCR fails - ensure no undefined values
           const fallbackReceiptData = {
             userId: user.uid,
+            businessId: selectedBusiness?.id,
             images: [
               {
                 url: downloadURL,
@@ -684,6 +708,7 @@ export const ScanReceiptScreen = () => {
           // Create receipt record with dummy data
           receiptData = {
             userId: user!.uid,
+            businessId: selectedBusiness?.id,
             images: [
               {
                 url: downloadURL,
@@ -702,6 +727,7 @@ export const ScanReceiptScreen = () => {
           
           receiptData = {
             userId: user!.uid,
+            businessId: selectedBusiness?.id,
             images: [
               {
                 url: downloadURL,
@@ -753,6 +779,7 @@ export const ScanReceiptScreen = () => {
         // Still save the receipt even if OCR fails - ensure no undefined values
         const fallbackReceiptData = {
           userId: user!.uid,
+          businessId: selectedBusiness?.id,
           images: [
             {
               url: downloadURL,
@@ -1021,6 +1048,7 @@ export const ScanReceiptScreen = () => {
 
           receiptData = {
             userId: user.uid,
+            businessId: selectedBusiness?.id,
             images: [
               {
                 url: downloadURL,
@@ -1045,6 +1073,7 @@ export const ScanReceiptScreen = () => {
           // Create receipt record in Firestore with OCR data
           receiptData = {
             userId: user.uid,
+            businessId: selectedBusiness?.id,
             images: [
               {
                 url: downloadURL,
@@ -1117,6 +1146,7 @@ export const ScanReceiptScreen = () => {
         // Save without OCR data
         const fallbackReceiptData = {
           userId: user.uid,
+          businessId: selectedBusiness?.id,
           images: [
             {
               url: downloadURL,
@@ -1174,6 +1204,24 @@ export const ScanReceiptScreen = () => {
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.background.primary }]}
     >
+      {/* Business Selector Overlay */}
+      <View style={[styles.businessSelectorOverlay, { backgroundColor: theme.background.secondary, borderBottomColor: theme.border.primary }]}>
+        <Text style={[styles.businessSelectorLabel, { color: theme.text.secondary }]}>
+          Business:
+        </Text>
+        <BusinessSelector
+          selectedBusinessId={selectedBusiness?.id}
+          onBusinessSelect={(businessId) => {
+            if (businessId) {
+              selectBusiness(businessId);
+            }
+          }}
+          placeholder="Select business"
+          allowUnassigned={true}
+          style={styles.businessSelectorContainer}
+        />
+      </View>
+
       {showCamera ? (
         (useVisionCamera && Platform.OS === 'android') ? (
           <VisionCamera

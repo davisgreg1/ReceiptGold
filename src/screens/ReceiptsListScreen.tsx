@@ -1314,7 +1314,7 @@ export const ReceiptsListScreen: React.FC = () => {
                       onSubmitEditing={() => setShowSearch(false)}
                       onBlur={() => Keyboard.dismiss()}
                       returnKeyType="done"
-                      autoFocus={showSearch}
+                      autoFocus={false}
                     />
                     {searchQuery.length > 0 && (
                       <TouchableOpacity onPress={() => handleSearchChange("")}>
