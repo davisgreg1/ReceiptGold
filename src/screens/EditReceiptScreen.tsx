@@ -299,7 +299,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     description: receipt.description || '',
     category: receipt.category || 'business_expense',
     currency: receipt.currency || 'USD',
-    businessId: receipt.businessId || selectedBusiness?.id || undefined,
+    businessId: receipt.businessId || selectedBusiness?.id || null,
     items: (receipt.extractedData?.items || []).map(item => ({
       description: item.description,
       quantity: item.quantity,
@@ -345,14 +345,13 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       }
 
       // Create updated receipt data
-      const updatedReceipt: Partial<Receipt> = {
+      const updatedReceiptBase = {
         vendor: formData.vendor,
         amount: parseFloat(formData.amount),
         date: formData.date,
         description: formData.description,
         category: formData.category, // Use the main category from Basic Information
         currency: formData.currency,
-        businessId: formData.businessId,
         extractedData: {
           vendor: formData.vendor,
           amount: parseFloat(formData.amount),
@@ -373,6 +372,11 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         },
         updatedAt: new Date(),
       };
+
+      // Add businessId only if it has a value (not null)
+      const updatedReceipt: Partial<Receipt> = formData.businessId 
+        ? { ...updatedReceiptBase, businessId: formData.businessId }
+        : updatedReceiptBase;
 
       // Update the receipt with only the changed fields
       await receiptService.updateReceipt(receipt.receiptId, updatedReceipt);
@@ -531,7 +535,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
               selectedBusinessId={formData.businessId}
               onBusinessSelect={(businessId) => setFormData(prev => ({
                 ...prev,
-                businessId: businessId || undefined
+                businessId: businessId || null
               }))}
               placeholder="Select business (optional)"
               allowUnassigned={true}

@@ -203,13 +203,20 @@ export const receiptService = {
       console.log("🚀 Creating receipt document with ID:", docRef.id);
 
       // Ensure userId is present and properly typed
-      const { userId, ...rest } = receipt;
+      const { userId, businessId, ...rest } = receipt;
+      
+      // Create base receipt data
       const receiptData = {
         userId: String(userId), // Ensure it's a string
-        ...rest, // Spread all other properties except userId
+        ...rest, // Spread all other properties except userId and businessId
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
+
+      // Only add businessId if it's not undefined
+      if (businessId !== undefined) {
+        (receiptData as any).businessId = businessId;
+      }
 
       console.log("🚀 Final receipt data to save:", receiptData);
       console.log("🚀 Data types:", {
