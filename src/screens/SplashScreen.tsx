@@ -22,7 +22,6 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
   const rotateAnim = useRef(new Animated.Value(0)).current;
   const slideUpAnim = useRef(new Animated.Value(50)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
-  const shimmerAnim = useRef(new Animated.Value(0)).current;
   const logoOpacity = useRef(new Animated.Value(0)).current;
   const textOpacity = useRef(new Animated.Value(0)).current;
   const taglineOpacity = useRef(new Animated.Value(0)).current;
@@ -30,23 +29,6 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
   useEffect(() => {
     const prepare = async () => {
       try {
-        // Start continuous animations immediately
-        Animated.loop(
-          Animated.sequence([
-            Animated.timing(shimmerAnim, {
-              toValue: 1,
-              duration: 2500,
-              easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-              useNativeDriver: true,
-            }),
-            Animated.timing(shimmerAnim, {
-              toValue: 0,
-              duration: 2500,
-              easing: Easing.bezier(0.4, 0.0, 0.2, 1),
-              useNativeDriver: true,
-            }),
-          ])
-        ).start();
 
         // Continuous pulse animation
         Animated.loop(
@@ -147,10 +129,6 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
       outputRange: ['0deg', '360deg'],
     });
 
-    const shimmerTranslate = shimmerAnim.interpolate({
-      inputRange: [0, 1],
-      outputRange: [-250, 250],
-    });
 
     const AnimatedSvg = Animated.createAnimatedComponent(Svg);
 
@@ -173,14 +151,6 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
               <Stop offset="100%" stopColor="#DAA520" stopOpacity="1" />
             </LinearGradient>
             
-            {/* Shimmer effect */}
-            <LinearGradient id="shimmerGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-              <Stop offset="0%" stopColor="transparent" stopOpacity="0" />
-              <Stop offset="30%" stopColor="#ffffff" stopOpacity="0.4" />
-              <Stop offset="50%" stopColor="#ffffff" stopOpacity="0.6" />
-              <Stop offset="70%" stopColor="#ffffff" stopOpacity="0.4" />
-              <Stop offset="100%" stopColor="transparent" stopOpacity="0" />
-            </LinearGradient>
 
             {/* Radial glow */}
             <LinearGradient id="glowGradient" x1="0%" y1="0%" x2="0%" y2="100%">
@@ -324,28 +294,6 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
           <Circle cx="135" cy="135" r="2.5" fill="url(#goldGradient)" opacity="0.8" />
         </AnimatedSvg>
 
-        {/* Shimmer overlay effect */}
-        <Animated.View
-          style={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            transform: [{ translateX: shimmerTranslate }],
-          }}
-          pointerEvents="none"
-        >
-          <Svg width="80" height="220" style={{ opacity: 0.7 }}>
-            <Rect
-              x="0"
-              y="0"
-              width="80"
-              height="220"
-              fill="url(#shimmerGradient)"
-            />
-          </Svg>
-        </Animated.View>
       </Animated.View>
     );
   };
