@@ -1,25 +1,21 @@
 /**
- * DetailedBreakdownScreen - Comprehensive expense analysis
+ * DetailedBreakdownScreen - Beautiful, modern expense analysis with theme support
  * 
  * Features:
- * - Detailed category breakdown with trends
- * - Monthly/weekly spending patterns
- * - Top merchants analysis
- * - Average transaction sizes
- * - Spending velocity and frequency
- * - Business vs personal detailed breakdown
+ * - Modern card-based design with proper dark/light mode
+ * - Detailed category breakdown with visual trends
+ * - Top merchants analysis with rankings
+ * - Monthly spending patterns with insights
+ * - Business vs personal breakdown
+ * - Beautiful animations and micro-interactions
  */
 
 import React, { useState, useEffect, useMemo } from "react";
-import { View, StyleSheet, ScrollView, Dimensions } from "react-native";
+import { View, StyleSheet, ScrollView, Dimensions, RefreshControl } from "react-native";
 import {
   Text,
-  Card,
   SegmentedButtons,
   ActivityIndicator,
-  useTheme,
-  Chip,
-  ProgressBar,
 } from "react-native-paper";
 import { useSubscription } from "../context/SubscriptionContext";
 import {
@@ -35,6 +31,8 @@ import { useFocusEffect } from "@react-navigation/native";
 import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
 import { formatCurrency } from '../utils/formatCurrency';
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
+import { useTheme } from "../theme/ThemeProvider";
+import { Ionicons } from "@expo/vector-icons";
 
 interface Receipt {
   amount: number;
@@ -75,9 +73,10 @@ interface MonthlyData {
 
 export const DetailedBreakdownScreen = () => {
   const { user } = useAuth();
-  const { colors } = useTheme();
+  const { theme } = useTheme();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"3months" | "6months" | "year">("3months");
 
   // Fetch receipts with error handling
@@ -138,6 +137,12 @@ export const DetailedBreakdownScreen = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const refreshData = async () => {
+    setRefreshing(true);
+    await fetchReceipts();
+    setRefreshing(false);
   };
 
   useFocusEffect(
@@ -275,144 +280,338 @@ export const DetailedBreakdownScreen = () => {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" />
-        <Text style={styles.loadingText}>Loading detailed breakdown...</Text>
+      <View style={[styles.container, { backgroundColor: theme.background.primary }]}>
+        <View style={[styles.loadingContainer, { backgroundColor: theme.background.primary, borderColor: theme.border.primary }]}>
+          <ActivityIndicator size="large" color={theme.gold.primary} />
+          <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
+            Analyzing your detailed breakdown...
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (receipts.length === 0) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.background.primary }]}>
+        <View style={[styles.emptyContainer, { backgroundColor: theme.background.primary }]}>
+          <View style={[styles.emptyIconContainer, { backgroundColor: theme.gold.background }]}>
+            <Ionicons name="analytics-outline" size={48} color={theme.gold.primary} />
+          </View>
+          <Text style={[styles.emptyTitle, { color: theme.text.primary }]}>
+            No Data Available
+          </Text>
+          <Text style={[styles.emptyMessage, { color: theme.text.secondary }]}>
+            No receipts found for the selected period. Add some receipts to see detailed analytics.
+          </Text>
+        </View>
       </View>
     );
   }
 
   return (
-    <ScrollView style={styles.container}>
-      {/* Period Selector */}
-      <Card style={styles.card}>
-        <Card.Content>
+    <ScrollView 
+      style={[styles.container, { backgroundColor: theme.background.primary }]}
+      refreshControl={
+        <RefreshControl
+          refreshing={refreshing}
+          onRefresh={refreshData}
+          colors={[theme.gold.primary]}
+          tintColor={theme.gold.primary}
+        />
+      }
+    >
+      {/* Header Card with Period Selector */}
+      <View style={[styles.card, { backgroundColor: theme.background.primary, borderColor: theme.border.primary }]}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.headerIconContainer, { backgroundColor: theme.gold.background }]}>
+            <Ionicons name="time-outline" size={20} color={theme.gold.primary} />
+          </View>
+          <Text style={[styles.cardTitle, { color: theme.text.primary }]}>
+            Analysis Period
+          </Text>
+        </View>
+        <View style={styles.cardContent}>
           <SegmentedButtons
             value={selectedPeriod}
             onValueChange={(value) => setSelectedPeriod(value as any)}
+            theme={{
+              colors: {
+                primary: theme.gold.primary,
+                onPrimary: theme.text.inverse,
+                surface: theme.background.secondary,
+                onSurface: theme.text.primary,
+                outline: theme.border.primary,
+              },
+            }}
             buttons={[
               { value: "3months", label: "3 Months" },
-              { value: "6months", label: "6 Months" },
+              { value: "6months", label: "6 Months" }, 
               { value: "year", label: "1 Year" },
             ]}
             style={styles.segmentedButtons}
           />
-        </Card.Content>
-      </Card>
+        </View>
+      </View>
 
-      {/* Overview Stats */}
-      <Card style={styles.card}>
-        <Card.Title title="Expense Overview" />
-        <Card.Content>
+      {/* Overview Stats Card */}
+      <View style={[styles.card, { backgroundColor: theme.background.primary, borderColor: theme.border.primary }]}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.headerIconContainer, { backgroundColor: theme.gold.background }]}>
+            <Ionicons name="stats-chart-outline" size={20} color={theme.gold.primary} />
+          </View>
+          <Text style={[styles.cardTitle, { color: theme.text.primary }]}>
+            Expense Overview
+          </Text>
+        </View>
+        <View style={styles.cardContent}>
           <View style={styles.statsGrid}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCurrency(totalExpenses)}</Text>
-              <Text style={styles.statLabel}>Total Expenses</Text>
+            <View style={[styles.statItem, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: theme.gold.background }]}>
+                <Ionicons name="cash-outline" size={20} color={theme.gold.primary} />
+              </View>
+              <Text 
+                style={[styles.statValue, { color: theme.text.primary }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {formatCurrency(totalExpenses)}
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
+                Total Expenses
+              </Text>
             </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{receipts.length}</Text>
-              <Text style={styles.statLabel}>Transactions</Text>
+            <View style={[styles.statItem, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: theme.gold.background }]}>
+                <Ionicons name="receipt-outline" size={20} color={theme.gold.primary} />
+              </View>
+              <Text style={[styles.statValue, { color: theme.text.primary }]}>
+                {receipts.length}
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
+                Transactions
+              </Text>
             </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{formatCurrency(averageTransaction)}</Text>
-              <Text style={styles.statLabel}>Average</Text>
+            <View style={[styles.statItem, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: theme.gold.background }]}>
+                <Ionicons name="trending-up-outline" size={20} color={theme.gold.primary} />
+              </View>
+              <Text 
+                style={[styles.statValue, { color: theme.text.primary }]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+              >
+                {formatCurrency(averageTransaction)}
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
+                Average
+              </Text>
             </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{businessPercentage.toFixed(1)}%</Text>
-              <Text style={styles.statLabel}>Business</Text>
+            <View style={[styles.statItem, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
+              <View style={[styles.statIconContainer, { backgroundColor: theme.gold.background }]}>
+                <Ionicons name="briefcase-outline" size={20} color={theme.gold.primary} />
+              </View>
+              <Text style={[styles.statValue, { color: theme.text.primary }]}>
+                {businessPercentage.toFixed(1)}%
+              </Text>
+              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
+                Business
+              </Text>
             </View>
           </View>
-        </Card.Content>
-      </Card>
+        </View>
+      </View>
 
-      {/* Category Insights */}
-      <Card style={styles.card}>
-        <Card.Title title="Category Analysis" />
-        <Card.Content>
-          {categoryInsights.map((insight) => (
-            <View key={insight.category} style={styles.categoryInsight}>
+      {/* Category Analysis Card */}
+      <View style={[styles.card, { backgroundColor: theme.background.primary, borderColor: theme.border.primary }]}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.headerIconContainer, { backgroundColor: theme.gold.background }]}>
+            <Ionicons name="pie-chart-outline" size={20} color={theme.gold.primary} />
+          </View>
+          <Text style={[styles.cardTitle, { color: theme.text.primary }]}>
+            Category Analysis
+          </Text>
+        </View>
+        <View style={styles.cardContent}>
+          {categoryInsights.map((insight, index) => (
+            <View key={insight.category} style={[
+              styles.categoryInsight, 
+              { borderBottomColor: theme.border.primary },
+              index === categoryInsights.length - 1 && { borderBottomWidth: 0 }
+            ]}>
               <View style={styles.categoryHeader}>
-                <Text style={styles.categoryName}>
+                <Text style={[styles.categoryName, { color: theme.text.primary }]}>
                   {ReceiptCategoryService.getCategoryDisplayName(insight.category as any)}
                 </Text>
                 <View style={styles.categoryTrend}>
-                  <Chip
-                    icon={insight.trend === 'up' ? 'trending-up' : insight.trend === 'down' ? 'trending-down' : 'trending-neutral'}
-                    mode="outlined"
-                    compact
-                    style={[
-                      styles.trendChip,
-                      { backgroundColor: insight.trend === 'up' ? '#ffebee' : insight.trend === 'down' ? '#e8f5e8' : '#f5f5f5' }
-                    ]}
-                  >
-                    {insight.trend === 'stable' ? 'Stable' : `${insight.trendPercentage.toFixed(0)}%`}
-                  </Chip>
+                  <View style={[
+                    styles.trendContainer,
+                    { 
+                      backgroundColor: insight.trend === 'up' 
+                        ? 'rgba(255, 59, 48, 0.1)' 
+                        : insight.trend === 'down' 
+                          ? 'rgba(52, 199, 89, 0.1)' 
+                          : theme.background.secondary,
+                      borderColor: insight.trend === 'up' 
+                        ? '#FF3B30' 
+                        : insight.trend === 'down' 
+                          ? '#34C759' 
+                          : theme.border.primary
+                    }
+                  ]}>
+                    <Ionicons 
+                      name={insight.trend === 'up' ? 'trending-up' : insight.trend === 'down' ? 'trending-down' : 'remove-outline'} 
+                      size={14} 
+                      color={insight.trend === 'up' 
+                        ? '#FF3B30' 
+                        : insight.trend === 'down' 
+                          ? '#34C759' 
+                          : theme.text.secondary
+                      } 
+                    />
+                    <Text style={[
+                      styles.trendText,
+                      { 
+                        color: insight.trend === 'up' 
+                          ? '#FF3B30' 
+                          : insight.trend === 'down' 
+                            ? '#34C759' 
+                            : theme.text.secondary
+                      }
+                    ]}>
+                      {insight.trend === 'stable' ? 'Stable' : `${insight.trendPercentage.toFixed(0)}%`}
+                    </Text>
+                  </View>
                 </View>
               </View>
               
               <View style={styles.categoryStats}>
-                <Text style={styles.categoryAmount}>{formatCurrency(insight.total)}</Text>
-                <Text style={styles.categoryDetails}>
+                <Text 
+                  style={[styles.categoryAmount, { color: theme.text.primary }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {formatCurrency(insight.total)}
+                </Text>
+                <Text style={[styles.categoryDetails, { color: theme.text.secondary }]}>
                   {insight.count} transactions • {formatCurrency(insight.average)} avg
                 </Text>
               </View>
               
-              <ProgressBar
-                progress={insight.percentage / 100}
-                color={colors.primary}
-                style={styles.progressBar}
-              />
-              <Text style={styles.percentageText}>{insight.percentage.toFixed(1)}% of total</Text>
+              <View style={styles.progressContainer}>
+                <View style={[styles.progressBar, { backgroundColor: theme.background.tertiary }]}>
+                  <View 
+                    style={[
+                      styles.progressFill,
+                      { 
+                        width: `${Math.max(insight.percentage, 2)}%`,
+                        backgroundColor: theme.gold.primary
+                      }
+                    ]} 
+                  />
+                </View>
+                <Text style={[styles.percentageText, { color: theme.text.tertiary }]}>
+                  {insight.percentage.toFixed(1)}% of total
+                </Text>
+              </View>
             </View>
           ))}
-        </Card.Content>
-      </Card>
+        </View>
+      </View>
 
-      {/* Top Merchants */}
-      <Card style={styles.card}>
-        <Card.Title title="Top Merchants" />
-        <Card.Content>
+      {/* Top Merchants Card */}
+      <View style={[styles.card, { backgroundColor: theme.background.primary, borderColor: theme.border.primary }]}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.headerIconContainer, { backgroundColor: theme.gold.background }]}>
+            <Ionicons name="storefront-outline" size={20} color={theme.gold.primary} />
+          </View>
+          <Text style={[styles.cardTitle, { color: theme.text.primary }]}>
+            Top Merchants
+          </Text>
+        </View>
+        <View style={styles.cardContent}>
           {topMerchants.map((merchant, index) => (
-            <View key={merchant.name} style={styles.merchantItem}>
-              <View style={styles.merchantRank}>
-                <Text style={styles.rankNumber}>{index + 1}</Text>
+            <View key={merchant.name} style={[
+              styles.merchantItem, 
+              { borderBottomColor: theme.border.primary },
+              index === topMerchants.length - 1 && { borderBottomWidth: 0 }
+            ]}>
+              <View style={[styles.merchantRank, { backgroundColor: theme.gold.background }]}>
+                <Text style={[styles.rankNumber, { color: theme.gold.primary }]}>
+                  {index + 1}
+                </Text>
               </View>
               <View style={styles.merchantInfo}>
-                <Text style={styles.merchantName} numberOfLines={1}>
+                <Text style={[styles.merchantName, { color: theme.text.primary }]} numberOfLines={1}>
                   {merchant.name}
                 </Text>
-                <Text style={styles.merchantCategory}>
+                <Text style={[styles.merchantCategory, { color: theme.text.secondary }]}>
                   {ReceiptCategoryService.getCategoryDisplayName(merchant.category as any)}
                 </Text>
               </View>
               <View style={styles.merchantStats}>
-                <Text style={styles.merchantAmount}>{formatCurrency(merchant.total)}</Text>
-                <Text style={styles.merchantDetails}>
+                <Text 
+                  style={[styles.merchantAmount, { color: theme.text.primary }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {formatCurrency(merchant.total)}
+                </Text>
+                <Text style={[styles.merchantDetails, { color: theme.text.secondary }]}>
                   {merchant.count} visits • {formatCurrency(merchant.averageTransaction)} avg
                 </Text>
               </View>
             </View>
           ))}
-        </Card.Content>
-      </Card>
+        </View>
+      </View>
 
-      {/* Monthly Breakdown */}
-      <Card style={styles.card}>
-        <Card.Title title="Monthly Trends" />
-        <Card.Content>
-          {monthlyBreakdown.map((month) => (
-            <View key={month.month} style={styles.monthItem}>
-              <Text style={styles.monthName}>{month.month}</Text>
+      {/* Monthly Breakdown Card */}
+      <View style={[styles.card, { backgroundColor: theme.background.primary, borderColor: theme.border.primary }]}>
+        <View style={styles.cardHeader}>
+          <View style={[styles.headerIconContainer, { backgroundColor: theme.gold.background }]}>
+            <Ionicons name="calendar-outline" size={20} color={theme.gold.primary} />
+          </View>
+          <Text style={[styles.cardTitle, { color: theme.text.primary }]}>
+            Monthly Trends
+          </Text>
+        </View>
+        <View style={styles.cardContent}>
+          {monthlyBreakdown.map((month, index) => (
+            <View key={month.month} style={[
+              styles.monthItem, 
+              { borderBottomColor: theme.border.primary },
+              index === monthlyBreakdown.length - 1 && { borderBottomWidth: 0 }
+            ]}>
+              <View style={styles.monthInfo}>
+                <Text style={[styles.monthName, { color: theme.text.primary }]}>
+                  {month.month}
+                </Text>
+                <Text style={[styles.monthCategory, { color: theme.text.secondary }]}>
+                  Top: {ReceiptCategoryService.getCategoryDisplayName(month.topCategory as any)}
+                </Text>
+              </View>
               <View style={styles.monthStats}>
-                <Text style={styles.monthAmount}>{formatCurrency(month.total)}</Text>
-                <Text style={styles.monthDetails}>
-                  {month.count} transactions • Top: {ReceiptCategoryService.getCategoryDisplayName(month.topCategory as any)}
+                <Text 
+                  style={[styles.monthAmount, { color: theme.text.primary }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.8}
+                >
+                  {formatCurrency(month.total)}
+                </Text>
+                <Text style={[styles.monthDetails, { color: theme.text.secondary }]}>
+                  {month.count} transactions
                 </Text>
               </View>
             </View>
           ))}
-        </Card.Content>
-      </Card>
+        </View>
+      </View>
     </ScrollView>
   );
 };
@@ -421,111 +620,206 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
-    backgroundColor: "#f5f5f5",
   },
   loadingContainer: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
+    justifyContent: 'center',
+    alignItems: 'center',
+    margin: 16,
+    padding: 32,
+    borderRadius: 16,
+    borderWidth: 1,
   },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: "#666",
+    textAlign: 'center',
   },
-  card: {
+  
+  // Empty state
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  emptyIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
   },
+  emptyTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptyMessage: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  
+  // Card styling
+  card: {
+    borderRadius: 16,
+    borderWidth: 1,
+    marginBottom: 16,
+    overflow: 'hidden',
+    elevation: 2,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    paddingBottom: 12,
+  },
+  headerIconContainer: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    flex: 1,
+  },
+  cardContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  
+  // Segmented buttons
   segmentedButtons: {
     marginVertical: 8,
   },
+  
+  // Stats grid
   statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    gap: 12,
   },
   statItem: {
-    width: "49%",
-    alignItems: "center",
-    marginBottom: 16,
+    flex: 1,
+    minWidth: '47%',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
   },
-  statValue: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#333",
-  },
-  statLabel: {
-    fontSize: 14,
-    color: "#666",
-    marginTop: 4,
-  },
-  categoryInsight: {
-    marginBottom: 20,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#eee",
-  },
-  categoryHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  categoryName: {
+  statValue: {
     fontSize: 18,
-    fontWeight: "600",
+    fontWeight: '700',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  statLabel: {
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  
+  // Category insights
+  categoryInsight: {
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  categoryHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  categoryName: {
+    fontSize: 16,
+    fontWeight: '600',
     flex: 1,
   },
   categoryTrend: {
-    marginLeft: 8,
+    marginLeft: 12,
   },
-  trendChip: {
-    height: 35,
+  trendContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  trendText: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4,
   },
   categoryStats: {
-    marginBottom: 8,
+    marginBottom: 12,
   },
   categoryAmount: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#333",
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 2,
   },
   categoryDetails: {
     fontSize: 14,
-    color: "#666",
-    marginTop: 2,
+  },
+  
+  // Progress bar
+  progressContainer: {
+    marginTop: 8,
   },
   progressBar: {
     height: 6,
-    marginVertical: 8,
+    borderRadius: 3,
+    marginBottom: 6,
+  },
+  progressFill: {
+    height: '100%',
     borderRadius: 3,
   },
   percentageText: {
     fontSize: 12,
-    color: "#666",
-    textAlign: "right",
+    textAlign: 'right',
   },
+  
+  // Merchant items
   merchantItem: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
   },
   merchantRank: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: "#e3f2fd",
-    justifyContent: "center",
-    alignItems: "center",
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginRight: 12,
   },
   rankNumber: {
     fontSize: 14,
-    fontWeight: "bold",
-    color: "#1976d2",
+    fontWeight: '700',
   },
   merchantInfo: {
     flex: 1,
@@ -533,52 +827,52 @@ const styles = StyleSheet.create({
   },
   merchantName: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
+    fontWeight: '600',
+    marginBottom: 2,
   },
   merchantCategory: {
     fontSize: 12,
-    color: "#666",
-    marginTop: 2,
   },
   merchantStats: {
-    alignItems: "flex-end",
+    alignItems: 'flex-end',
   },
   merchantAmount: {
     fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
+    fontWeight: '700',
+    marginBottom: 2,
   },
   merchantDetails: {
     fontSize: 12,
-    color: "#666",
-    marginTop: 2,
   },
+  
+  // Monthly items
   monthItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#eee",
+  },
+  monthInfo: {
+    flex: 1,
+    marginRight: 12,
   },
   monthName: {
     fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    flex: 1,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  monthCategory: {
+    fontSize: 12,
   },
   monthStats: {
-    alignItems: "flex-end",
+    alignItems: 'flex-end',
   },
   monthAmount: {
     fontSize: 16,
-    fontWeight: "bold",
-    color: "#333",
+    fontWeight: '700',
+    marginBottom: 2,
   },
   monthDetails: {
     fontSize: 12,
-    color: "#666",
-    marginTop: 2,
   },
 });
