@@ -1121,13 +1121,12 @@ exports.createCheckoutSession = (0, https_1.onCall)(async (request) => {
         const { priceId, customerId } = request.data;
         // Environment-aware app URL configuration
         const getAppUrl = () => {
-            var _a;
             // Check if we're in development
             if (process.env.NODE_ENV === 'development') {
                 return 'http://localhost:8081';
             }
             // Use configured app URL or fallback
-            return ((_a = functions.config().app) === null || _a === void 0 ? void 0 : _a.url) || 'https://yourapp.com';
+            return process.env.APP_URL || 'https://yourapp.com';
         };
         const appUrl = getAppUrl();
         console.log(`Creating checkout session for user: ${request.auth.uid}, price: ${priceId}`);
@@ -1502,7 +1501,6 @@ const validateStripeSubscription = async (subscriptionId: string): Promise<boole
 // ADDITIONAL FUNCTIONS FOR TESTING AND DEBUGGING
 // Test Stripe connection
 exports.testStripeConnection = (0, https_1.onCall)(async (request) => {
-    var _a, _b;
     if (!request.auth) {
         throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
     }
@@ -1513,8 +1511,8 @@ exports.testStripeConnection = (0, https_1.onCall)(async (request) => {
             success: true,
             message: `Stripe connection successful. Found ${products.data.length} products.`,
             config: {
-                hasSecretKey: !!process.env.STRIPE_SECRET_KEY || !!((_a = functions.config().stripe) === null || _a === void 0 ? void 0 : _a.secret),
-                hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET || !!((_b = functions.config().stripe) === null || _b === void 0 ? void 0 : _b.webhook_secret),
+                hasSecretKey: !!process.env.STRIPE_SECRET_KEY,
+                hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
             }
         };
     }
