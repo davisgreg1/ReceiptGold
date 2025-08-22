@@ -63,7 +63,7 @@ dist/
 
 # EAS
 .easignore
-eas.json
+!eas.json
 
 # OS generated files
 Thumbs.db
@@ -136,4 +136,9 @@ temp/
 
 service-account-key.json
 *.json
+!package.json
+!package-lock.json
+!app.json
+!eas.json
+!tsconfig.json
 .env*
