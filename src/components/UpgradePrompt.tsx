@@ -247,16 +247,16 @@ const getBenefits = (tier: SubscriptionTier): string[] => {
       return [
         "50 receipt generations",
         "LLC-specific expense categories",
-        "Educational content",
-        "Basic compliance features",
+        // "Educational content",
+        // "Basic compliance features",
         "Email support",
       ];
     case "growth":
       return [
         "Everything in Starter",
         "Advanced reporting",
-        "Tax preparation tools",
-        "Accounting software integrations",
+        // "Tax preparation tools",
+        // "Accounting software integrations",
         "Priority support",
         "Quarterly tax reminders",
       ];
@@ -264,10 +264,10 @@ const getBenefits = (tier: SubscriptionTier): string[] => {
       return [
         "Everything in Growth",
         "Multi-business management",
-        "White-label options",
-        "API access",
-        "Dedicated account manager",
-        "Custom compliance workflows",
+        // "White-label options",
+        // "API access",
+        // "Dedicated account manager",
+        // "Custom compliance workflows",
       ];
     default:
       return [];
