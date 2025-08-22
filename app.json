@@ -12,29 +12,13 @@
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
-    "fonts": [
-      "./assets/fonts/PlayfairDisplay-Regular.ttf",
-      "./assets/fonts/PlayfairDisplay-Bold.ttf",
-      "./assets/fonts/Inter-Regular.ttf",
-      "./assets/fonts/Inter-Medium.ttf",
-      "./assets/fonts/Inter-SemiBold.ttf",
-      "./assets/fonts/Inter-Bold.ttf",
-      "./assets/fonts/Poppins-Regular.ttf",
-      "./assets/fonts/Poppins-Medium.ttf",
-      "./assets/fonts/Poppins-SemiBold.ttf",
-      "./assets/fonts/Poppins-Bold.ttf"
-    ],
+    "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.receiptgold.app",
       "buildNumber": "1",
       "infoPlist": {
-        "LSApplicationQueriesSchemes": [
-          "plaid"
-        ],
+        "LSApplicationQueriesSchemes": ["plaid"],
         "NSCameraUsageDescription": "$(PRODUCT_NAME) needs access to your Camera."
       }
     },
@@ -51,9 +35,7 @@
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.RECORD_AUDIO"
       ],
-      "config": {
-        "usesCleartextTraffic": true
-      }
+      "config": {}
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -109,20 +91,12 @@
         {
           "android": {
             "requestPermission": true,
-            "authorizationOptions": [
-              "alert",
-              "badge",
-              "sound"
-            ],
+            "authorizationOptions": ["alert", "badge", "sound"],
             "notificationBackgroundColor": "#FFD700"
           },
           "ios": {
             "requestPermission": true,
-            "authorizationOptions": [
-              "alert",
-              "badge",
-              "sound"
-            ]
+            "authorizationOptions": ["alert", "badge", "sound"]
           }
         }
       ]

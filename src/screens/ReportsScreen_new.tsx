@@ -32,7 +32,6 @@ import { db } from "../config/firebase";
 import { useAuth } from "../context/AuthContext";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { PremiumGate } from "../components/PremiumGate";
-import { LineChart } from "react-native-chart-kit";
 import * as Sharing from "expo-sharing";
 import * as FileSystem from "expo-file-system";
 import { format } from "date-fns";

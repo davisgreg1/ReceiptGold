@@ -568,7 +568,7 @@ export const BankTransactionsScreen: React.FC = () => {
                 onPress={() => rejectCandidate(docId)}
               >
                 <Text style={[styles.buttonText, styles.rejectButtonText]}>
-                  Nope
+                  Don't Generate
                 </Text>
               </TouchableOpacity>
             </>
