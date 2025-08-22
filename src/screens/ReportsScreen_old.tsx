@@ -17,6 +17,7 @@ import { View, StyleSheet, ScrollView, Dimensions, RefreshControl } from "react-
 import {
   Text,
   Button,
+  Card,
   SegmentedButtons,
   ActivityIndicator,
 } from "react-native-paper";
@@ -49,20 +50,26 @@ interface Receipt {
   createdAt: Timestamp; // Primary date field
   businessId?: string;
   description?: string;
-  id?: string;
-  status?: string;
+  id: string;
+  status: string;
   tax?: {
     deductible: boolean;
+    deductionPercentage: number;
+    taxYear: number;
+    category: string;
   };
 }
+
+type RootStackParamList = {
+  ReceiptsTab: { screen: "ScanReceipt" | "ReceiptsList" };
+  ReportsTab: { screen: "CategoryReport" | "ExpenseReport" | "TaxReport" };
+};
 
 export default function ReportsScreen() {
   const { user } = useAuth();
   const { subscription } = useSubscription();
   const navigation = useNavigation<StackNavigationProp<any>>();
   const { theme } = useTheme();
-  
-  console.log('ReportsScreen render:', { user: !!user, subscription: !!subscription, theme: !!theme });
   
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
@@ -72,76 +79,35 @@ export default function ReportsScreen() {
     "week" | "month" | "year"
   >("month");
 
-  // Generate basic report
-  const generateBasicReport = () => {
-    const totalAmount = receipts.reduce(
-      (sum, receipt) => sum + receipt.amount,
-      0
-    );
-    const categoryTotals = receipts.reduce((acc, receipt) => {
-      acc[receipt.category] = (acc[receipt.category] || 0) + receipt.amount;
-      return acc;
-    }, {} as Record<string, number>);
-
-    return {
-      totalAmount,
-      categoryTotals,
-      receiptCount: receipts.length,
-    };
-  };
-
-  const generateAdvancedReport = () => {
-    // Only available for Growth and Professional tiers
-    if (!subscription.features.advancedReporting) return null;
-
-    const byBusiness = receipts.reduce((acc, receipt) => {
-      const businessId = receipt.businessId || "default";
-      if (!acc[businessId]) {
-        acc[businessId] = {
-          totalAmount: 0,
-          receipts: [],
-        };
-      }
-      acc[businessId].totalAmount += receipt.amount;
-      acc[businessId].receipts.push(receipt);
-      return acc;
-    }, {} as Record<string, { totalAmount: number; receipts: Receipt[] }>);
-
-    // Generate monthly trends
-    const trends = receipts.reduce((acc, receipt) => {
-      // Use createdAt first, fall back to date for backward compatibility
-      const receiptDate = receipt.createdAt?.toDate() || receipt.date?.toDate();
-      if (!receiptDate) return acc;
-
-      const monthKey = format(receiptDate, 'yyyy-MM');
-      if (!acc[monthKey]) {
-        acc[monthKey] = { date: receiptDate, amount: 0 };
-      }
-      acc[monthKey].amount += receipt.amount;
-      return acc;
-    }, {} as Record<string, { date: Date; amount: number }>);
-
-    return {
-      byBusiness,
-      trends: Object.values(trends).sort(
-        (a, b) => a.date.getTime() - b.date.getTime()
-      ),
-    };
-  };
-
   // Calculate business percentage
   const businessPercentage = useMemo(() => {
-    const businessAmount = receipts
-      .filter((receipt) => receipt.tax?.deductible === true)
-      .reduce((sum, receipt) => sum + receipt.amount, 0);
-    const totalAmount = receipts.reduce((sum, receipt) => sum + receipt.amount, 0);
-    
+    if (receipts.length === 0) return 0;
+    const totalAmount = receipts.reduce((sum, r) => sum + r.amount, 0);
     if (totalAmount === 0) return 0;
+    
+    // Debug logging
+    console.log('=== BUSINESS PERCENTAGE DEBUG ===');
+    console.log('Total receipts:', receipts.length);
+    console.log('Sample receipt tax data:', receipts.slice(0, 3).map(r => ({ 
+      id: r.id, 
+      amount: r.amount, 
+      tax: r.tax,
+      hasDeductible: r.tax?.deductible 
+    })));
+    
+    const businessAmount = receipts
+      .filter((r) => r.tax?.deductible === true)
+      .reduce((sum, r) => sum + r.amount, 0);
+      
+    console.log('Business receipts found:', receipts.filter(r => r.tax?.deductible === true).length);
+    console.log('Business amount:', businessAmount);
+    console.log('Total amount:', totalAmount);
+    console.log('================================');
     
     return Math.round((businessAmount / totalAmount) * 100);
   }, [receipts]);
 
-  // Calculate tax categories
+  // Calculate tax categories (only include tax-deductible receipts)
   const taxCategories = useMemo(() => {
     return receipts
       .filter((receipt) => receipt.tax?.deductible === true)
@@ -180,44 +146,36 @@ export default function ReportsScreen() {
   }, [selectedDateRange]);
 
   useEffect(() => {
-    console.log('ReportsScreen useEffect triggered:', { user: !!user, selectedDateRange });
-    
     const fetchReceipts = async () => {
-      if (!user) {
-        console.log('No user found, skipping fetch');
-        setLoading(false);
-        return;
-      }
-      
-      console.log('Starting to fetch receipts...');
+      if (!user) return;
       setLoading(true);
       setError(null);
 
       try {
         const receiptsRef = collection(db, "receipts");
+        
+        // First try the optimized query with indexes
         let querySnapshot;
-
         try {
-          // Try optimized query first
-          const optimizedQuery = query(
+          const q = query(
             receiptsRef,
             where("userId", "==", user.uid),
             where("status", "!=", "deleted"),
             where("createdAt", ">=", dateRangeFilter.startDate),
             where("createdAt", "<=", dateRangeFilter.endDate)
           );
-          console.log('Attempting optimized query...');
-          querySnapshot = await getDocs(optimizedQuery);
+          querySnapshot = await getDocs(q);
         } catch (error: any) {
-          console.log('Optimized query failed, using fallback:', error.message);
-          if (error.code === 'failed-precondition' || error.message.includes('index')) {
-            // Fall back to basic query and filter in memory
+          // If we get an index error, fall back to basic query and filter in memory
+          if (error?.message?.includes('requires an index')) {
+            console.log('Index not ready for reports, falling back to basic query...');
             const basicQuery = query(
               receiptsRef,
               where("userId", "==", user.uid)
             );
             const basicSnapshot = await getDocs(basicQuery);
             
+            // Filter in memory
             const docs = basicSnapshot.docs.filter(doc => {
               const data = doc.data();
               if (data.status === 'deleted') return false;
@@ -243,16 +201,15 @@ export default function ReportsScreen() {
             id: doc.id,
             amount: data.amount || 0,
             category: data.category || 'Uncategorized',
-            date: data.date,
+            date: data.date, // Keep for backward compatibility
             createdAt: data.createdAt,
             businessId: data.businessId,
             description: data.description,
             status: data.status || 'active',
-            tax: data.tax || undefined,
+            tax: data.tax || undefined, // Include tax data for deductible analysis
           });
         });
 
-        console.log('Fetched receipts:', fetchedReceipts.length);
         setReceipts(fetchedReceipts);
       } catch (error) {
         console.error("Error fetching receipts:", error);
@@ -265,31 +222,40 @@ export default function ReportsScreen() {
     fetchReceipts();
   }, [user, dateRangeFilter]);
 
+  // Refresh data when screen comes into focus
   const refreshData = useCallback(async () => {
     if (!user) return;
-    
-    setRefreshing(true);
+
+    // Set refreshing state if we're not in initial loading
+    if (!loading) {
+      setRefreshing(true);
+    }
+
     try {
       const receiptsRef = collection(db, "receipts");
+      
+      // First try the optimized query with indexes
       let querySnapshot;
-
       try {
-        const optimizedQuery = query(
+        const q = query(
           receiptsRef,
           where("userId", "==", user.uid),
           where("status", "!=", "deleted"),
           where("createdAt", ">=", dateRangeFilter.startDate),
           where("createdAt", "<=", dateRangeFilter.endDate)
         );
-        querySnapshot = await getDocs(optimizedQuery);
+        querySnapshot = await getDocs(q);
       } catch (error: any) {
-        if (error.code === 'failed-precondition' || error.message.includes('index')) {
+        // If we get an index error, fall back to basic query and filter in memory
+        if (error?.message?.includes('requires an index')) {
+          console.log('Index not ready for reports refresh, falling back to basic query...');
           const basicQuery = query(
             receiptsRef,
             where("userId", "==", user.uid)
           );
           const basicSnapshot = await getDocs(basicQuery);
           
+          // Filter in memory
           const docs = basicSnapshot.docs.filter(doc => {
             const data = doc.data();
             if (data.status === 'deleted') return false;
@@ -315,12 +281,12 @@ export default function ReportsScreen() {
           id: doc.id,
           amount: data.amount || 0,
           category: data.category || 'Uncategorized',
-          date: data.date,
+          date: data.date, // Keep for backward compatibility
           createdAt: data.createdAt,
           businessId: data.businessId,
           description: data.description,
           status: data.status || 'active',
-          tax: data.tax || undefined,
+          tax: data.tax || undefined, // Include tax data for deductible analysis
         });
       });
 
@@ -339,21 +305,98 @@ export default function ReportsScreen() {
     }, [refreshData])
   );
 
+  // Also refresh when user changes (in case of logout/login)
+  useEffect(() => {
+    if (user) {
+      console.log('User changed, refreshing reports data...');
+      refreshData();
+    }
+  }, [user, refreshData]);
+
+  const generateBasicReport = () => {
+    const totalAmount = receipts.reduce(
+      (sum, receipt) => sum + receipt.amount,
+      0
+    );
+    const categoryTotals = receipts.reduce((acc, receipt) => {
+      acc[receipt.category] = (acc[receipt.category] || 0) + receipt.amount;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      totalAmount,
+      categoryTotals,
+      receiptCount: receipts.length,
+    };
+  };
+
+  const generateAdvancedReport = () => {
+    // Only available for Growth and Professional tiers
+    if (!subscription.features.advancedReporting) return null;
+
+    const byBusiness = receipts.reduce((acc, receipt) => {
+      const businessId = receipt.businessId || "default";
+      if (!acc[businessId]) {
+        acc[businessId] = {
+          total: 0,
+          receipts: [],
+        };
+      }
+      acc[businessId].total += receipt.amount;
+      acc[businessId].receipts.push(receipt);
+      return acc;
+    }, {} as Record<string, { total: number; receipts: Receipt[] }>);
+
+    return {
+      byBusiness,
+      trends: calculateTrends(),
+    };
+  };
+
+  const calculateTrends = () => {
+    // Group receipts by month using createdAt (fallback to date for backward compatibility)
+    const monthly = receipts.reduce((acc, receipt) => {
+      const timestamp = receipt.createdAt || receipt.date;
+      if (!timestamp) return acc;
+      
+      const date = timestamp.toDate();
+      const month = format(date, "yyyy-MM");
+      acc[month] = (acc[month] || 0) + receipt.amount;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return Object.entries(monthly)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-6) // Last 6 months
+      .map(([month, amount]) => ({
+        month: format(new Date(month), "MMM"),
+        amount,
+      }));
+  };
+
   const exportToCSV = async () => {
     try {
-      const csvContent = [
-        "Date,Amount,Category,Business,Description",
-        ...receipts.map((receipt) => {
-          const receiptDate = receipt.createdAt?.toDate() || receipt.date?.toDate();
+      const rows = [
+        ["Date", "Amount", "Category", "Business ID", "Description"],
+        ...receipts.map((r) => {
+          // Use createdAt, fallback to date for backward compatibility
+          const timestamp = r.createdAt || r.date;
+          const dateString = timestamp ? format(timestamp.toDate(), "yyyy-MM-dd") : "N/A";
+          
           return [
-            receiptDate ? format(receiptDate, "yyyy-MM-dd") : "Unknown",
-            receipt.amount.toString(),
-            receipt.category,
-            receipt.businessId || "Personal",
-            (receipt.description || "").replace(/,/g, ";"),
-          ].join(",");
+            dateString,
+            r.amount.toFixed(2),
+            r.category,
+            r.businessId || "",
+            r.description || "",
+          ];
         }),
-      ]
+      ];
+
+      const csvContent = rows
+        .map((row) =>
+          row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")
+        )
         .join("\n");
       const fileName = `receipts_${new Date().toISOString().split("T")[0]}.csv`;
       const filePath = `${FileSystem.documentDirectory}${fileName}`;
@@ -364,27 +407,6 @@ export default function ReportsScreen() {
       console.error("Error exporting CSV:", error);
     }
   };
-
-  console.log('ReportsScreen render state:', { loading, error, receiptsCount: receipts.length, user: !!user });
-
-  if (!user) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.background.primary }]}>
-        <View style={[
-          styles.errorContainer,
-          { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }
-        ]}>
-          <Ionicons name="person-outline" size={48} color={theme.gold.primary} />
-          <Text style={[styles.errorTitle, { color: theme.text.primary }]}>
-            Not Authenticated
-          </Text>
-          <Text style={[styles.errorText, { color: theme.text.secondary }]}>
-            Please sign in to view your financial reports.
-          </Text>
-        </View>
-      </View>
-    );
-  }
 
   if (loading) {
     return (
@@ -471,15 +493,7 @@ export default function ReportsScreen() {
                 { value: "month", label: "Month" },
                 { value: "year", label: "Year" },
               ]}
-              theme={{
-                colors: {
-                  primary: theme.gold.primary,
-                  onPrimary: theme.background.primary,
-                  surface: theme.background.secondary,
-                  onSurface: theme.text.primary,
-                  outline: theme.border.primary,
-                }
-              }}
+              style={{ backgroundColor: theme.background.secondary }}
             />
           </View>
 
@@ -499,9 +513,7 @@ export default function ReportsScreen() {
         </View>
       </View>
     );
-  }
-
-  const basicReport = generateBasicReport();
+  }  const basicReport = generateBasicReport();
   const advancedReport = generateAdvancedReport();
   const trends = advancedReport?.trends || [];
 
@@ -545,16 +557,7 @@ export default function ReportsScreen() {
             { value: "month", label: "Month" },
             { value: "year", label: "Year" },
           ]}
-          style={[styles.segmentedButtons]}
-          theme={{
-            colors: {
-              primary: theme.gold.primary,
-              onPrimary: theme.background.primary,
-              surface: theme.background.primary,
-              onSurface: theme.text.primary,
-              outline: theme.border.primary,
-            }
-          }}
+          style={[styles.segmentedButtons, { backgroundColor: theme.background.primary }]}
         />
       </View>
 
@@ -569,7 +572,7 @@ export default function ReportsScreen() {
         
         <View style={styles.summaryStats}>
           <View style={[styles.statItem, { backgroundColor: theme.background.primary, borderColor: theme.border.primary }]}>
-            <View style={[styles.statIconContainer, { backgroundColor: theme.gold.background }]}>
+            <View style={[styles.statIconContainer, { backgroundColor: theme.gold.secondary }]}>
               <Ionicons name="receipt-outline" size={20} color={theme.gold.primary} />
             </View>
             <Text style={[styles.statValue, { color: theme.text.primary }]}>
@@ -584,12 +587,7 @@ export default function ReportsScreen() {
             <View style={[styles.statIconContainer, { backgroundColor: theme.gold.background }]}>
               <Ionicons name="cash-outline" size={20} color={theme.gold.primary} />
             </View>
-            <Text 
-              style={[styles.statValue, { color: theme.text.primary }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-            >
+            <Text style={[styles.statValue, { color: theme.text.primary }]}>
               {formatCurrency(basicReport.totalAmount)}
             </Text>
             <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
@@ -601,12 +599,7 @@ export default function ReportsScreen() {
             <View style={[styles.statIconContainer, { backgroundColor: theme.gold.background }]}>
               <Ionicons name="trending-up-outline" size={20} color={theme.gold.primary} />
             </View>
-            <Text 
-              style={[styles.statValue, { color: theme.text.primary }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-            >
+            <Text style={[styles.statValue, { color: theme.text.primary }]}>
               {formatCurrency(basicReport.totalAmount / Math.max(basicReport.receiptCount, 1))}
             </Text>
             <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
@@ -652,7 +645,7 @@ export default function ReportsScreen() {
                           styles.categoryProgressFill,
                           { 
                             backgroundColor: theme.gold.primary,
-                            width: `${Math.min(100, Math.max(0, parseFloat(percentage)))}%` as any
+                            width: `${percentage}%`
                           }
                         ]}
                       />
@@ -660,6 +653,20 @@ export default function ReportsScreen() {
                     <Text style={[styles.categoryPercentage, { color: theme.text.secondary }]}>
                       {percentage}%
                     </Text>
+                  </View>
+                </View>
+              );
+            })}
+        </View>
+      </View>
+                  <Text style={styles.categoryItem}>
+                    {ReceiptCategoryService.getCategoryDisplayName(category as any)}
+                  </Text>
+                  <View style={styles.categoryDetails}>
+                    <Text style={styles.categoryAmount}>
+                      {formatCurrency(amount)}
+                    </Text>
+                    <Text style={styles.categoryPercent}>{percentage}%</Text>
                   </View>
                 </View>
               );
@@ -690,130 +697,169 @@ export default function ReportsScreen() {
         </View>
       </View>
 
-      {/* Premium Features */}
-      {!subscription.features.advancedReporting && (
-        <View style={[
-          styles.premiumCard,
-          { backgroundColor: theme.background.secondary, borderColor: theme.gold.primary }
-        ]}>
-          <Ionicons name="lock-closed" size={24} color={theme.gold.primary} />
-          <Text style={[styles.premiumTitle, { color: theme.text.primary }]}>
-            Advanced Analytics
-          </Text>
-          <Text style={[styles.premiumDescription, { color: theme.text.secondary }]}>
-            Unlock tax insights, business expense tracking, and detailed trends with Premium.
-          </Text>
-        </View>
-      )}
-      
-      {/* Advanced features for premium users */}
-      {subscription.features.advancedReporting && advancedReport && (
-        <>
-          {/* Business vs Personal Split */}
-          <View style={[
-            styles.taxCard,
-            { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }
-          ]}>
-            <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
-              Business vs Personal
-            </Text>
-            
-            <View style={styles.splitVisualization}>
-              <View 
-                style={[
-                  styles.businessSplit, 
-                  { 
-                    backgroundColor: theme.gold.primary,
-                    width: `${businessPercentage}%` as any
-                  }
-                ]} 
-              />
-              <View 
-                style={[
-                  styles.personalSplit,
-                  { 
-                    backgroundColor: theme.text.tertiary,
-                    width: `${100 - businessPercentage}%` as any
-                  }
-                ]} 
-              />
-            </View>
-            
-            <View style={styles.splitStats}>
-              <View style={styles.splitStatItem}>
-                <Text style={[styles.splitPercentage, { color: theme.gold.primary }]}>
-                  {businessPercentage}%
-                </Text>
-                <Text style={[styles.splitLabel, { color: theme.text.secondary }]}>
-                  Business
-                </Text>
-              </View>
-              <View style={styles.splitStatItem}>
-                <Text style={[styles.splitPercentage, { color: theme.text.tertiary }]}>
-                  {100 - businessPercentage}%
-                </Text>
-                <Text style={[styles.splitLabel, { color: theme.text.secondary }]}>
-                  Personal
-                </Text>
-              </View>
-            </View>
-            
-            {businessPercentage > 0 && (
-              <View style={[
-                styles.taxSavingsInsight,
-                { backgroundColor: theme.gold.background, borderColor: theme.gold.primary }
-              ]}>
-                <Ionicons name="trending-up" size={20} color={theme.gold.primary} />
-                <View>
-                  <Text style={[styles.taxSavingsTitle, { color: theme.text.primary }]}>
-                    Potential Tax Savings
-                  </Text>
-                  <Text style={[styles.taxSavingsAmount, { color: theme.gold.primary }]}>
-                    {formatCurrency(
-                      receipts
-                        .filter((r) => r.tax?.deductible === true)
-                        .reduce((sum, r) => sum + r.amount, 0) * 0.25
-                    )}
-                  </Text>
-                  <Text style={[styles.taxSavingsNote, { color: theme.text.secondary }]}>
-                    Est. at 25% tax rate
-                  </Text>
+      {/* Tax Insights Card */}
+      <Card style={styles.card}>
+        <Card.Title title="Tax Insights" />
+        <Card.Content>
+          <Text style={styles.sectionTitle}>Business vs Personal Split</Text>
+          {receipts.length > 0 && (
+            <>
+              {/* Modern Split Visualization */}
+              <View style={styles.modernSplitContainer}>
+                <View style={styles.splitVisualization}>
+                  <View 
+                    style={[
+                      styles.modernBusinessBar, 
+                      { width: `${businessPercentage}%` }
+                    ]} 
+                  />
+                  <View 
+                    style={[
+                      styles.modernPersonalBar, 
+                      { width: `${100 - businessPercentage}%` }
+                    ]} 
+                  />
                 </View>
               </View>
-            )}
-          </View>
 
-          {/* Tax Categories */}
-          <View style={[
-            styles.taxCategoriesCard,
-            { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }
-          ]}>
-            <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
-              Tax-Deductible Categories
-            </Text>
-            
-            {Object.keys(taxCategories).length > 0 ? (
-              Object.entries(taxCategories).map(([category, amount]) => (
-                <View key={category} style={[
-                  styles.taxCategoryItem,
-                  { borderColor: theme.border.primary }
-                ]}>
-                  <Text style={[styles.taxCategoryName, { color: theme.text.primary }]}>
-                    {ReceiptCategoryService.getCategoryDisplayName(category as any)}
-                  </Text>
-                  <Text style={[styles.taxCategoryAmount, { color: theme.gold.primary }]}>
-                    {formatCurrency(amount)}
-                  </Text>
+              {/* Split Stats Cards */}
+              <View style={styles.splitStatsContainer}>
+                <View style={[styles.splitStatCard, styles.businessStatCard]}>
+                  <View style={styles.statIconContainer}>
+                    <Text style={styles.businessIcon}>💼</Text>
+                  </View>
+                  <View style={styles.statContent}>
+                    <Text style={styles.statLabel}>Business</Text>
+                    <Text style={styles.statPercentage}>{businessPercentage}%</Text>
+                    <Text style={styles.statAmount}>
+                      ${receipts
+                        .filter((r) => r.tax?.deductible === true)
+                        .reduce((sum, r) => sum + r.amount, 0)
+                        .toFixed(2)}
+                    </Text>
+                  </View>
                 </View>
-              ))
-            ) : (
-              <Text style={[styles.noTaxCategoriesText, { color: theme.text.secondary }]}>
-                No tax-deductible receipts found for this period.
-              </Text>
-            )}
+
+                <View style={[styles.splitStatCard, styles.personalStatCard]}>
+                  <View style={styles.statIconContainer}>
+                    <Text style={styles.personalIcon}>👤</Text>
+                  </View>
+                  <View style={styles.statContent}>
+                    <Text style={styles.statLabel}>Personal</Text>
+                    <Text style={styles.statPercentage}>{100 - businessPercentage}%</Text>
+                    <Text style={styles.statAmount}>
+                      ${receipts
+                        .filter((r) => !r.tax?.deductible)
+                        .reduce((sum, r) => sum + r.amount, 0)
+                        .toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Tax Savings Insight */}
+              {businessPercentage > 0 && (
+                <View style={styles.taxSavingsCard}>
+                  <Text style={styles.taxSavingsIcon}>💰</Text>
+                  <View style={styles.taxSavingsContent}>
+                    <Text style={styles.taxSavingsTitle}>Potential Tax Savings</Text>
+                    <Text style={styles.taxSavingsAmount}>
+                      ${(receipts
+                        .filter((r) => r.tax?.deductible === true)
+                        .reduce((sum, r) => sum + r.amount, 0) * 0.25).toFixed(2)}
+                    </Text>
+                    <Text style={styles.taxSavingsSubtext}>
+                      Estimated at 25% tax rate
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </>
+          )}
+
+          <Text style={styles.sectionTitle}>Tax Categories</Text>
+          <View style={styles.taxCategories}>
+            {Object.entries(taxCategories).map(([category, amount]) => (
+              <View key={category} style={styles.taxCategory}>
+                <Text style={styles.taxCategoryName} numberOfLines={2}>
+                  {ReceiptCategoryService.getCategoryDisplayName(category as any)}
+                </Text>
+                <Text style={styles.taxCategoryAmount}>
+                  {formatCurrency(amount)}
+                </Text>
+              </View>
+            ))}
           </View>
-        </>
-      )}
+        </Card.Content>
+      </Card>
+
+      <PremiumGate
+        feature="advancedReporting"
+        featureName="Advanced Reports"
+        description="Access detailed analytics, trends, and business-wise reporting"
+        requiredTier="growth"
+      >
+        <Card style={styles.card}>
+          <Card.Title title="Advanced Reports" />
+          <Card.Content>
+            {trends.length > 0 && (
+              <View>
+                <Text style={styles.sectionTitle}>Monthly Trends</Text>
+                <LineChart
+                  data={{
+                    labels: trends.map((t) => t.month),
+                    datasets: [
+                      {
+                        data: trends.map((t) => t.amount),
+                      },
+                    ],
+                  }}
+                  width={screenWidth - 48}
+                  height={220}
+                  chartConfig={{
+                    backgroundColor: "#ffffff",
+                    backgroundGradientFrom: "#ffffff",
+                    backgroundGradientTo: "#ffffff",
+                    decimalPlaces: 0,
+                    color: (opacity: number = 1) => `rgba(0, 0, 0, ${opacity})`,
+                    labelColor: (opacity: number = 1) =>
+                      `rgba(0, 0, 0, ${opacity})`,
+                    style: {
+                      borderRadius: 16,
+                    },
+                    propsForDots: {
+                      r: "6",
+                      strokeWidth: "2",
+                      stroke: "#ffa726",
+                    },
+                  }}
+                  bezier
+                  style={styles.chart}
+                />
+              </View>
+            )}
+
+            {advancedReport && (
+              <View>
+                <Text style={styles.sectionTitle}>Business Breakdown:</Text>
+                {Object.entries(advancedReport.byBusiness).map(
+                  ([businessId, data]) => (
+                    <View key={businessId} style={styles.categoryRow}>
+                      <Text style={styles.categoryItem}>{businessId}</Text>
+                      <View style={styles.categoryDetails}>
+                        <Text style={styles.categoryAmount}>
+                          {formatCurrency(data.total)} ({data.receipts.length}{" "}
+                          receipts)
+                        </Text>
+                      </View>
+                    </View>
+                  )
+                )}
+              </View>
+            )}
+          </Card.Content>
+        </Card>
+      </PremiumGate>
     </ScrollView>
   );
 };
@@ -822,63 +868,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 16,
+    backgroundColor: "#f5f5f5",
   },
-  
-  // Loading state
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    margin: 16,
-    padding: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    textAlign: 'center',
-  },
-  
-  // Error state
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    margin: 16,
-    padding: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  errorText: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  retryButton: {
-    marginTop: 8,
-  },
-  
-  // Empty state
   emptyContainer: {
     flex: 1,
     padding: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyContent: {
-    width: '100%',
-    maxWidth: 400,
-    padding: 32,
-    borderRadius: 16,
-    borderWidth: 1,
-    alignItems: 'center',
+    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
+    alignItems: "center",
   },
   emptyIcon: {
     fontSize: 64,
@@ -886,267 +883,254 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 24,
-    fontWeight: '600',
-    marginBottom: 12,
-    textAlign: 'center',
+    fontWeight: "bold",
+    marginBottom: 8,
+    textAlign: "center",
   },
   emptyDescription: {
     fontSize: 16,
-    textAlign: 'center',
+    color: "#666",
+    textAlign: "center",
     marginBottom: 24,
-    lineHeight: 24,
+    paddingHorizontal: 32,
   },
-  emptyDateRangeCard: {
-    width: '100%',
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 24,
+  card: {
+    marginBottom: 16,
   },
-  emptyDateRangeTitle: {
+  errorText: {
+    color: "#B00020",
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  emptyActionButton: {
-    marginTop: 8,
-  },
-  
-  // Header
-  headerCard: {
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
+    textAlign: "center",
     marginBottom: 16,
   },
-  headerContent: {
-    marginBottom: 16,
-  },
-  headerTitleSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  amount: {
+    fontSize: 24,
+    fontWeight: "bold",
     marginBottom: 8,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    marginLeft: 12,
-  },
-  headerSubtitle: {
+  subtitle: {
     fontSize: 16,
-    marginLeft: 36,
-  },
-  segmentedButtons: {
-    borderRadius: 12,
-  },
-  
-  // Summary stats
-  summaryCard: {
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
+    color: "#666",
     marginBottom: 16,
+  },
+  metric: {
+    fontSize: 16,
+    color: "#333",
+    marginVertical: 4,
   },
   sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: "bold",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  categoryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  categoryItem: {
+    fontSize: 16,
+    color: "#333",
+    flex: 1,
+  },
+  categoryDetails: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  categoryAmount: {
+    fontSize: 16,
+    color: "#333",
+    marginRight: 8,
+  },
+  categoryPercent: {
+    fontSize: 14,
+    color: "#666",
+    width: 50,
+    textAlign: "right",
+  },
+  buttonContainer: {
+    flexDirection: "row",
+    justifyContent: "space-around",
+    marginTop: 16,
+    paddingHorizontal: 4,
+  },
+  button: {
+    marginHorizontal: 4,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  splitContainer: {
+    flexDirection: "row",
+    height: 40,
+    borderRadius: 20,
+    overflow: "hidden",
+    marginVertical: 8,
+  },
+  splitBar: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  businessBar: {
+    backgroundColor: "#4CAF50",
+  },
+  personalBar: {
+    backgroundColor: "#9E9E9E",
+  },
+  splitText: {
+    color: "white",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  taxCategories: {
+    marginTop: 8,
+  },
+  taxCategory: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
+  },
+  taxCategoryName: {
+    fontSize: 16,
+    color: "#333",
+    flex: 1,
+    marginRight: 12,
+    lineHeight: 20,
+  },
+  taxCategoryAmount: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: "bold",
+    minWidth: 80,
+    textAlign: "right",
+  },
+  chart: {
+    marginVertical: 8,
+    borderRadius: 16,
+    alignSelf: "center",
+  },
+  // Modern Split UI Styles
+  modernSplitContainer: {
+    marginVertical: 16,
+  },
+  splitVisualization: {
+    flexDirection: "row",
+    height: 8,
+    borderRadius: 4,
+    overflow: "hidden",
+    backgroundColor: "#f0f0f0",
     marginBottom: 16,
   },
-  summaryStats: {
-    flexDirection: 'row',
-    gap: 12,
+  modernBusinessBar: {
+    backgroundColor: "#4CAF50",
+    height: "100%",
+    borderRadius: 4,
   },
-  statItem: {
+  modernPersonalBar: {
+    backgroundColor: "#9E9E9E",
+    height: "100%",
+    borderRadius: 4,
+  },
+  splitStatsContainer: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 16,
+  },
+  splitStatCard: {
     flex: 1,
-    padding: 16,
+    backgroundColor: "#ffffff",
     borderRadius: 12,
-    borderWidth: 1,
-    alignItems: 'center',
+    padding: 16,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  businessStatCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#4CAF50",
+  },
+  personalStatCard: {
+    borderLeftWidth: 4,
+    borderLeftColor: "#9E9E9E",
   },
   statIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
+    backgroundColor: "#f8f9fa",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
   },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 4,
-    textAlign: 'center',
+  businessIcon: {
+    fontSize: 20,
+  },
+  personalIcon: {
+    fontSize: 20,
+  },
+  statContent: {
+    flex: 1,
   },
   statLabel: {
     fontSize: 14,
-    textAlign: 'center',
+    color: "#666",
+    marginBottom: 4,
+    fontWeight: "500",
   },
-  
-  // Categories
-  categoryCard: {
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  categoryList: {
-    gap: 12,
-    marginBottom: 20,
-  },
-  categoryItem: {
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  categoryInfo: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  categoryName: {
-    fontSize: 16,
-    fontWeight: '500',
-    flex: 1,
-  },
-  categoryAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  categoryProgress: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  categoryProgressBar: {
-    flex: 1,
-    height: 6,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  categoryProgressFill: {
-    height: '100%',
-    borderRadius: 3,
-  },
-  categoryPercentage: {
-    fontSize: 14,
-    fontWeight: '500',
-    minWidth: 40,
-    textAlign: 'right',
-  },
-  categoryActions: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-  },
-  
-  // Premium gate
-  premiumCard: {
-    padding: 24,
-    borderRadius: 16,
-    borderWidth: 2,
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  premiumTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginTop: 12,
-    marginBottom: 8,
-  },
-  premiumDescription: {
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  
-  // Tax insights
-  taxCard: {
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  splitVisualization: {
-    flexDirection: 'row',
-    height: 8,
-    borderRadius: 4,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  businessSplit: {
-    height: '100%',
-  },
-  personalSplit: {
-    height: '100%',
-  },
-  splitStats: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 16,
-  },
-  splitStatItem: {
-    alignItems: 'center',
-  },
-  splitPercentage: {
+  statPercentage: {
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: "bold",
+    color: "#333",
     marginBottom: 4,
   },
-  splitLabel: {
-    fontSize: 14,
+  statAmount: {
+    fontSize: 16,
+    color: "#4CAF50",
+    fontWeight: "600",
   },
-  taxSavingsInsight: {
-    flexDirection: 'row',
-    padding: 16,
+  taxSavingsCard: {
+    flexDirection: "row",
+    backgroundColor: "#E8F5E8",
     borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
     borderWidth: 1,
-    alignItems: 'center',
-    gap: 12,
+    borderColor: "#4CAF50",
+    marginBottom: 8,
+  },
+  taxSavingsIcon: {
+    fontSize: 24,
+    marginRight: 12,
+  },
+  taxSavingsContent: {
+    flex: 1,
   },
   taxSavingsTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
+    color: "#2E7D32",
     marginBottom: 4,
   },
   taxSavingsAmount: {
     fontSize: 20,
-    fontWeight: '700',
+    fontWeight: "bold",
+    color: "#1B5E20",
     marginBottom: 2,
   },
-  taxSavingsNote: {
+  taxSavingsSubtext: {
     fontSize: 12,
-  },
-  
-  // Tax categories
-  taxCategoriesCard: {
-    padding: 20,
-    borderRadius: 16,
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  taxCategoryItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  taxCategoryName: {
-    fontSize: 16,
-    flex: 1,
-  },
-  taxCategoryAmount: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  noTaxCategoriesText: {
-    fontSize: 16,
-    textAlign: 'center',
-    fontStyle: 'italic',
-    padding: 20,
+    color: "#4CAF50",
   },
 });

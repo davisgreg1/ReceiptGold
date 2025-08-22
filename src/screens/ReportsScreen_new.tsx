@@ -62,8 +62,6 @@ export default function ReportsScreen() {
   const navigation = useNavigation<StackNavigationProp<any>>();
   const { theme } = useTheme();
   
-  console.log('ReportsScreen render:', { user: !!user, subscription: !!subscription, theme: !!theme });
-  
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -180,16 +178,8 @@ export default function ReportsScreen() {
   }, [selectedDateRange]);
 
   useEffect(() => {
-    console.log('ReportsScreen useEffect triggered:', { user: !!user, selectedDateRange });
-    
     const fetchReceipts = async () => {
-      if (!user) {
-        console.log('No user found, skipping fetch');
-        setLoading(false);
-        return;
-      }
-      
-      console.log('Starting to fetch receipts...');
+      if (!user) return;
       setLoading(true);
       setError(null);
 
@@ -206,10 +196,8 @@ export default function ReportsScreen() {
             where("createdAt", ">=", dateRangeFilter.startDate),
             where("createdAt", "<=", dateRangeFilter.endDate)
           );
-          console.log('Attempting optimized query...');
           querySnapshot = await getDocs(optimizedQuery);
         } catch (error: any) {
-          console.log('Optimized query failed, using fallback:', error.message);
           if (error.code === 'failed-precondition' || error.message.includes('index')) {
             // Fall back to basic query and filter in memory
             const basicQuery = query(
@@ -252,7 +240,6 @@ export default function ReportsScreen() {
           });
         });
 
-        console.log('Fetched receipts:', fetchedReceipts.length);
         setReceipts(fetchedReceipts);
       } catch (error) {
         console.error("Error fetching receipts:", error);
@@ -365,27 +352,6 @@ export default function ReportsScreen() {
     }
   };
 
-  console.log('ReportsScreen render state:', { loading, error, receiptsCount: receipts.length, user: !!user });
-
-  if (!user) {
-    return (
-      <View style={[styles.container, { backgroundColor: theme.background.primary }]}>
-        <View style={[
-          styles.errorContainer,
-          { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }
-        ]}>
-          <Ionicons name="person-outline" size={48} color={theme.gold.primary} />
-          <Text style={[styles.errorTitle, { color: theme.text.primary }]}>
-            Not Authenticated
-          </Text>
-          <Text style={[styles.errorText, { color: theme.text.secondary }]}>
-            Please sign in to view your financial reports.
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
   if (loading) {
     return (
       <View style={[styles.container, { backgroundColor: theme.background.primary }]}>
@@ -471,15 +437,7 @@ export default function ReportsScreen() {
                 { value: "month", label: "Month" },
                 { value: "year", label: "Year" },
               ]}
-              theme={{
-                colors: {
-                  primary: theme.gold.primary,
-                  onPrimary: theme.background.primary,
-                  surface: theme.background.secondary,
-                  onSurface: theme.text.primary,
-                  outline: theme.border.primary,
-                }
-              }}
+              style={{ backgroundColor: theme.background.secondary }}
             />
           </View>
 
@@ -545,16 +503,7 @@ export default function ReportsScreen() {
             { value: "month", label: "Month" },
             { value: "year", label: "Year" },
           ]}
-          style={[styles.segmentedButtons]}
-          theme={{
-            colors: {
-              primary: theme.gold.primary,
-              onPrimary: theme.background.primary,
-              surface: theme.background.primary,
-              onSurface: theme.text.primary,
-              outline: theme.border.primary,
-            }
-          }}
+          style={[styles.segmentedButtons, { backgroundColor: theme.background.primary }]}
         />
       </View>
 
@@ -584,12 +533,7 @@ export default function ReportsScreen() {
             <View style={[styles.statIconContainer, { backgroundColor: theme.gold.background }]}>
               <Ionicons name="cash-outline" size={20} color={theme.gold.primary} />
             </View>
-            <Text 
-              style={[styles.statValue, { color: theme.text.primary }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-            >
+            <Text style={[styles.statValue, { color: theme.text.primary }]}>
               {formatCurrency(basicReport.totalAmount)}
             </Text>
             <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
@@ -601,12 +545,7 @@ export default function ReportsScreen() {
             <View style={[styles.statIconContainer, { backgroundColor: theme.gold.background }]}>
               <Ionicons name="trending-up-outline" size={20} color={theme.gold.primary} />
             </View>
-            <Text 
-              style={[styles.statValue, { color: theme.text.primary }]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              minimumFontScale={0.7}
-            >
+            <Text style={[styles.statValue, { color: theme.text.primary }]}>
               {formatCurrency(basicReport.totalAmount / Math.max(basicReport.receiptCount, 1))}
             </Text>
             <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
@@ -973,7 +912,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   statValue: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: '700',
     marginBottom: 4,
     textAlign: 'center',
