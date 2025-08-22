@@ -104,7 +104,7 @@ const PlaceholderScreen = ({ title }: { title: string }) => {
 };
 
 // Import screens
-import { ReportsScreen } from "../screens/ReportsScreen";
+import ReportsScreen from "../screens/ReportsScreen";
 
 const TaxReportScreen = () => (
   <PremiumGate
@@ -118,134 +118,202 @@ const TaxReportScreen = () => (
 );
 
 // Stack Navigators for each tab
-const HomeStackNavigator = () => (
-  <HomeStack.Navigator>
-    <HomeStack.Screen
-      name="Home"
-      component={HomeScreen}
-      options={{ headerShown: false }}
-    />
-    <HomeStack.Screen
-      name="Subscription"
-      component={require("../screens/ChoosePlanScreen").default}
-      options={{ title: "Choose Your Plan" }}
-    />
-    <HomeStack.Screen
-      name="BankTransactions"
-      component={BankTransactionsScreen}
-      options={{ title: "Bank Transactions" }}
-    />
-  </HomeStack.Navigator>
-);
-
-const ReceiptsStackNavigator = () => (
-  <ReceiptsStack.Navigator>
-    <ReceiptsStack.Screen 
-      name="ReceiptsList" 
-      component={ReceiptsListScreen} 
-      options={{ 
-        headerShown: false 
-      }} 
-    />
-    <ReceiptsStack.Screen 
-      name="ScanReceipt" 
-      component={ScanReceiptScreen} 
-      options={{ 
-        headerShown: false 
-      }} 
-    />
-    <ReceiptsStack.Screen 
-      name="ReceiptDetail" 
-      component={ReceiptDetailScreen} 
-      options={{ 
-        headerShown: true,
-        title: 'Receipt Details'
-      }} 
-    />
-    <ReceiptsStack.Screen 
-      name="EditReceipt" 
-      component={EditReceiptScreen} 
-      options={{ 
-        headerShown: true,
-        title: 'Edit Receipt',
-        presentation: 'modal'
-      }} 
-    />
-  </ReceiptsStack.Navigator>
-);
-
-const ReportsStackNavigator = () => (
-  <ReportsStack.Navigator>
-    <ReportsStack.Screen
-      name="ReportsDashboard"
-      component={ReportsScreen}
-      options={{ title: "Reports & Analytics" }}
-    />
-    <ReportsStack.Screen
-      name="TaxReport"
-      component={TaxReportScreen}
-      options={{ title: "Tax Report" }}
-    />
-    <ReportsStack.Screen
-      name="ExpenseReport"
-      component={ReportsScreen}
-      options={{ title: "Expense Report" }}
-    />
-    <ReportsStack.Screen
-      name="CategoryReport"
-      component={DetailedBreakdownScreen}
-      options={{ title: "Detailed Breakdown" }}
-    />
-  </ReportsStack.Navigator>
-);
-
-const SettingsStackNavigator = () => (
-  <SettingsStack.Navigator>
-    <SettingsStack.Screen
-      name="SettingsHome"
-      component={SettingsScreen}
-      options={{
-        title: "Settings",
-        headerShown: false,
+const HomeStackNavigator = () => {
+  const { theme } = useTheme();
+  
+  return (
+    <HomeStack.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: theme.background.secondary,
+        },
+        headerTintColor: theme.text.primary,
+        headerTitleStyle: {
+          color: theme.text.primary,
+        },
+        cardStyle: {
+          backgroundColor: theme.background.primary,
+        },
       }}
-    />
-    <SettingsStack.Screen
-      name="Profile"
-      component={() => <PlaceholderScreen title="Profile" />}
-      options={{ title: "Profile" }}
-    />
-    <SettingsStack.Screen
-      name="Billing"
-      component={() => <PlaceholderScreen title="Billing" />}
-      options={{ title: "Billing & Subscription" }}
-    />
-    <SettingsStack.Screen
-      name="Notifications"
-      component={NotificationSettingsScreen}
-      options={{ title: "Notifications" }}
-    />
-    <SettingsStack.Screen
-      name="Help"
-      component={HelpCenterScreen}
-      options={{ title: "Help Center" }}
-    />
-    <SettingsStack.Screen
-      name="ContactSupport"
-      component={ContactSupportScreen}
-      options={{ title: "Contact Support" }}
-    />
-    <SettingsStack.Screen
-      name="PrivacyPolicy"
-      component={PrivacyPolicyScreen}
-      options={{ title: "Privacy Policy" }}
-    />
-    <SettingsStack.Screen
-      name="TermsOfService"
-      component={TermsOfServiceScreen}
-      options={{ title: "Terms of Service" }}
-    />
-  </SettingsStack.Navigator>
-);
+    >
+      <HomeStack.Screen
+        name="Home"
+        component={HomeScreen}
+        options={{ headerShown: false }}
+      />
+      <HomeStack.Screen
+        name="Subscription"
+        component={require("../screens/ChoosePlanScreen").default}
+        options={{ title: "Choose Your Plan" }}
+      />
+      <HomeStack.Screen
+        name="BankTransactions"
+        component={BankTransactionsScreen}
+        options={{ title: "Bank Transactions" }}
+      />
+    </HomeStack.Navigator>
+  );
+};
+
+const ReceiptsStackNavigator = () => {
+  const { theme } = useTheme();
+  
+  return (
+    <ReceiptsStack.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: theme.background.secondary,
+        },
+        headerTintColor: theme.text.primary,
+        headerTitleStyle: {
+          color: theme.text.primary,
+        },
+        cardStyle: {
+          backgroundColor: theme.background.primary,
+        },
+      }}
+    >
+      <ReceiptsStack.Screen 
+        name="ReceiptsList" 
+        component={ReceiptsListScreen} 
+        options={{ 
+          headerShown: false 
+        }} 
+      />
+      <ReceiptsStack.Screen 
+        name="ScanReceipt" 
+        component={ScanReceiptScreen} 
+        options={{ 
+          headerShown: false 
+        }} 
+      />
+      <ReceiptsStack.Screen 
+        name="ReceiptDetail" 
+        component={ReceiptDetailScreen} 
+        options={{ 
+          headerShown: true,
+          title: 'Receipt Details'
+        }} 
+      />
+      <ReceiptsStack.Screen 
+        name="EditReceipt" 
+        component={EditReceiptScreen} 
+        options={{ 
+          headerShown: true,
+          title: 'Edit Receipt',
+          presentation: 'modal'
+        }} 
+      />
+    </ReceiptsStack.Navigator>
+  );
+};
+
+const ReportsStackNavigator = () => {
+  const { theme } = useTheme();
+  
+  return (
+    <ReportsStack.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: theme.background.secondary,
+        },
+        headerTintColor: theme.text.primary,
+        headerTitleStyle: {
+          color: theme.text.primary,
+        },
+        cardStyle: {
+          backgroundColor: theme.background.primary,
+        },
+      }}
+    >
+      <ReportsStack.Screen
+        name="ReportsDashboard"
+        component={ReportsScreen}
+        options={{ title: "Reports & Analytics" }}
+      />
+      <ReportsStack.Screen
+        name="TaxReport"
+        component={TaxReportScreen}
+        options={{ title: "Tax Report" }}
+      />
+      <ReportsStack.Screen
+        name="ExpenseReport"
+        component={ReportsScreen}
+        options={{ title: "Expense Report" }}
+      />
+      <ReportsStack.Screen
+        name="CategoryReport"
+        component={DetailedBreakdownScreen}
+        options={{ title: "Detailed Breakdown" }}
+      />
+    </ReportsStack.Navigator>
+  );
+};
+
+const SettingsStackNavigator = () => {
+  const { theme } = useTheme();
+  
+  return (
+    <SettingsStack.Navigator
+      screenOptions={{
+        headerStyle: {
+          backgroundColor: theme.background.secondary,
+        },
+        headerTintColor: theme.text.primary,
+        headerTitleStyle: {
+          color: theme.text.primary,
+        },
+        cardStyle: {
+          backgroundColor: theme.background.primary,
+        },
+      }}
+    >
+      <SettingsStack.Screen
+        name="SettingsHome"
+        component={SettingsScreen}
+        options={{
+          title: "Settings",
+          headerShown: false,
+        }}
+      />
+      <SettingsStack.Screen
+        name="Profile"
+        component={() => <PlaceholderScreen title="Profile" />}
+        options={{ title: "Profile" }}
+      />
+      <SettingsStack.Screen
+        name="Billing"
+        component={() => <PlaceholderScreen title="Billing" />}
+        options={{ title: "Billing & Subscription" }}
+      />
+      <SettingsStack.Screen
+        name="Notifications"
+        component={NotificationSettingsScreen}
+        options={{ title: "Notifications" }}
+      />
+      <SettingsStack.Screen
+        name="Help"
+        component={HelpCenterScreen}
+        options={{ title: "Help Center" }}
+      />
+      <SettingsStack.Screen
+        name="ContactSupport"
+        component={ContactSupportScreen}
+        options={{ title: "Contact Support" }}
+      />
+      <SettingsStack.Screen
+        name="PrivacyPolicy"
+        component={PrivacyPolicyScreen}
+        options={{ title: "Privacy Policy" }}
+      />
+      <SettingsStack.Screen
+        name="TermsOfService"
+        component={TermsOfServiceScreen}
+        options={{ title: "Terms of Service" }}
+      />
+    </SettingsStack.Navigator>
+  );
+};
 
 export const AppNavigator: React.FC = () => {
   const { theme } = useTheme();
