@@ -586,10 +586,10 @@ const styles = StyleSheet.create({
   pickerContainer: {
     borderWidth: 1,
     borderRadius: 8,
-    overflow: 'hidden',
+    overflow: Platform.OS === 'ios' ? 'hidden' : 'visible',
   },
   picker: {
-    height: 48,
+    height: Platform.OS === 'ios' ? 48 : 56,
   },
   toggleSection: {
     flexDirection: 'row',
