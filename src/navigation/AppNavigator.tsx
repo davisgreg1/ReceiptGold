@@ -19,6 +19,8 @@ import { ContactSupportScreen } from "../screens/ContactSupportScreen";
 import { HelpCenterScreen } from "../screens/HelpCenterScreen";
 import { PrivacyPolicyScreen } from "../screens/PrivacyPolicyScreen";
 import { TermsOfServiceScreen } from "../screens/TermsOfServiceScreen";
+import BusinessManagementScreen from "../screens/BusinessManagementScreen";
+import CreateBusinessScreen from "../screens/CreateBusinessScreen";
 import { Receipt } from "../types/receipt";
 
 // Tab Navigator Types
@@ -59,6 +61,8 @@ export type SettingsStackParamList = {
   ContactSupport: undefined;
   PrivacyPolicy: undefined;
   TermsOfService: undefined;
+  BusinessManagement: undefined;
+  CreateBusiness: undefined;
 };
 
 const Tab = createBottomTabNavigator<BottomTabParamList>();
@@ -310,6 +314,16 @@ const SettingsStackNavigator = () => {
         name="TermsOfService"
         component={TermsOfServiceScreen}
         options={{ title: "Terms of Service" }}
+      />
+      <SettingsStack.Screen
+        name="BusinessManagement"
+        component={BusinessManagementScreen}
+        options={{ title: "Business Management" }}
+      />
+      <SettingsStack.Screen
+        name="CreateBusiness"
+        component={CreateBusinessScreen}
+        options={{ title: "Create Business" }}
       />
     </SettingsStack.Navigator>
   );

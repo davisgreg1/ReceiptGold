@@ -22,6 +22,7 @@ import { SettingsStackParamList } from '../navigation/AppNavigator';
 import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useAuth } from '../context/AuthContext';
+import { useBusiness } from '../context/BusinessContext';
 import { useStripePayments } from '../hooks/useStripePayments';
 import { Ionicons } from '@expo/vector-icons';
 import { doc, updateDoc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
@@ -126,24 +127,13 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
   );
 };
 
-const BUSINESS_TYPES = [
-  'Sole Proprietorship',
-  'Limited Liability Company (LLC)',
-  'Corporation',
-  'S Corporation',
-  'Partnership',
-  'Limited Partnership',
-  'Limited Liability Partnership (LLP)',
-  'Nonprofit Organization',
-  'Cooperative',
-  'Professional Corporation (PC)',
-];
 
 export const SettingsScreen: React.FC = () => {
   const { theme, themeMode, toggleTheme } = useTheme();
   const { subscription, canAccessFeature } = useSubscription();
   console.log("🚀 ~ SettingsScreen ~ subscription:", subscription)
   const { user, logout, refreshUser } = useAuth();
+  const { businesses, selectedBusiness } = useBusiness();
   const { handleSubscriptionWithCloudFunction, SUBSCRIPTION_TIERS } = useStripePayments();
   const navigation = useNavigation<StackNavigationProp<SettingsStackParamList>>();
   const { showSuccess, showError, showWarning, showInfo, showFirebaseError, hideAlert } = useCustomAlert();
@@ -175,20 +165,6 @@ export const SettingsScreen: React.FC = () => {
           setFirstName(data.firstName || '');
           setLastName(data.lastName || '');
           
-          // Set business info
-          if (data.profile) {
-            setBusinessInfo({
-              businessName: data.profile.businessName || '',
-              businessType: data.profile.businessType || 'Sole Proprietorship',
-              taxId: data.profile.taxId || '',
-              phone: data.profile.phone || '',
-              street: data.profile.address?.street || '',
-              city: data.profile.address?.city || '',
-              state: data.profile.address?.state || '',
-              zipCode: data.profile.address?.zipCode || '',
-              country: data.profile.address?.country || 'US'
-            });
-          }
         }
       } catch (error) {
         console.error('Error fetching user data:', error);
@@ -213,7 +189,6 @@ export const SettingsScreen: React.FC = () => {
   const [showNewPassword, setShowNewPassword] = React.useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = React.useState(false);
   const [isLoading, setIsLoading] = React.useState(false);
-  const [showBusinessDialog, setShowBusinessDialog] = React.useState(false);
   
   // Bank accounts state
   const [bankConnections, setBankConnections] = React.useState<BankConnection[]>([]);
@@ -223,27 +198,7 @@ export const SettingsScreen: React.FC = () => {
   // Services
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
-  const [showIOSPicker, setShowIOSPicker] = React.useState(false);
-  const formatEIN = (ein: string) => {
-    // Remove all non-numeric characters
-    const numbers = ein.replace(/[^\d]/g, '');
-    
-    // Format as XX-XXXXXXX
-    if (numbers.length <= 2) return numbers;
-    return `${numbers.slice(0, 2)}-${numbers.slice(2, 9)}`;
-  };
 
-  const [businessInfo, setBusinessInfo] = React.useState({
-    businessName: '',
-    businessType: 'Sole Proprietorship',
-    taxId: '',
-    phone: '',
-    street: '',
-    city: '',
-    state: '',
-    zipCode: '',
-    country: 'US'
-  });
   
   const handleNameChange = async () => {
     if (!user || !firstName.trim()) return;
@@ -409,34 +364,6 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleBusinessInfoUpdate = async () => {
-    if (!user) return;
-    setIsLoading(true);
-    try {
-      await updateDoc(doc(db, 'users', user.uid), {
-        profile: {
-          businessName: businessInfo.businessName,
-          businessType: businessInfo.businessType,
-          taxId: businessInfo.taxId,
-          phone: businessInfo.phone,
-          address: {
-            street: businessInfo.street,
-            city: businessInfo.city,
-            state: businessInfo.state,
-            zipCode: businessInfo.zipCode,
-            country: businessInfo.country,
-          }
-        }
-      });
-      
-      setShowBusinessDialog(false);
-      showSuccess('Success', 'Business information updated successfully');
-    } catch (error: any) {
-      showFirebaseError(error, 'Failed to Update Business Information');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   // Bank account handlers
   const handleDisconnectBankAccount = async (connection: BankConnection) => {
@@ -735,6 +662,30 @@ export const SettingsScreen: React.FC = () => {
           )}
         </SettingsSection>
 
+        {/* Business Management Section */}
+        <SettingsSection title="Business Management">
+          <SettingsRow
+            label="Manage Businesses"
+            value={businesses.length === 0 ? 'Get started' : `${businesses.length} business${businesses.length !== 1 ? 'es' : ''}`}
+            onPress={() => navigation.navigate('BusinessManagement')}
+            rightElement={<Ionicons name="chevron-forward" size={20} color={theme.text.secondary} />}
+            description={businesses.length === 0 
+              ? "Set up your business profile to start tracking receipts"
+              : canAccessFeature('multiBusinessManagement')
+                ? "Create and manage multiple business entities"
+                : "Manage your business information and settings"
+            }
+          />
+          {selectedBusiness && (
+            <SettingsRow
+              label="Active Business"
+              value={selectedBusiness.name}
+              description="All new receipts will be associated with this business"
+              rightElement={<Ionicons name="chevron-forward" size={20} color={theme.text.secondary} />}
+            />
+          )}
+        </SettingsSection>
+
         {/* Bank Accounts Section */}
         {canUseBankConnection && (
           <SettingsSection title="Connected Bank Accounts">
@@ -868,29 +819,6 @@ export const SettingsScreen: React.FC = () => {
           />
         </SettingsSection>
 
-        {/* Business Information Section */}
-        <SettingsSection title="Business Information">
-          <SettingsRow
-            label="Business Name"
-            value={businessInfo.businessName || 'Not set'}
-            onPress={() => setShowBusinessDialog(true)}
-          />
-          <SettingsRow
-            label="Business Type"
-            value={businessInfo.businessType}
-            onPress={() => setShowBusinessDialog(true)}
-          />
-          <SettingsRow
-            label="Phone"
-            value={businessInfo.phone || 'Not set'}
-            onPress={() => setShowBusinessDialog(true)}
-          />
-          <SettingsRow
-            label="Address"
-            value={businessInfo.street ? `${businessInfo.city}, ${businessInfo.state}` : 'Not set'}
-            onPress={() => setShowBusinessDialog(true)}
-          />
-        </SettingsSection>
 
         {/* Support Section */}
         <SettingsSection title="Support">
@@ -993,197 +921,6 @@ export const SettingsScreen: React.FC = () => {
         </View>
       )}
 
-      {/* Business Information Dialog */}
-      {showBusinessDialog && (
-        <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
-          <View style={styles.modalContainer}>
-            <ScrollView 
-              contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
-            >
-              <View style={[styles.dialog, { backgroundColor: theme.background.secondary }]}>
-                <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>Business Information</Text>
-              <TextInput
-                style={[styles.input, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
-                placeholder="Business Name"
-                placeholderTextColor={theme.text.tertiary}
-                value={businessInfo.businessName}
-                onChangeText={(text) => setBusinessInfo(prev => ({ ...prev, businessName: text }))}
-              />
-              <View style={[styles.pickerContainer, { 
-                borderColor: theme.border.primary,
-                backgroundColor: theme.background.tertiary,
-              }]}>
-                {Platform.OS === 'ios' ? (
-                  <TouchableOpacity 
-                    style={styles.iosPickerButton}
-                    onPress={() => setShowIOSPicker(true)}
-                  >
-                    <Text style={[styles.iosPickerText, { color: theme.text.primary }]}>
-                      {businessInfo.businessType}
-                    </Text>
-                    <Ionicons name="chevron-down" size={20} color={theme.text.tertiary} />
-                  </TouchableOpacity>
-                ) : (
-                  <Picker
-                    selectedValue={businessInfo.businessType}
-                    onValueChange={(value) => setBusinessInfo(prev => ({ ...prev, businessType: value }))}
-                    style={[
-                      styles.picker, 
-                      { 
-                        color: theme.text.primary,
-                        backgroundColor: theme.background.tertiary
-                      }
-                    ]}
-                    dropdownIconColor={theme.text.primary}
-                    mode="dropdown"
-                  >
-                    {BUSINESS_TYPES.map((type) => (
-                      <Picker.Item 
-                        key={type} 
-                        label={type} 
-                        value={type} 
-                        color="#000000"
-                      />
-                    ))}
-                  </Picker>
-                )}
-              </View>
-              <TextInput
-                style={[styles.input, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
-                placeholder="Tax ID (EIN: XX-XXXXXXX)"
-                placeholderTextColor={theme.text.tertiary}
-                value={businessInfo.taxId}
-                onChangeText={(text) => {
-                  const formatted = formatEIN(text);
-                  if (formatted.length <= 10) { // Max length of XX-XXXXXXX
-                    setBusinessInfo(prev => ({ ...prev, taxId: formatted }));
-                  }
-                }}
-                keyboardType="numeric"
-                maxLength={10} // Length of XX-XXXXXXX
-              />
-              <TextInput
-                style={[styles.input, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
-                placeholder="Phone"
-                placeholderTextColor={theme.text.tertiary}
-                value={businessInfo.phone}
-                onChangeText={(text) => setBusinessInfo(prev => ({ ...prev, phone: text }))}
-                keyboardType="phone-pad"
-              />
-              <TextInput
-                style={[styles.input, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
-                placeholder="Street Address"
-                placeholderTextColor={theme.text.tertiary}
-                value={businessInfo.street}
-                onChangeText={(text) => setBusinessInfo(prev => ({ ...prev, street: text }))}
-              />
-              <TextInput
-                style={[styles.input, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
-                placeholder="City"
-                placeholderTextColor={theme.text.tertiary}
-                value={businessInfo.city}
-                onChangeText={(text) => setBusinessInfo(prev => ({ ...prev, city: text }))}
-              />
-              <TextInput
-                style={[styles.input, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
-                placeholder="State"
-                placeholderTextColor={theme.text.tertiary}
-                value={businessInfo.state}
-                onChangeText={(text) => setBusinessInfo(prev => ({ ...prev, state: text }))}
-              />
-              <TextInput
-                style={[styles.input, { 
-                  color: theme.text.primary,
-                  backgroundColor: theme.background.tertiary,
-                  borderColor: theme.border.primary 
-                }]}
-                placeholder="ZIP Code"
-                placeholderTextColor={theme.text.tertiary}
-                value={businessInfo.zipCode}
-                onChangeText={(text) => setBusinessInfo(prev => ({ ...prev, zipCode: text }))}
-                keyboardType="numeric"
-              />
-              <View style={styles.dialogButtons}>
-                <TouchableOpacity
-                  style={[styles.dialogButton, { borderColor: theme.border.primary }]}
-                  onPress={() => setShowBusinessDialog(false)}
-                >
-                  <Text style={[styles.dialogButtonText, { color: theme.text.primary }]}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.dialogButton, { backgroundColor: theme.gold.primary }]}
-                  onPress={handleBusinessInfoUpdate}
-                  disabled={isLoading}
-                >
-                  {isLoading ? (
-                    <ActivityIndicator color="white" />
-                  ) : (
-                    <Text style={[styles.dialogButtonText, { color: 'white' }]}>Save</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
-              </View>
-            </ScrollView>
-          </View>
-        </View>
-      )}
-
-      {/* iOS Business Type Picker Modal */}
-      {showIOSPicker && Platform.OS === 'ios' && (
-        <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
-          <View style={[styles.iosPickerModal, { backgroundColor: theme.background.secondary }]}>
-            <View style={[styles.iosPickerHeader, { borderBottomColor: theme.border.primary }]}>
-              <TouchableOpacity onPress={() => setShowIOSPicker(false)}>
-                <Text style={[styles.iosPickerAction, { color: theme.text.secondary }]}>Cancel</Text>
-              </TouchableOpacity>
-              <Text style={[styles.iosPickerTitle, { color: theme.text.primary }]}>Business Type</Text>
-              <TouchableOpacity onPress={() => setShowIOSPicker(false)}>
-                <Text style={[styles.iosPickerAction, { color: theme.gold.primary }]}>Done</Text>
-              </TouchableOpacity>
-            </View>
-            <Picker
-              selectedValue={businessInfo.businessType}
-              onValueChange={(value) => setBusinessInfo(prev => ({ ...prev, businessType: value }))}
-              style={[styles.iosPickerWheel, { backgroundColor: theme.background.secondary }]}
-              itemStyle={{ color: theme.text.primary, fontSize: 18 }}
-            >
-              {BUSINESS_TYPES.map((type) => (
-                <Picker.Item 
-                  key={type} 
-                  label={type} 
-                  value={type} 
-                  color={theme.text.primary}
-                />
-              ))}
-            </Picker>
-          </View>
-        </View>
-      )}
 
       {/* Password Change Dialog */}
       {showPasswordDialog && (

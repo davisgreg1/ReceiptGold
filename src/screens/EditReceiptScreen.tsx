@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import * as React from 'react';
+import { useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -23,6 +24,8 @@ import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
 import { formatCurrency } from '../utils/formatCurrency';
 import { BankReceiptService } from '../services/BankReceiptService';
 import { useAuth } from '../context/AuthContext';
+import { useBusiness } from '../context/BusinessContext';
+import BusinessSelector from '../components/BusinessSelector';
 
 const styles = StyleSheet.create({
   container: {
@@ -283,6 +286,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   const { receipt } = route.params;
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { selectedBusiness } = useBusiness();
   const { showError, showSuccess, showFirebaseError, hideAlert } = useCustomAlert();
   const bankReceiptService = BankReceiptService.getInstance();
   const [loading, setLoading] = useState(false);
@@ -295,6 +299,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     description: receipt.description || '',
     category: receipt.category || 'business_expense',
     currency: receipt.currency || 'USD',
+    businessId: receipt.businessId || selectedBusiness?.id || undefined,
     items: (receipt.extractedData?.items || []).map(item => ({
       description: item.description,
       quantity: item.quantity,
@@ -347,6 +352,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         description: formData.description,
         category: formData.category, // Use the main category from Basic Information
         currency: formData.currency,
+        businessId: formData.businessId,
         extractedData: {
           vendor: formData.vendor,
           amount: parseFloat(formData.amount),
@@ -517,6 +523,23 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 placeholderTextColor={theme.text.secondary}
               />
             </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={[styles.fieldLabel, { color: theme.text.primary }]}>Business</Text>
+            <BusinessSelector
+              selectedBusinessId={formData.businessId}
+              onBusinessSelect={(businessId) => setFormData(prev => ({
+                ...prev,
+                businessId: businessId || undefined
+              }))}
+              placeholder="Select business (optional)"
+              allowUnassigned={true}
+              style={[styles.inputContainer, { 
+                backgroundColor: theme.background.secondary,
+                borderColor: theme.border.secondary,
+              }]}
+            />
           </View>
 
           <View style={styles.fieldGroup}>

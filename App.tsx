@@ -4,6 +4,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { SubscriptionProvider } from './src/context/SubscriptionContext';
+import { BusinessProvider } from './src/context/BusinessContext';
 import { StripeWrapper } from './src/components/StripeWrapper';
 import { AppSplashScreen } from './src/screens/SplashScreen';
 import { AppNavigator } from './src/navigation/AppNavigator';
@@ -149,13 +150,15 @@ export default function App() {
         <ThemeProvider>
           <AuthProvider>
             <SubscriptionProvider>
-              <CustomAlertProvider>
-                <NotificationSettingsProvider>
-                  <InAppNotificationProvider>
-                    <AppContent />
-                  </InAppNotificationProvider>
-                </NotificationSettingsProvider>
-              </CustomAlertProvider>
+              <BusinessProvider>
+                <CustomAlertProvider>
+                  <NotificationSettingsProvider>
+                    <InAppNotificationProvider>
+                      <AppContent />
+                    </InAppNotificationProvider>
+                  </NotificationSettingsProvider>
+                </CustomAlertProvider>
+              </BusinessProvider>
             </SubscriptionProvider>
           </AuthProvider>
         </ThemeProvider>
