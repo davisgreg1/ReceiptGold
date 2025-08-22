@@ -20,6 +20,7 @@ import { CategoryPicker } from '../components/CategoryPicker';
 import { ReceiptCategory } from '../services/ReceiptCategoryService';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { FirebaseErrorScenarios } from '../utils/firebaseErrorHandler';
+import { formatCurrency } from '../utils/formatCurrency';
 import { BankReceiptService } from '../services/BankReceiptService';
 import { useAuth } from '../context/AuthContext';
 
@@ -735,7 +736,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                   Item Total
                 </Text>
                 <Text style={[styles.itemTotalValue, { color: theme.gold.primary }]}>
-                  ${(item.quantity * item.price).toFixed(2)}
+                  {formatCurrency(item.quantity * item.price)}
                 </Text>
               </View>
             </View>

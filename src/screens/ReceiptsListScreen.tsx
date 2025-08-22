@@ -26,6 +26,7 @@ import { deleteReceiptAndImage } from "../utils/deleteReceipt";
 import { getMonthlyReceiptCount } from "../utils/getMonthlyReceipts";
 import { checkReceiptLimit } from "../utils/navigationGuards";
 import { debugSubscriptionState } from "../utils/debugSubscription";
+import { formatCurrency } from "../utils/formatCurrency";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription } from "../context/SubscriptionContext";
@@ -129,12 +130,23 @@ export const ReceiptsListScreen: React.FC = () => {
         // Apply filter
         setSelectedFilter(category);
         setSearchQuery("");
-        const filtered = receipts.filter(
-          (receipt) =>
-            ReceiptCategoryService.getCategoryDisplayName(
-              receipt.category as any
-            ) === category
-        );
+        
+        // Map filter names to actual categories
+        const categoryMap: Record<string, string[]> = {
+          "Food": ["restaurant", "groceries"],
+          "Transportation": ["transportation", "travel"],
+          "Office": ["other"], // Office supplies might be categorized as "other"
+          "Entertainment": ["entertainment"],
+          "Healthcare": ["healthcare"],
+        };
+        
+        const targetCategories = categoryMap[category] || [];
+        
+        const filtered = receipts.filter((receipt) => {
+          const receiptCategory = receipt.category as string;
+          return targetCategories.includes(receiptCategory);
+        });
+        
         setFilteredReceipts(filtered);
         // Close search UI when a filter is applied
         setShowSearch(false);
@@ -608,12 +620,21 @@ export const ReceiptsListScreen: React.FC = () => {
 
     // Apply category filter
     if (selectedFilter) {
-      filtered = filtered.filter(
-        (receipt) =>
-          ReceiptCategoryService.getCategoryDisplayName(
-            receipt.category as any
-          ) === selectedFilter
-      );
+      // Map filter names to actual categories
+      const categoryMap: Record<string, string[]> = {
+        "Food": ["restaurant", "groceries"],
+        "Transportation": ["transportation", "travel"],
+        "Office": ["other"], // Office supplies might be categorized as "other"
+        "Entertainment": ["entertainment"],
+        "Healthcare": ["healthcare"],
+      };
+      
+      const targetCategories = categoryMap[selectedFilter] || [];
+      
+      filtered = filtered.filter((receipt) => {
+        const receiptCategory = receipt.category as string;
+        return targetCategories.includes(receiptCategory);
+      });
     }
 
     // Apply date range filter
@@ -809,7 +830,7 @@ export const ReceiptsListScreen: React.FC = () => {
             {receipt.createdAt.toLocaleDateString()}
           </Text>
           <Text style={[styles.receiptAmount, { color: theme.gold.primary }]}>
-            ${(receipt.amount || 0).toFixed(2)}
+            {formatCurrency(receipt.amount)}
           </Text>
         </View>
         <View style={styles.receiptDetails}>
@@ -1604,14 +1625,17 @@ export const ReceiptsListScreen: React.FC = () => {
                             styles.recentSectionAmount,
                             { color: theme.gold.primary },
                           ]}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit={true}
+                          minimumFontScale={0.8}
                         >
-                          $
-                          {section.data
-                            .reduce(
-                              (sum, receipt) => sum + (receipt.amount || 0),
-                              0
-                            )
-                            .toFixed(2)}
+                          {formatCurrency(
+                            section.data
+                              .reduce(
+                                (sum, receipt) => sum + (receipt.amount || 0),
+                                0
+                              )
+                          )}
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -2534,7 +2558,7 @@ const styles = StyleSheet.create({
   sectionHeader: {
     paddingVertical: 8,
     paddingHorizontal: 4,
-    marginTop: 16,
+    marginTop: 4,
     marginBottom: 8,
   },
   sectionHeaderText: {
@@ -2566,14 +2590,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     marginBottom: 4,
+    textAlign: "center",
   },
   recentSectionCount: {
     fontSize: 12,
     marginBottom: 4,
+    textAlign: "center",
   },
   recentSectionAmount: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "bold",
+    textAlign: 'center',
   },
   recentSectionNote: {
     fontSize: 12,

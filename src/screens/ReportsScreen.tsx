@@ -39,6 +39,7 @@ import * as FileSystem from "expo-file-system";
 import { format } from "date-fns";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
+import { formatCurrency } from '../utils/formatCurrency';
 
 interface Receipt {
   amount: number;
@@ -529,7 +530,7 @@ export const ReportsScreen = () => {
         <Card.Title title="Financial Summary" />
         <Card.Content>
           <Text style={styles.amount}>
-            Total Expenses: ${basicReport.totalAmount.toFixed(2)}
+            Total Expenses: {formatCurrency(basicReport.totalAmount)}
           </Text>
           <Text style={styles.subtitle}>
             Total Receipts: {basicReport.receiptCount}
@@ -568,7 +569,7 @@ export const ReportsScreen = () => {
                   </Text>
                   <View style={styles.categoryDetails}>
                     <Text style={styles.categoryAmount}>
-                      ${amount.toFixed(2)}
+                      {formatCurrency(amount)}
                     </Text>
                     <Text style={styles.categoryPercent}>{percentage}%</Text>
                   </View>
@@ -688,7 +689,7 @@ export const ReportsScreen = () => {
                   {ReceiptCategoryService.getCategoryDisplayName(category as any)}
                 </Text>
                 <Text style={styles.taxCategoryAmount}>
-                  ${amount.toFixed(2)}
+                  {formatCurrency(amount)}
                 </Text>
               </View>
             ))}
@@ -751,7 +752,7 @@ export const ReportsScreen = () => {
                       <Text style={styles.categoryItem}>{businessId}</Text>
                       <View style={styles.categoryDetails}>
                         <Text style={styles.categoryAmount}>
-                          ${data.total.toFixed(2)} ({data.receipts.length}{" "}
+                          {formatCurrency(data.total)} ({data.receipts.length}{" "}
                           receipts)
                         </Text>
                       </View>
