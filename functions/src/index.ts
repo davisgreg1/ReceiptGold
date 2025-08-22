@@ -1447,7 +1447,7 @@ export const createCheckoutSession = onCall(
         }
 
         // Use configured app URL or fallback
-        return functions.config().app?.url || 'https://yourapp.com';
+        return process.env.APP_URL || 'https://yourapp.com';
       };
 
       const appUrl = getAppUrl();
@@ -1944,8 +1944,8 @@ export const testStripeConnection = onCall(
         success: true,
         message: `Stripe connection successful. Found ${products.data.length} products.`,
         config: {
-          hasSecretKey: !!process.env.STRIPE_SECRET_KEY || !!functions.config().stripe?.secret,
-          hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET || !!functions.config().stripe?.webhook_secret,
+          hasSecretKey: !!process.env.STRIPE_SECRET_KEY,
+          hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
         }
       };
     } catch (error) {
