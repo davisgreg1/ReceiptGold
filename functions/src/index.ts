@@ -98,7 +98,7 @@ export const TIER_LIMITS = {
   },
   growth: {
     maxReceipts: 150,
-    maxBusinesses: 3,
+    maxBusinesses: 1,
     apiCallsPerMonth: 5000,
   },
   professional: {
@@ -264,7 +264,7 @@ const subscriptionTiers: Record<string, SubscriptionTier> = {
     name: "Growth",
     limits: {
       maxReceipts: getReceiptLimits().growth,
-      maxBusinesses: 3,
+      maxBusinesses: 1,
       apiCallsPerMonth: 1000,
       maxReports: 50,
     },

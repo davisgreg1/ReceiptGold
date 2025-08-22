@@ -429,9 +429,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             maxBusinesses:
               currentTier === "professional"
                 ? -1
-                : currentTier === "growth"
-                ? 3
-                : 1,
+                : 1, // Unlimited for professional, 1 for others
             apiCallsPerMonth:
               currentTier === "professional"
                 ? -1

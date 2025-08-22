@@ -676,14 +676,6 @@ export const SettingsScreen: React.FC = () => {
                 : "Manage your business information and settings"
             }
           />
-          {selectedBusiness && (
-            <SettingsRow
-              label="Active Business"
-              value={selectedBusiness.name}
-              description="All new receipts will be associated with this business"
-              rightElement={<Ionicons name="chevron-forward" size={20} color={theme.text.secondary} />}
-            />
-          )}
         </SettingsSection>
 
         {/* Bank Accounts Section */}

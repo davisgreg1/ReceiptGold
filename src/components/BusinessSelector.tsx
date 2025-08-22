@@ -258,7 +258,11 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
             </View>
 
             {/* Business List */}
-            <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+            <ScrollView 
+              style={styles.modalScroll} 
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+            >
               {loading ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="large" color={theme.gold.primary} />
@@ -361,7 +365,7 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: 400,
-    maxHeight: '80%',
+    maxHeight: '85%',
     borderRadius: 12,
     overflow: 'hidden',
   },
@@ -380,7 +384,10 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   modalScroll: {
-    maxHeight: 400,
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 20,
   },
   loadingContainer: {
     alignItems: 'center',
