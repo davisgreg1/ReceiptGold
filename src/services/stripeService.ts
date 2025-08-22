@@ -61,8 +61,8 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
     features: [
       '150 receipts per month',
       'Advanced reporting',
-      'OCR scanning',
-      '3 Business profiles',
+      // 'OCR scanning',
+      // '3 Business profiles',
       'Priority support'
     ],
     popular: true
@@ -74,10 +74,10 @@ export const SUBSCRIPTION_TIERS: SubscriptionTier[] = [
     priceId: 'price_1RpYbJAZ9H3S1Eo78dUvxerL', // Professional tier price ID
     features: [
       'Everything in Growth',
-      'White-label reports',
-      'API access',
+      // 'White-label reports',
+      // 'API access',
       'Unlimited businesses',
-      'Dedicated manager'
+      // 'Dedicated manager'
     ]
   }
 ];

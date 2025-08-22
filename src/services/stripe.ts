@@ -62,8 +62,8 @@ export const SUBSCRIPTION_TIERS = {
     features: [
       `Everything in Starter + ${Constants.expoConfig?.extra?.GROWTH_TIER_MAX_RECEIPTS || 150} receipts`,
       'Advanced reporting',
-      'OCR scanning',
-      '3 Business profiles',
+      // 'OCR scanning',
+      // '3 Business profiles',
       'Priority support'
     ]
   },
@@ -74,10 +74,10 @@ export const SUBSCRIPTION_TIERS = {
     priceId: 'price_1RpYbJAZ9H3S1Eo78dUvxerL', // Stripe price ID (not product ID)
     features: [
       `Everything in Growth + unlimited receipts`,
-      'White-label reports',
-      'API access',
+      // 'White-label reports',
+      // 'API access',
       'Unlimited businesses',
-      'Dedicated manager'
+      // 'Dedicated manager'
     ]
   }
 } as const;
