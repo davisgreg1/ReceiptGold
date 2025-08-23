@@ -16,8 +16,12 @@
     },
     "preview": {
       "distribution": "internal",
+      "prebuildCommand": "npx expo prebuild --clean",
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "cache": {
+          "disabled": true
+        }
       },
       "android": {
         "buildType": "apk",
@@ -29,7 +33,7 @@
         "resourceClass": "m-medium"
       },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "apk"
       }
     }
   },
