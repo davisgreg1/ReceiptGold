@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { View, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
@@ -56,19 +57,22 @@ const AppContent: React.FC = () => {
 
   // Simple status banner component
   const StatusBanner = ({ message, color }: { message: string; color: string }) => (
-    <div style={{
+    <View style={{
       width: '100%',
       backgroundColor: color,
-      color: '#222',
       padding: 8,
-      textAlign: 'center',
-      fontWeight: 'bold',
+      alignItems: 'center',
       position: 'absolute',
       top: 0,
       zIndex: 9999,
     }}>
-      {message}
-    </div>
+      <Text style={{
+        color: '#222',
+        fontWeight: 'bold',
+      }}>
+        {message}
+      </Text>
+    </View>
   );
 
   return (
