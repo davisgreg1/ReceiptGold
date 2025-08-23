@@ -74,31 +74,6 @@
         {
           "photosPermission": "The app accesses your photos to let you select a receipt."
         }
-      ],
-      [
-        "@react-native-firebase/app",
-        {
-          "android": {
-            "googleServicesFile": "./google-services.json"
-          },
-          "ios": {
-            "googleServicesPlist": "./GoogleService-Info.plist"
-          }
-        }
-      ],
-      [
-        "@react-native-firebase/messaging",
-        {
-          "android": {
-            "requestPermission": true,
-            "authorizationOptions": ["alert", "badge", "sound"],
-            "notificationBackgroundColor": "#FFD700"
-          },
-          "ios": {
-            "requestPermission": true,
-            "authorizationOptions": ["alert", "badge", "sound"]
-          }
-        }
       ]
     ],
     "owner": "davisgreg1"
