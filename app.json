@@ -35,7 +35,8 @@
         "android.permission.ACCESS_NETWORK_STATE",
         "android.permission.RECORD_AUDIO"
       ],
-      "config": {}
+      "config": {},
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/favicon.png",
@@ -74,6 +75,12 @@
         {
           "photosPermission": "The app accesses your photos to let you select a receipt."
         }
+      ],
+      [
+        "@react-native-firebase/app"
+      ],
+      [
+        "@react-native-firebase/messaging"
       ]
     ],
     "owner": "davisgreg1"

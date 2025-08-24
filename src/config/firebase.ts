@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAnalytics } from "firebase/analytics";
+import { getAnalytics, isSupported } from "firebase/analytics";
 import { getFirestore } from 'firebase/firestore';
 import { getFunctions, connectFunctionsEmulator } from 'firebase/functions';
 import * as firebaseAuth from 'firebase/auth';
@@ -63,9 +63,24 @@ try {
 }
 
 let analytics: ReturnType<typeof getAnalytics> | undefined;
-if (typeof window !== 'undefined') {
-    analytics = getAnalytics(app);
-}
+
+// Initialize Analytics only if supported in the current environment
+const initializeAnalytics = async () => {
+    try {
+        const supported = await isSupported();
+        if (supported && typeof window !== 'undefined') {
+            analytics = getAnalytics(app);
+            console.log('Firebase Analytics initialized successfully');
+        } else {
+            console.log('Firebase Analytics not supported in this environment');
+        }
+    } catch (error) {
+        console.log('Failed to check Analytics support:', error);
+    }
+};
+
+// Initialize analytics asynchronously
+initializeAnalytics();
 
 // Initialize Storage
 const storage = getStorage(app);

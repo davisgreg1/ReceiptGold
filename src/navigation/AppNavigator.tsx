@@ -282,14 +282,16 @@ const SettingsStackNavigator = () => {
       />
       <SettingsStack.Screen
         name="Profile"
-        component={() => <PlaceholderScreen title="Profile" />}
         options={{ title: "Profile" }}
-      />
+      >
+        {() => <PlaceholderScreen title="Profile" />}
+      </SettingsStack.Screen>
       <SettingsStack.Screen
         name="Billing"
-        component={() => <PlaceholderScreen title="Billing" />}
         options={{ title: "Billing & Subscription" }}
-      />
+      >
+        {() => <PlaceholderScreen title="Billing" />}
+      </SettingsStack.Screen>
       <SettingsStack.Screen
         name="Notifications"
         component={NotificationSettingsScreen}

@@ -621,7 +621,7 @@ export default function ReportsScreen() {
             }}
             style={[styles.actionButton, { borderColor: theme.gold.primary }]}
             labelStyle={{ color: theme.gold.primary }}
-            icon="analytics-outline"
+            icon="chart-line"
           >
             View Details
           </Button>
