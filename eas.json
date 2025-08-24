@@ -4,10 +4,11 @@
   },
   "build": {
     "development": {
-      "developmentClient": true,
       "distribution": "internal",
+      "prebuildCommand": "npx expo prebuild --clean",
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "buildConfiguration": "Debug"
       },
       "android": {
         "buildType": "apk",
