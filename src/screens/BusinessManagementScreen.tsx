@@ -259,7 +259,18 @@ const BusinessManagementScreen: React.FC = () => {
         onPrimaryPress: async () => {
           try {
             if (business.id) {
+              // Check if this is the currently selected business
+              const isSelectedBusiness = selectedBusiness?.id === business.id;
+              // Check if this is the only business
+              const isOnlyBusiness = businesses.length === 1;
+              
               await deleteBusiness(business.id);
+              
+              // Default to "No Business" if deleting the selected business or the only business
+              if (isSelectedBusiness || isOnlyBusiness) {
+                selectBusiness(null);
+              }
+              
               showSuccess(
                 'Business Deleted',
                 `"${business.name}" has been deleted.`
@@ -563,7 +574,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: '600',
     marginBottom: 2,
   },
