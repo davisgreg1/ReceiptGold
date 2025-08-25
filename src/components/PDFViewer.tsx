@@ -5,6 +5,7 @@ import * as Sharing from 'expo-sharing';
 import Pdf from 'react-native-pdf';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from './Text';
+import { useTheme } from '../theme/ThemeProvider';
 
 interface PDFViewerProps {
   pdfUri?: string;
@@ -13,6 +14,7 @@ interface PDFViewerProps {
 }
 
 export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style }) => {
+  const { theme } = useTheme();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pdfSource, setPdfSource] = useState<any>(null);
@@ -92,9 +94,9 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
   if (loading) {
     console.log('📄 PDFViewer - Rendering loading state');
     return (
-      <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0' }, style]}>
-        <ActivityIndicator size="large" color="#0066cc" />
-        <Text style={{ marginTop: 10, color: '#666' }}>Loading PDF...</Text>
+      <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background.secondary }, style]}>
+        <ActivityIndicator size="large" color={theme.gold.primary} />
+        <Text style={{ marginTop: 10, color: theme.text.secondary }}>Loading PDF...</Text>
       </View>
     );
   }
@@ -102,8 +104,8 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
   if (error) {
     console.log('📄 PDFViewer - Rendering error state:', error);
     return (
-      <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0', padding: 20 }, style]}>
-        <Text style={{ color: 'red', textAlign: 'center', fontSize: 14 }}>
+      <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background.secondary, padding: 20 }, style]}>
+        <Text style={{ color: theme.status.error, textAlign: 'center', fontSize: 14 }}>
           Error loading PDF: {error}
         </Text>
       </View>
@@ -112,16 +114,144 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
 
   if (!pdfSource) {
     return (
-      <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f0f0f0' }, style]}>
-        <Text style={{ color: '#666' }}>No PDF to display</Text>
+      <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background.secondary }, style]}>
+        <Text style={{ color: theme.text.secondary }}>No PDF to display</Text>
       </View>
     );
   }
 
   console.log('📄 PDFViewer - Rendering PDF preview with modal');
   
+  // Create styles based on current theme
+  const styles = StyleSheet.create({
+    header: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      backgroundColor: theme.background.elevated,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border.primary,
+    },
+    headerText: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.text.primary,
+    },
+    shareButton: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: theme.gold.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 6,
+    },
+    shareButtonText: {
+      color: theme.text.inverse,
+      fontWeight: '600',
+      marginLeft: 6,
+    },
+    pdfPreviewContainer: {
+      flex: 1,
+      margin: 16,
+      borderRadius: 8,
+      overflow: 'hidden',
+      backgroundColor: theme.background.elevated,
+      shadowColor: theme.gold.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+      borderWidth: 1,
+      borderColor: theme.border.primary,
+    },
+    pdfPreview: {
+      flex: 1,
+      position: 'relative',
+    },
+    pdfPreviewViewer: {
+      flex: 1,
+    },
+    previewOverlay: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: theme.background.overlay,
+      paddingVertical: 12,
+      paddingHorizontal: 16,
+    },
+    tapHint: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    tapHintText: {
+      color: theme.text.inverse,
+      fontSize: 16,
+      fontWeight: '600',
+      marginLeft: 8,
+    },
+    pdfLoading: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: theme.background.secondary,
+    },
+    loadingText: {
+      marginTop: 8,
+      color: theme.text.secondary,
+      fontSize: 14,
+    },
+    // Modal Styles
+    modalContainer: {
+      flex: 1,
+      backgroundColor: theme.background.primary,
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border.primary,
+      backgroundColor: theme.background.elevated,
+      shadowColor: theme.gold.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+    },
+    modalTitle: {
+      fontSize: 20,
+      fontWeight: '600',
+      color: theme.text.primary,
+    },
+    modalActions: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    modalShareButton: {
+      padding: 8,
+      marginRight: 12,
+    },
+    modalCloseButton: {
+      padding: 8,
+    },
+    modalContent: {
+      flex: 1,
+      backgroundColor: theme.background.primary,
+    },
+    pdfViewer: {
+      flex: 1,
+      backgroundColor: theme.background.primary,
+    },
+  });
+  
   return (
-    <View style={[{ flex: 1, backgroundColor: '#f0f0f0' }, style]}>
+    <View style={[{ flex: 1, backgroundColor: theme.background.primary }, style]}>
       {/* Header with Share Button */}
       <View style={styles.header}>
         <Text style={styles.headerText}>PDF Receipt</Text>
@@ -144,7 +274,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
           {pdfSource ? (
             <Pdf
               source={pdfSource}
-              style={styles.pdfPreviewViewer}
+              style={[styles.pdfPreviewViewer, { backgroundColor: theme.background.elevated }]}
               enablePaging={false}
               enableRTL={false}
               enableAnnotationRendering={true}
@@ -163,7 +293,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
             />
           ) : (
             <View style={styles.pdfLoading}>
-              <ActivityIndicator size="large" color="#0066cc" />
+              <ActivityIndicator size="large" color={theme.gold.primary} />
               <Text style={styles.loadingText}>Loading PDF...</Text>
             </View>
           )}
@@ -171,7 +301,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
           {/* Overlay with tap hint */}
           <View style={styles.previewOverlay}>
             <View style={styles.tapHint}>
-              <Ionicons name="expand" size={24} color="#fff" />
+              <Ionicons name="expand" size={24} color={theme.text.inverse} />
               <Text style={styles.tapHintText}>Tap to view full PDF</Text>
             </View>
           </View>
@@ -182,8 +312,9 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
       <Modal
         visible={modalVisible}
         animationType="slide"
-        presentationStyle="pageSheet"
+        presentationStyle="fullScreen"
         onRequestClose={() => setModalVisible(false)}
+        statusBarTranslucent={true}
       >
         <View style={styles.modalContainer}>
           {/* Modal Header */}
@@ -194,13 +325,13 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
                 onPress={handleSharePDF}
                 style={styles.modalShareButton}
               >
-                <Ionicons name="share" size={24} color="#0066cc" />
+                <Ionicons name="share" size={24} color={theme.gold.primary} />
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setModalVisible(false)}
                 style={styles.modalCloseButton}
               >
-                <Ionicons name="close" size={24} color="#666" />
+                <Ionicons name="close" size={24} color={theme.text.secondary} />
               </TouchableOpacity>
             </View>
           </View>
@@ -208,38 +339,40 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
           {/* Full Interactive PDF */}
           <View style={styles.modalContent}>
             {pdfSource ? (
-              <Pdf
-                source={pdfSource}
-                style={styles.pdfViewer}
-                onLoadComplete={(numberOfPages, filePath) => {
-                  console.log(`PDF loaded in modal: ${numberOfPages} pages at ${filePath}`);
-                }}
-                onPageChanged={(page, numberOfPages) => {
-                  console.log(`Current page: ${page}/${numberOfPages}`);
-                }}
-                onError={(error) => {
-                  console.error('PDF modal error:', error);
-                  Alert.alert('Error', 'Failed to load PDF');
-                }}
-                onPressLink={(uri) => {
-                  console.log(`Link pressed: ${uri}`);
-                }}
-                enablePaging={true}
-                enableRTL={false}
-                enableAnnotationRendering={true}
-                password=""
-                spacing={0}
-                enableDoubleTapZoom={true}
-                maxScale={3}
-                minScale={0.5}
-                scale={1.0}
-                horizontal={false}
-                showsHorizontalScrollIndicator={false}
-                showsVerticalScrollIndicator={true}
-              />
+              <View style={{ flex: 1, backgroundColor: theme.background.primary }}>
+                <Pdf
+                  source={pdfSource}
+                  style={[styles.pdfViewer, { backgroundColor: theme.background.primary }]}
+                  onLoadComplete={(numberOfPages, filePath) => {
+                    console.log(`PDF loaded in modal: ${numberOfPages} pages at ${filePath}`);
+                  }}
+                  onPageChanged={(page, numberOfPages) => {
+                    console.log(`Current page: ${page}/${numberOfPages}`);
+                  }}
+                  onError={(error) => {
+                    console.error('PDF modal error:', error);
+                    Alert.alert('Error', 'Failed to load PDF');
+                  }}
+                  onPressLink={(uri) => {
+                    console.log(`Link pressed: ${uri}`);
+                  }}
+                  enablePaging={true}
+                  enableRTL={false}
+                  enableAnnotationRendering={true}
+                  password=""
+                  spacing={0}
+                  enableDoubleTapZoom={true}
+                  maxScale={3}
+                  minScale={0.5}
+                  scale={1.0}
+                  horizontal={false}
+                  showsHorizontalScrollIndicator={false}
+                  showsVerticalScrollIndicator={true}
+                />
+              </View>
             ) : (
               <View style={styles.pdfLoading}>
-                <ActivityIndicator size="large" color="#0066cc" />
+                <ActivityIndicator size="large" color={theme.gold.primary} />
                 <Text style={styles.loadingText}>Loading PDF...</Text>
               </View>
             )}
@@ -249,127 +382,3 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
     </View>
   );
 };
-
-const styles = StyleSheet.create({
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-  },
-  headerText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  shareButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#0066cc',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
-  },
-  shareButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    marginLeft: 6,
-  },
-  pdfPreviewContainer: {
-    flex: 1,
-    margin: 16,
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  pdfPreview: {
-    flex: 1,
-    position: 'relative',
-  },
-  pdfPreviewViewer: {
-    flex: 1,
-  },
-  previewOverlay: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-  },
-  tapHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tapHintText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  pdfLoading: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-  },
-  loadingText: {
-    marginTop: 8,
-    color: '#666',
-    fontSize: 14,
-  },
-  // Modal Styles
-  modalContainer: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333',
-  },
-  modalActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  modalShareButton: {
-    padding: 8,
-    marginRight: 12,
-  },
-  modalCloseButton: {
-    padding: 8,
-  },
-  modalContent: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  pdfViewer: {
-    flex: 1,
-  },
-});
