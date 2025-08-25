@@ -46,6 +46,9 @@ export class BankReceiptService {
   // Storage keys
   private static BANK_CONNECTIONS_KEY = 'bank_connections';
   private static LAST_SYNC_KEY = 'last_transaction_sync';
+  
+  // Transaction lookback period (12 months in milliseconds)
+  private static TRANSACTION_LOOKBACK_PERIOD = 90 * 24 * 60 * 60 * 1000;
 
   private constructor() {
     this.plaidService = PlaidService.getInstance();
@@ -139,9 +142,9 @@ export class BankReceiptService {
       const candidates: TransactionCandidate[] = [];
 
       for (const connection of activeConnections) {
-        // Get transactions from the last 30 days
+        // Get transactions from the last 12 months
         const endDate = new Date().toISOString().split('T')[0];
-        const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+        const startDate = new Date(Date.now() - BankReceiptService.TRANSACTION_LOOKBACK_PERIOD).toISOString().split('T')[0];
 
         const transactions = await this.plaidService.fetchRecentTransactions(
           connection.accessToken,
@@ -313,8 +316,10 @@ export class BankReceiptService {
         userId,
         imageUrl: generatedReceipt.receiptImageUrl,
         businessName: generatedReceipt.receiptData.businessName || 'Unknown Business', // Ensure we have a business name
+        vendor: generatedReceipt.receiptData.businessName || 'Unknown Business', // Map businessName to vendor for edit screen compatibility
         amount: Number(generatedReceipt.receiptData.total) || 0, // Ensure amount is a number
         date: generatedReceipt.receiptData.date,
+        description: '', // Description not available in this receipt type, will be populated from items
         category: 'Generated from Bank Transaction',
         items: generatedReceipt.receiptData.items,
         metadata: {
@@ -382,8 +387,10 @@ export class BankReceiptService {
         pdfUrl: generatedReceiptPDF.receiptPdfUrl,
         pdfPath: generatedReceiptPDF.receiptPdfPath,
         businessName: generatedReceiptPDF.receiptData.businessName || 'Unknown Business',
+        vendor: generatedReceiptPDF.receiptData.businessName || 'Unknown Business', // Map businessName to vendor for edit screen compatibility
         amount: Number(generatedReceiptPDF.receiptData.total) || 0,
         date: generatedReceiptPDF.receiptData.date,
+        description: generatedReceiptPDF.receiptData.description || '', // Add description from PDF receipt data
         category: 'Generated from Bank Transaction',
         items: generatedReceiptPDF.receiptData.items,
         receiptData: generatedReceiptPDF.receiptData, // Store complete receipt data for regeneration
@@ -584,10 +591,10 @@ export class BankReceiptService {
   private async getLastSyncTime(userId: string): Promise<Date> {
     try {
       const stored = await AsyncStorage.getItem(`${BankReceiptService.LAST_SYNC_KEY}_${userId}`);
-      return stored ? new Date(stored) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // 30 days ago default
+      return stored ? new Date(stored) : new Date(Date.now() - BankReceiptService.TRANSACTION_LOOKBACK_PERIOD); // 12 months ago default
     } catch (error) {
       console.error('Error getting last sync time:', error);
-      return new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      return new Date(Date.now() - BankReceiptService.TRANSACTION_LOOKBACK_PERIOD);
     }
   }
 

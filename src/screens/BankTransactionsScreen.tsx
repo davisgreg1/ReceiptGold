@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -27,6 +27,7 @@ import { GeneratedReceiptPDF } from '../services/PDFReceiptService';
 import { PDFViewer } from '../components/PDFViewer';
 import { useInAppNotifications } from '../components/InAppNotificationProvider';
 import { PlaidLinkButton } from '../components/PlaidLinkButton';
+import DateTimePicker from '@react-native-community/datetimepicker';
 
 export const BankTransactionsScreen: React.FC = () => {
   const { theme } = useTheme();
@@ -48,6 +49,20 @@ export const BankTransactionsScreen: React.FC = () => {
   const [currentFilter, setCurrentFilter] = useState<'all' | 'recent' | 'high' | 'dining' | 'shopping' | 'transport'>('all');
   const [showSearchSection, setShowSearchSection] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Date filter state
+  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
+  const [dateRangeFilter, setDateRangeFilter] = useState<{
+    startDate: Date | null;
+    endDate: Date | null;
+    active: boolean;
+  }>({
+    startDate: null,
+    endDate: null,
+    active: false,
+  });
+  const [datePickerMode, setDatePickerMode] = useState<'start' | 'end'>('start');
+  const [showDatePicker, setShowDatePicker] = useState(false);
 
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
@@ -109,6 +124,27 @@ export const BankTransactionsScreen: React.FC = () => {
         break;
     }
 
+    // Date range filter
+    if (dateRangeFilter.active && (dateRangeFilter.startDate || dateRangeFilter.endDate)) {
+      filtered = filtered.filter(candidate => {
+        const transactionDate = new Date(candidate.transaction.date);
+        
+        if (dateRangeFilter.startDate) {
+          const startOfDay = new Date(dateRangeFilter.startDate);
+          startOfDay.setHours(0, 0, 0, 0);
+          if (transactionDate < startOfDay) return false;
+        }
+        
+        if (dateRangeFilter.endDate) {
+          const endOfDay = new Date(dateRangeFilter.endDate);
+          endOfDay.setHours(23, 59, 59, 999);
+          if (transactionDate > endOfDay) return false;
+        }
+        
+        return true;
+      });
+    }
+
     // Sort by date (most recent first) for all filters
     filtered.sort((a, b) => {
       const dateA = new Date(a.transaction.date).getTime();
@@ -117,7 +153,7 @@ export const BankTransactionsScreen: React.FC = () => {
     });
 
     return filtered;
-  }, [candidates, currentFilter, searchQuery]);  // Get unique categories for filter
+  }, [candidates, currentFilter, searchQuery, dateRangeFilter]);  // Get unique categories for filter
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
     candidates.forEach(candidate => {
@@ -534,21 +570,85 @@ export const BankTransactionsScreen: React.FC = () => {
     }).format(amount);
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
+  const clearFilters = () => {
+    setCurrentFilter('all');
+    setSearchQuery('');
+    setShowSearchSection(false);
+    setDateRangeFilter({
+      startDate: null,
+      endDate: null,
+      active: false,
+    });
+  };
+
+  // Format date for display
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
     });
   };
 
-  const clearFilters = () => {
-    setCurrentFilter('all');
-    setSearchQuery('');
+  // Handle quick date filter selection
+  const handleQuickDateFilter = useCallback((days: number) => {
+    const endDate = new Date();
+    const startDate = days === 0
+      ? new Date()
+      : new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    setDateRangeFilter({
+      startDate,
+      endDate,
+      active: true,
+    });
     setShowSearchSection(false);
+    setShowDateRangePicker(false);
+  }, []);
+
+  // Handle custom date range
+  const handleDatePickerChange = useCallback((event: any, selectedDate?: Date) => {
+    if (selectedDate) {
+      if (datePickerMode === 'start') {
+        // When selecting start date, automatically set end date to today if not set
+        const newDateFilter = {
+          ...dateRangeFilter,
+          startDate: selectedDate,
+          endDate: dateRangeFilter.endDate || new Date(), // Auto-set to today if no end date
+          active: true,
+        };
+        setDateRangeFilter(newDateFilter);
+        
+        // Auto-close filter section when start date is selected (since end date is auto-set)
+        setShowSearchSection(false);
+      } else {
+        // End date selection
+        const newDateFilter = {
+          ...dateRangeFilter,
+          endDate: selectedDate,
+          active: true,
+        };
+        setDateRangeFilter(newDateFilter);
+        
+        // Auto-close filter section when end date is selected and start date exists
+        if (newDateFilter.startDate) {
+          setShowSearchSection(false);
+        }
+      }
+    }
+    setShowDatePicker(false);
+  }, [datePickerMode, dateRangeFilter]);
+
+  // Clear date filter
+  const clearDateFilter = () => {
+    setDateRangeFilter({
+      startDate: null,
+      endDate: null,
+      active: false,
+    });
   };
 
-  const hasActiveFilters = currentFilter !== 'all' || searchQuery.trim() !== '';
+  const hasActiveFilters = currentFilter !== 'all' || searchQuery.trim() !== '' || dateRangeFilter.active;
 
   // FlatList item renderer
   const renderTransactionItem = ({ item: candidate }: { item: TransactionCandidate & { _id?: string } }) => {
@@ -564,7 +664,7 @@ export const BankTransactionsScreen: React.FC = () => {
               {candidate.transaction.merchant_name || candidate.transaction.name}
             </Text>
             <Text style={styles.transactionDate}>
-              {formatDate(candidate.transaction.date)}
+              {formatDate(new Date(candidate.transaction.date))}
             </Text>
           </View>
           <View style={styles.amountContainer}>
@@ -1173,6 +1273,67 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.background.primary,
       fontSize: 12,
     },
+    quickDateFiltersScroll: {
+      paddingVertical: 8,
+    },
+    quickDateFilter: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+      borderWidth: 1,
+      marginRight: 8,
+    },
+    quickDateFilterText: {
+      fontSize: 12,
+      fontWeight: '500',
+    },
+    customDateRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+    },
+    dateButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      borderRadius: 8,
+      borderWidth: 1,
+    },
+    dateButtonText: {
+      marginLeft: 8,
+      fontSize: 14,
+    },
+    dateSeparator: {
+      marginHorizontal: 8,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    activeFilterBadges: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 6,
+      marginTop: 8,
+    },
+    filterBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 12,
+      gap: 4,
+    },
+    filterBadgeText: {
+      fontSize: 12,
+      color: 'white',
+      fontWeight: '500',
+    },
+    filterBadgeClose: {
+      padding: 2,
+      marginLeft: 2,
+    },
   });
 
   // Check if user has Professional subscription
@@ -1216,6 +1377,51 @@ export const BankTransactionsScreen: React.FC = () => {
               : `${filteredAndSortedCandidates.length} of ${candidates.length} transactions`
             }
           </Text>
+          
+          {/* Active Filter Badges */}
+          {!showSearchSection && hasActiveFilters && (
+            <View style={styles.activeFilterBadges}>
+              {currentFilter !== 'all' && (
+                <View style={[styles.filterBadge, { backgroundColor: theme.gold.primary }]}>
+                  <Text style={styles.filterBadgeText}>{currentFilter}</Text>
+                  <TouchableOpacity
+                    onPress={() => setCurrentFilter('all')}
+                    style={styles.filterBadgeClose}
+                  >
+                    <Ionicons name="close" size={18} color="white" />
+                  </TouchableOpacity>
+                </View>
+              )}
+              {searchQuery.trim() !== '' && (
+                <View style={[styles.filterBadge, { backgroundColor: theme.gold.rich }]}>
+                  <Text style={styles.filterBadgeText}>"{searchQuery}"</Text>
+                  <TouchableOpacity
+                    onPress={() => setSearchQuery('')}
+                    style={styles.filterBadgeClose}
+                  >
+                    <Ionicons name="close" size={18} color="white" />
+                  </TouchableOpacity>
+                </View>
+              )}
+              {dateRangeFilter.active && (dateRangeFilter.startDate || dateRangeFilter.endDate) && (
+                <View style={[styles.filterBadge, { backgroundColor: theme.status.success }]}>
+                  <Text style={styles.filterBadgeText}>
+                    {dateRangeFilter.startDate && dateRangeFilter.endDate
+                      ? `${formatDate(dateRangeFilter.startDate)} - ${formatDate(dateRangeFilter.endDate)}`
+                      : dateRangeFilter.startDate
+                      ? `From ${formatDate(dateRangeFilter.startDate)}`
+                      : `Until ${formatDate(dateRangeFilter.endDate!)}`}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={clearDateFilter}
+                    style={styles.filterBadgeClose}
+                  >
+                    <Ionicons name="close" size={18} color="white" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
         </View>
       )}
 
@@ -1225,13 +1431,12 @@ export const BankTransactionsScreen: React.FC = () => {
           <View style={styles.searchSection}>
             <View style={styles.searchInputContainer}>
               <Ionicons name="search-outline" size={22} color={theme.text.secondary} style={styles.searchIcon} />
-              <TextInput
+                            <TextInput
                 style={styles.searchInput}
                 placeholder="Type here..."
                 placeholderTextColor="#999999"
                 value={searchQuery}
                 onChangeText={setSearchQuery}
-                autoFocus={true}
                 multiline={false}
                 numberOfLines={1}
                 returnKeyType="done"
@@ -1292,6 +1497,109 @@ export const BankTransactionsScreen: React.FC = () => {
                   </Text>
                 </TouchableOpacity>
               ))}
+            </View>
+
+            {/* Date Filter Section */}
+            <Text style={[styles.filtersSectionTitle, { marginTop: 20 }]}>Date Range</Text>
+            
+            {/* Quick Date Filters */}
+            <ScrollView 
+              horizontal 
+              showsHorizontalScrollIndicator={false} 
+              style={styles.quickDateFiltersScroll}
+            >
+              {[
+                { label: "Last 7 Days", days: 7 },
+                { label: "Last 30 Days", days: 30 },
+                { label: "Last 90 Days", days: 90 },
+                { label: "Last Year", days: 365 }
+              ].map(filter => (
+                <TouchableOpacity
+                  key={filter.label}
+                  style={[
+                    styles.quickDateFilter,
+                    { 
+                      backgroundColor: theme.background.secondary,
+                      borderColor: theme.border.primary
+                    }
+                  ]}
+                  onPress={() => handleQuickDateFilter(filter.days)}
+                >
+                  <Text style={[
+                    styles.quickDateFilterText,
+                    { color: theme.text.primary }
+                  ]}>
+                    {filter.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            {/* Custom Date Range Row */}
+            <View style={styles.customDateRow}>
+              <TouchableOpacity
+                style={[
+                  styles.dateButton,
+                  {
+                    backgroundColor: theme.background.secondary,
+                    borderColor: theme.border.primary,
+                  },
+                ]}
+                onPress={() => {
+                  setDatePickerMode('start');
+                  setShowDatePicker(true);
+                }}
+              >
+                <Ionicons
+                  name="calendar-outline"
+                  size={14}
+                  color={theme.text.secondary}
+                />
+                <Text
+                  style={[
+                    styles.dateButtonText,
+                    { color: theme.text.primary },
+                  ]}
+                >
+                  {dateRangeFilter.startDate
+                    ? formatDate(dateRangeFilter.startDate)
+                    : "Start Date"}
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={[styles.dateSeparator, { color: theme.text.secondary }]}>
+                to
+              </Text>
+
+              <TouchableOpacity
+                style={[
+                  styles.dateButton,
+                  {
+                    backgroundColor: theme.background.secondary,
+                    borderColor: theme.border.primary,
+                  },
+                ]}
+                onPress={() => {
+                  setDatePickerMode('end');
+                  setShowDatePicker(true);
+                }}
+              >
+                <Ionicons
+                  name="calendar-outline"
+                  size={14}
+                  color={theme.text.secondary}
+                />
+                <Text
+                  style={[
+                    styles.dateButtonText,
+                    { color: theme.text.primary },
+                  ]}
+                >
+                  {dateRangeFilter.endDate
+                    ? formatDate(dateRangeFilter.endDate)
+                    : "End Date"}
+                </Text>
+              </TouchableOpacity>
             </View>
           </ScrollView>
         </View>
@@ -1385,6 +1693,20 @@ export const BankTransactionsScreen: React.FC = () => {
             />
           </TouchableOpacity>
         </View>
+      )}
+
+      {/* Date Picker */}
+      {showDatePicker && (
+        <DateTimePicker
+          value={
+            datePickerMode === 'start' 
+              ? dateRangeFilter.startDate || new Date()
+              : dateRangeFilter.endDate || new Date()
+          }
+          mode="date"
+          display="default"
+          onChange={handleDatePickerChange}
+        />
       )}
 
     </SafeAreaView>
