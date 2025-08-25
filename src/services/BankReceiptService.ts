@@ -465,9 +465,33 @@ export class BankReceiptService {
         await this.pdfReceiptService.deletePDFReceipt(receiptData.pdfPath);
       }
 
-      // Regenerate PDF with current receipt data
+      // Build fresh receipt data from current receipt fields
+      const freshReceiptData = {
+        businessName: receiptData.vendor || receiptData.businessName || 'Unknown Business',
+        address: receiptData.receiptData?.address || '123 Business St, City, State 12345',
+        date: receiptData.date ? new Date(receiptData.date.toDate ? receiptData.date.toDate() : receiptData.date).toLocaleDateString() : new Date().toLocaleDateString(),
+        time: receiptData.date ? new Date(receiptData.date.toDate ? receiptData.date.toDate() : receiptData.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+        description: receiptData.description || '', // Include the description field
+        items: receiptData.extractedData?.items?.map((item: any) => ({
+          description: item.description || 'Item',
+          amount: Number(item.amount) || Number(item.price * item.quantity) || 0,
+          quantity: item.quantity || 1
+        })) || [{
+          description: receiptData.description || 'Purchase',
+          amount: Number(receiptData.amount) || 0,
+          quantity: 1
+        }],
+        subtotal: Number(receiptData.amount) || 0,
+        tax: 0, // Calculate tax if needed
+        total: Number(receiptData.amount) || 0,
+        paymentMethod: receiptData.receiptData?.paymentMethod || 'Card Payment',
+        transactionId: receiptData.metadata?.originalTransactionId || receiptId,
+        receiptId: receiptId,
+      };
+
+      // Regenerate PDF with fresh receipt data
       const regeneratedPDF = await this.pdfReceiptService.regeneratePDFReceipt(
-        receiptData.receiptData,
+        freshReceiptData,
         receiptData.metadata?.originalTransactionId || receiptId
       );
 

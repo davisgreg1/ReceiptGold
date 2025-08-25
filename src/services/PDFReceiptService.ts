@@ -11,6 +11,7 @@ export interface GeneratedReceiptPDF {
     address: string;
     date: string;
     time: string;
+    description?: string; // Add optional description field
     items: Array<{
       description: string;
       amount: number;
@@ -322,6 +323,13 @@ export class PDFReceiptService {
                     `).join('')}
                 </div>
 
+                ${receiptData.description ? `
+                    <div style="margin: 15px 0; padding: 10px; border-top: 1px dotted #ccc; border-bottom: 1px dotted #ccc;">
+                        <div style="font-size: 11px; font-weight: bold; margin-bottom: 5px;">DESCRIPTION:</div>
+                        <div style="font-size: 11px;">${receiptData.description}</div>
+                    </div>
+                ` : ''}
+
                 <div class="receipt-totals">
                     <div class="total-line">
                         <span>SUBTOTAL:</span>
@@ -518,6 +526,7 @@ Address: ${receiptData.address}
 Date: ${receiptData.date}
 Time: ${receiptData.time}
 
+${receiptData.description ? `Description: ${receiptData.description}\n` : ''}
 Items:
 ------
 ${receiptData.items.map((item: any) => `${item.description}: $${item.amount.toFixed(2)}`).join('\n')}
