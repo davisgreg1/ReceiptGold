@@ -48,49 +48,60 @@ interface NotificationItemProps {
 
 const NotificationItem: React.FC<NotificationItemProps> = ({ notification, onHide }) => {
   const { theme } = useTheme();
-  const [slideAnim] = useState(new Animated.Value(-300));
-  const [opacityAnim] = useState(new Animated.Value(0));
+  const [slideAnim] = useState(() => new Animated.Value(-300));
+  const [opacityAnim] = useState(() => new Animated.Value(0));
+  const [isVisible, setIsVisible] = useState(true);
 
   React.useEffect(() => {
-    // Animate in
-    Animated.parallel([
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    if (!isVisible) return;
+
+    // Small delay to ensure component is mounted
+    const mountTimer = setTimeout(() => {
+      // Animate in
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }, 50);
 
     // Auto-hide after duration
     const duration = notification.duration || 5000;
-    const timer = setTimeout(() => {
+    const autoHideTimer = setTimeout(() => {
       hideNotification();
-    }, duration);
+    }, duration + 50); // Add small delay for mount animation
 
-    return () => clearTimeout(timer);
-  }, []);
+    return () => {
+      clearTimeout(mountTimer);
+      clearTimeout(autoHideTimer);
+    };
+  }, [isVisible]);
 
-  const hideNotification = () => {
+  const hideNotification = React.useCallback(() => {
+    setIsVisible(false);
+    
     Animated.parallel([
       Animated.timing(slideAnim, {
         toValue: -300,
-        duration: 250,
+        duration: 200,
         useNativeDriver: true,
       }),
       Animated.timing(opacityAnim, {
         toValue: 0,
-        duration: 250,
+        duration: 200,
         useNativeDriver: true,
       }),
     ]).start(() => {
       onHide(notification.id);
     });
-  };
+  }, [slideAnim, opacityAnim, notification.id, onHide]);
 
   const getIcon = (type: NotificationType) => {
     switch (type) {

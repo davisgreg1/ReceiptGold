@@ -40,6 +40,9 @@ export const BankTransactionsScreen: React.FC = () => {
   const [generatedReceipts, setGeneratedReceipts] = useState<Map<string, GeneratedReceiptPDF>>(new Map());
   const [linkToken, setLinkToken] = useState<string | null>(null);
   
+  // Track cancelled operations
+  const cancelledOperations = useRef<Set<string>>(new Set());
+  
   // Quick filter state
   const [currentFilter, setCurrentFilter] = useState<'all' | 'recent' | 'high' | 'dining' | 'shopping' | 'transport'>('all');
   const [showSearchSection, setShowSearchSection] = useState(false);
@@ -346,6 +349,10 @@ export const BankTransactionsScreen: React.FC = () => {
 
       setGeneratingReceipt(candidateId);
       
+      // Clear any previous cancellation for this candidate
+      cancelledOperations.current.delete(candidateId);
+    
+      
       console.log('🔍 Calling generateReceiptForTransaction with userId:', user.uid);
       const generatedReceipt = await bankReceiptService.generateReceiptForTransaction(
         candidateId,
@@ -353,30 +360,51 @@ export const BankTransactionsScreen: React.FC = () => {
         user.uid
       );
       
-      // Automatically save the generated receipt
-      await bankReceiptService.saveGeneratedPDFReceiptAsReceipt(
-        user.uid,
-        generatedReceipt,
-        candidateId
-      );
-      
-      // Remove from candidates list by Firestore doc id
-      setCandidates(prev => prev.filter(c => (c as any)._id !== candidateId));
-      
-      showNotification({
-        type: 'success',
-        title: 'Receipt Saved!',
-        message: 'We saved your receipt successfully.',
+      // Check if operation was cancelled after generation completed
+      if (cancelledOperations.current.has(candidateId)) {
+        console.log('🔍 Generation was cancelled, not storing receipt');
+        cancelledOperations.current.delete(candidateId);
+        return;
+      }
+      setGeneratedReceipts(prev => {
+        const newMap = new Map(prev);
+        newMap.set(candidateId, generatedReceipt);
+        return newMap;
       });
+      
+      // Clear generating state after storing receipt
+      setGeneratingReceipt(null);
     } catch (error) {
       console.error('Error generating and saving receipt:', error);
+      
+      // Provide more helpful error messages based on error type
+      let errorTitle = 'Generation Failed';
+      let errorMessage = 'Failed to generate receipt. Please try again.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('took too long') || error.message.includes('longer than expected')) {
+          errorTitle = 'Timeout Error';
+          errorMessage = 'PDF generation is taking longer than usual. This might be due to device performance. Would you like to try again?';
+        } else if (error.message.includes('storage')) {
+          errorTitle = 'Storage Error';
+          errorMessage = 'Unable to save receipt. Please check your device storage space and try again.';
+        } else if (error.message.includes('expo-print')) {
+          errorTitle = 'PDF Generation Error';
+          errorMessage = 'There was an issue with PDF generation. A simplified receipt was created instead.';
+        }
+      }
+      
       showNotification({
         type: 'error',
-        title: 'Generation Failed',
-        message: 'Failed to generate receipt. Please try again.',
+        title: errorTitle,
+        message: errorMessage,
       });
-    } finally {
+      
+      // Clear generating state on error
       setGeneratingReceipt(null);
+    } finally {
+      // Only clear generating state if there was an error
+      // Success case is handled above after storing the receipt
     }
   };
 
@@ -451,14 +479,51 @@ export const BankTransactionsScreen: React.FC = () => {
     }
   };
 
-  const discardGeneratedReceipt = (candidateId: string) => {
-    console.log('🗑️ Discarding generated receipt for:', candidateId);
-    // Just remove the generated receipt from state, keep the candidate
-    setGeneratedReceipts(prev => {
-      const newMap = new Map(prev);
-      newMap.delete(candidateId);
-      return newMap;
-    });
+  const discardGeneratedReceipt = async (candidateId: string) => {
+    try {
+      console.log('🗑️ Discarding generated receipt for:', candidateId);
+      
+      if (!user?.uid) {
+        showNotification({
+          type: 'error',
+          title: 'Authentication Error',
+          message: 'You must be logged in to discard receipts.',
+        });
+        return;
+      }
+      
+      // Delete the generated receipt from Firestore
+      const { getDocs, collection, query, where, deleteDoc } = await import('firebase/firestore');
+      const { db } = await import('../config/firebase');
+      
+      // Find and delete the generated receipt document
+      const receiptsQuery = query(
+        collection(db, 'generatedReceipts'),
+        where('candidateId', '==', candidateId),
+        where('userId', '==', user.uid)
+      );
+      const receiptSnap = await getDocs(receiptsQuery);
+      
+      // Delete all matching generated receipts (should be only one)
+      const deletePromises = receiptSnap.docs.map(doc => deleteDoc(doc.ref));
+      await Promise.all(deletePromises);
+      
+      // Remove from local state
+      setGeneratedReceipts(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(candidateId);
+        return newMap;
+      });
+      
+      console.log('✅ Generated receipt discarded successfully');
+    } catch (error) {
+      console.error('❌ Error discarding generated receipt:', error);
+      showNotification({
+        type: 'error',
+        title: 'Discard Failed',
+        message: 'Failed to discard receipt. Please try again.',
+      });
+    }
   };
 
   const formatCurrency = (amount: number) => {
@@ -560,7 +625,7 @@ export const BankTransactionsScreen: React.FC = () => {
                 onPress={() => generateReceipt(candidate, docId)}
               >
                 <Text style={[styles.buttonText, styles.generateButtonText]}>
-                  Generate Receipt
+                  Generate PDF
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -568,37 +633,59 @@ export const BankTransactionsScreen: React.FC = () => {
                 onPress={() => rejectCandidate(docId)}
               >
                 <Text style={[styles.buttonText, styles.rejectButtonText]}>
-                  Don't Generate
+                  Skip
                 </Text>
               </TouchableOpacity>
             </>
           )}
-
-          {isGenerating && (
-            <View style={[styles.actionButton, { flexDirection: 'row' }]}>
-              <ActivityIndicator size="small" color={theme.gold.primary} />
-              <Text style={[styles.loadingText, { marginLeft: 8 }]}>
-                Generating & saving receipt...
-              </Text>
-            </View>
-          )}
-
-          {generatedReceipt && (
+          
+          {(isGenerating || generatedReceipt) && (
             <>
               <TouchableOpacity
-                style={[styles.actionButton, styles.approveButton]}
-                onPress={() => approveReceipt(candidate, docId, generatedReceipt)}
+                style={[
+                  styles.actionButton, 
+                  styles.approveButton,
+                  !generatedReceipt && { opacity: 0.6 }
+                ]}
+                onPress={() => {
+                  if (generatedReceipt) {
+                    approveReceipt(candidate, docId, generatedReceipt);
+                  } else {
+                    // Receipt is still generating, but user wants to save it
+                    // We'll mark it for auto-save when generation completes
+                    showNotification({
+                      type: 'info',
+                      title: 'Will Save',
+                      message: 'Receipt will be saved automatically when generation completes.',
+                    });
+                  }
+                }}
+                disabled={!generatedReceipt}
               >
                 <Text style={[styles.buttonText, styles.approveButtonText]}>
-                  Save Receipt
+                  {isGenerating ? 'Generating...' : 'Save Receipt'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.actionButton, styles.rejectButton]}
-                onPress={() => discardGeneratedReceipt(docId)}
+                onPress={() => {
+                  if (isGenerating) {
+                    // Cancel generation - mark operation as cancelled
+                    cancelledOperations.current.add(docId);
+                    setGeneratingReceipt(null);
+                    showNotification({
+                      type: 'info',
+                      title: 'Cancelled',
+                      message: 'Receipt generation cancelled.',
+                    });
+                  } else {
+                    // Discard generated receipt
+                    discardGeneratedReceipt(docId);
+                  }
+                }}
               >
                 <Text style={[styles.buttonText, styles.rejectButtonText]}>
-                  Discard
+                  {isGenerating ? 'Cancel' : 'Discard'}
                 </Text>
               </TouchableOpacity>
             </>
@@ -726,16 +813,17 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.text.primary,
     },
     buttonContainer: {
-      flexDirection: 'row',
-      marginTop: 16,
-      gap: 12,
+  flexDirection: 'row',
+  marginTop: 4,
+  gap: 2,
     },
     actionButton: {
-      flex: 1,
-      paddingVertical: 12,
-      borderRadius: 8,
-      alignItems: 'center',
-      justifyContent: 'center',
+  flex: 1,
+  paddingVertical: 10,
+  paddingHorizontal: 6,
+  borderRadius: 4,
+  alignItems: 'center',
+  justifyContent: 'center',
     },
     generateButton: {
       backgroundColor: theme.gold.primary,
@@ -749,7 +837,7 @@ export const BankTransactionsScreen: React.FC = () => {
       borderColor: theme.status.error,
     },
     buttonText: {
-      fontSize: 14,
+  fontSize: 10,
       fontWeight: '600',
       textAlign: 'center',
     },
@@ -763,12 +851,12 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.status.error,
     },
     generatedReceiptContainer: {
-      marginTop: 16,
-      padding: 12,
-      backgroundColor: theme.background.primary,
-      borderRadius: 8,
-      borderWidth: 1,
-      borderColor: theme.gold.primary,
+  marginTop: 8,
+  padding: 8,
+  backgroundColor: theme.background.primary,
+  borderRadius: 6,
+  borderWidth: 1,
+  borderColor: theme.gold.primary,
     },
     receiptTitle: {
       fontSize: 16,
@@ -1043,6 +1131,39 @@ export const BankTransactionsScreen: React.FC = () => {
     filterChipTextActive: {
       color: 'white',
       fontWeight: '600',
+    },
+    generatingContainer: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'center',
+  paddingVertical: 4,
+  paddingHorizontal: 6,
+  backgroundColor: theme.background.secondary,
+  borderRadius: 4,
+    },
+    generatingSpinner: {
+  marginRight: 4,
+    },
+    generatingText: {
+  fontSize: 10,
+  color: theme.text.primary,
+  marginRight: 4,
+    },
+    cancelButton: {
+  paddingVertical: 3,
+  paddingHorizontal: 6,
+  backgroundColor: theme.status.error,
+  borderRadius: 4,
+  borderWidth: 1,
+  borderColor: theme.text.tertiary,
+},
+    quickSaveButton: {
+      backgroundColor: theme.text.tertiary,
+      marginTop: 8,
+    },
+    quickSaveButtonText: {
+      color: theme.background.primary,
+      fontSize: 12,
     },
   });
 

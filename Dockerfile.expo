@@ -1,16 +1,22 @@
-# Dockerfile for Expo Development
-FROM node:18-alpine
+# Dockerfile for Expo Development (supports both managed and development builds)
+FROM node:18-bullseye
 
 WORKDIR /app
 
-# Install system dependencies
-RUN apk add --no-cache \
+# Install system dependencies (more comprehensive than Alpine)
+RUN apt-get update && apt-get install -y \
     git \
     bash \
-    curl
+    curl \
+    wget \
+    unzip \
+    python3 \
+    python3-pip \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install Expo CLI globally
-RUN npm install -g @expo/cli
+# Install Expo CLI and EAS CLI globally
+RUN npm install -g @expo/cli eas-cli
 
 # Copy package files
 COPY package*.json ./
@@ -21,12 +27,45 @@ RUN npm install
 # Copy app source
 COPY . .
 
+# Ensure React Native Firebase is properly installed for development builds
+RUN npx expo install --fix
+
+# Create entrypoint script to detect workflow type
+RUN echo '#!/bin/bash\n\
+echo "📱 Expo Development Container Started"\n\
+echo "🚀 Metro bundler starting on http://0.0.0.0:19000"\n\
+echo ""\n\
+# Check if React Native Firebase is installed\n\
+if [ -d "/app/node_modules/@react-native-firebase/app" ]; then\n\
+    echo "🔥 React Native Firebase detected"\n\
+    echo "💡 For native modules like Firebase:"\n\
+    echo "   • Use development builds: expo run:android or expo run:ios"\n\
+    echo "   • Or use EAS Build for production"\n\
+    echo "   • Expo Go app will NOT work with native modules"\n\
+else\n\
+    echo "📦 Standard Expo modules detected"\n\
+    echo "💡 Development options:"\n\
+    echo "   • Expo Go app (scan QR code)"\n\
+    echo "   • Web development (--web flag)"\n\
+    echo "   • Development builds"\n\
+fi\n\
+echo ""\n\
+echo "🌐 Access points:"\n\
+echo "   • DevTools: http://localhost:19000"\n\
+echo "   • Metro: http://localhost:8081"\n\
+echo ""\n\
+exec "$@"' > /entrypoint-expo.sh && \
+    chmod +x /entrypoint-expo.sh
+
 # Expose Expo ports
 EXPOSE 8081 19000 19001 19002
 
 # Set environment for Expo
 ENV EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0
 ENV REACT_NATIVE_PACKAGER_HOSTNAME=0.0.0.0
+ENV NODE_ENV=development
 
-# Start Expo development server
+ENTRYPOINT ["/entrypoint-expo.sh"]
+
+# Default command - can be overridden
 CMD ["npx", "expo", "start", "--dev-client", "--clear"]

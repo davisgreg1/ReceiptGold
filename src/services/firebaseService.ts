@@ -3,6 +3,7 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  deleteField,
   collection,
   query,
   where,
@@ -189,6 +190,25 @@ export const receiptService = {
     }
   },
 
+  async getReceiptById(receiptId: string): Promise<Receipt | null> {
+    try {
+      const docRef = doc(db, 'receipts', receiptId);
+      const docSnap = await getDoc(docRef);
+      
+      if (docSnap.exists()) {
+        return {
+          receiptId: docSnap.id,
+          ...docSnap.data(),
+        } as Receipt;
+      } else {
+        return null;
+      }
+    } catch (error) {
+      console.error('Error getting receipt by ID:', error);
+      throw error;
+    }
+  },
+
   async createReceipt(receipt: Omit<Receipt, 'receiptId' | 'createdAt' | 'updatedAt'>): Promise<string> {
     try {
       console.log("🚀 Starting receipt creation process");
@@ -270,10 +290,24 @@ export const receiptService = {
   async updateReceipt(receiptId: string, updates: Partial<Receipt>): Promise<void> {
     try {
       const docRef = doc(db, 'receipts', receiptId);
-      await updateDoc(docRef, {
-        ...updates,
+      
+      // Process the updates to handle undefined values
+      const processedUpdates: any = {
         updatedAt: serverTimestamp(),
+      };
+      
+      // Add all defined values
+      Object.keys(updates).forEach(key => {
+        const value = (updates as any)[key];
+        if (value === undefined) {
+          // Use deleteField() to remove undefined fields
+          processedUpdates[key] = deleteField();
+        } else {
+          processedUpdates[key] = value;
+        }
       });
+      
+      await updateDoc(docRef, processedUpdates);
     } catch (error) {
       console.error('Error updating receipt:', error);
       throw error;

@@ -147,12 +147,35 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
   
   const [modalVisible, setModalVisible] = useState(false);
 
+  // Debug modal visibility changes
+  React.useEffect(() => {
+    console.log('🏢 BusinessSelector: modalVisible changed to:', modalVisible);
+  }, [modalVisible]);
+
   const selectedBusiness = selectedBusinessId ? getBusinessById(selectedBusinessId) : null;
   const hasMultiBusinessAccess = canAccessFeature('multiBusinessManagement');
 
+  // Debug logging
+  console.log('🏢 BusinessSelector Debug:', {
+    businessesCount: businesses.length,
+    loading,
+    hasMultiBusinessAccess,
+    selectedBusinessId,
+    selectedBusiness: selectedBusiness?.name,
+    selectedBusinessResult: selectedBusinessId ? getBusinessById(selectedBusinessId) : 'no ID provided',
+    businessNames: businesses.map(b => b.name),
+    businessIds: businesses.map(b => b.id),
+  });
+
   const handleSelect = (businessId: string | null) => {
+    console.log('🏢 BusinessSelector: handleSelect called with businessId:', businessId);
     onBusinessSelect(businessId);
     setModalVisible(false);
+  };
+
+  const handleSelectorPress = () => {
+    console.log('🏢 BusinessSelector: Selector pressed, opening modal');
+    setModalVisible(true);
   };
 
   const renderSelectedBusiness = () => {
@@ -223,7 +246,7 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
             opacity: disabled ? 0.6 : 1,
           },
         ]}
-        onPress={() => !disabled && setModalVisible(true)}
+        onPress={() => !disabled && handleSelectorPress()}
         disabled={disabled}
         activeOpacity={0.7}
       >
@@ -243,7 +266,9 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: theme.background.primary }]}>
+          <View style={[styles.modalContent, { 
+          backgroundColor: theme.background.primary,
+        }]}>
             {/* Modal Header */}
             <View style={[styles.modalHeader, { borderBottomColor: theme.border.primary }]}>
               <Text style={[styles.modalTitle, { color: theme.text.primary }]}>
@@ -259,9 +284,9 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
 
             {/* Business List */}
             <ScrollView 
-              style={styles.modalScroll} 
+              style={styles.modalScroll}
               contentContainerStyle={styles.scrollContent}
-              showsVerticalScrollIndicator={false}
+              showsVerticalScrollIndicator={true}
             >
               {loading ? (
                 <View style={styles.loadingContainer}>
@@ -357,7 +382,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)', // Darker overlay for better contrast
     justifyContent: 'center',
     alignItems: 'center',
     padding: 20,
@@ -365,9 +390,18 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxWidth: 400,
-    maxHeight: '85%',
+    height: '70%', // Fixed height instead of maxHeight
+    minHeight: 400, // Ensure minimum height
     borderRadius: 12,
     overflow: 'hidden',
+    elevation: 10, // Android shadow
+    shadowColor: '#000', // iOS shadow
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   modalHeader: {
     flexDirection: 'row',
@@ -387,7 +421,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 20,
+    paddingVertical: 10,
+    paddingBottom: 30,
   },
   loadingContainer: {
     alignItems: 'center',
@@ -401,10 +436,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    marginHorizontal: 20,
-    marginVertical: 4,
-    borderRadius: 8,
+    marginHorizontal: 16,
+    marginVertical: 6,
+    borderRadius: 10,
     borderWidth: 1,
+    minHeight: 64,
   },
   businessOptionContent: {
     flexDirection: 'row',

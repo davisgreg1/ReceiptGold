@@ -250,6 +250,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           });
         });
 
+        console.log('🏢 BusinessContext: Loaded businesses:', businessList.map(b => ({ id: b.id, name: b.name })));
         setBusinesses(businessList);
 
         // Restore selected business from AsyncStorage
@@ -269,6 +270,9 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               // Auto-select the only business
               setSelectedBusiness(businessList[0]);
               await AsyncStorage.setItem('selectedBusinessId', businessList[0].id!);
+            } else if (businessList.length === 0) {
+              // No businesses exist - this is likely why the dropdown is empty
+              console.log('⚠️ No businesses found. User needs to create a business in Settings → Business Management');
             }
           } catch (error) {
             console.error('Error restoring selected business:', error);
