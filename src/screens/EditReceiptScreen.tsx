@@ -29,6 +29,7 @@ import { useBusiness } from '../context/BusinessContext';
 import BusinessSelector from '../components/BusinessSelector';
 import { Receipt } from '../services/firebaseService';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 
 interface FormItem {
   description: string;
@@ -297,10 +298,26 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
+  // Helper function to safely parse dates
+  const safeParseDate = (dateValue: any): Date => {
+    if (!dateValue) {
+      return new Date();
+    }
+    
+    // Handle Firebase Timestamp
+    if (dateValue.toDate && typeof dateValue.toDate === 'function') {
+      return dateValue.toDate();
+    }
+    
+    // Handle string or number dates
+    const parsed = new Date(dateValue);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+  };
+
   const [formData, setFormData] = useState({
     vendor: receipt.vendor || '',
     amount: receipt.amount?.toString() || '0',
-    date: new Date(receipt.date),
+    date: safeParseDate(receipt.date),
     description: receipt.description || '',
     category: receipt.category || 'business_expense',
     currency: receipt.currency || 'USD',
@@ -356,13 +373,58 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       ...prevFormData,
       vendor: receipt.vendor || '',
       amount: receipt.amount?.toString() || '0',
-      date: new Date(receipt.date),
+      date: safeParseDate(receipt.date),
       description: receipt.description || '',
       category: receipt.category || 'business_expense',
       currency: receipt.currency || 'USD',
       businessId: receipt.businessId ?? null,
     }));
   }, [receipt, selectedBusiness?.id]);
+
+  // Refresh receipt data when screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      const fetchLatestReceipt = async () => {
+        if (route.params?.receipt?.receiptId) {
+          try {
+            console.log('Refreshing receipt data on focus:', route.params.receipt.receiptId);
+            const latestReceipt = await receiptService.getReceiptById(route.params.receipt.receiptId);
+            
+            if (latestReceipt) {
+              // Update both receipt and formData with latest data
+              const refreshedReceipt = {
+                ...latestReceipt,
+                date: safeParseDate(latestReceipt.date),
+                createdAt: safeParseDate(latestReceipt.createdAt),
+                updatedAt: safeParseDate(latestReceipt.updatedAt),
+              };
+              
+              setReceipt(refreshedReceipt);
+              setFormData(prevFormData => ({
+                ...prevFormData,
+                vendor: refreshedReceipt.vendor || '',
+                amount: refreshedReceipt.amount?.toString() || '0',
+                date: safeParseDate(refreshedReceipt.date),
+                description: refreshedReceipt.description || '',
+                category: refreshedReceipt.category || 'business_expense',
+                currency: refreshedReceipt.currency || 'USD',
+                businessId: refreshedReceipt.businessId ?? null,
+              }));
+              
+              console.log('Receipt refreshed:', {
+                vendor: refreshedReceipt.vendor,
+                businessId: refreshedReceipt.businessId,
+              });
+            }
+          } catch (error) {
+            console.error('Failed to refresh receipt:', error);
+          }
+        }
+      };
+      
+      fetchLatestReceipt();
+    }, [route.params?.receipt?.receiptId])
+  );
 
   // Track if there are unsaved changes
   const hasUnsavedChanges = useMemo(() => {
