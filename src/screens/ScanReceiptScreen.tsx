@@ -415,6 +415,7 @@ export const ScanReceiptScreen = () => {
                 deductionPercentage: (ocrData as any).taxAnalysis?.suggestedPercentage ?? 100,
                 taxYear: new Date().getFullYear(),
                 category,
+                amount: ocrData.tax || 0, // Add the actual tax amount from OCR
               },
               category, // Use determined category
               tags: ["ocr-processed"],
@@ -470,6 +471,7 @@ export const ScanReceiptScreen = () => {
               deductionPercentage: 100,
               taxYear: new Date().getFullYear(),
               category: "business_expense",
+              amount: 0, // Add tax amount field
             },
             category: "business_expense", // Use the same category as tax
             tags: ["manual-entry-required"],
@@ -746,6 +748,7 @@ export const ScanReceiptScreen = () => {
               deductionPercentage: taxAnalysis?.deductionPercentage ?? 100,
               taxYear: new Date().getFullYear(),
               category: taxAnalysis?.category || "business_expense",
+              amount: ocrData.tax || 0, // Add the actual tax amount from OCR
             },
             category: category, // Use the determined category
             tags: taxAnalysis?.tags || [],
@@ -798,6 +801,7 @@ export const ScanReceiptScreen = () => {
             deductionPercentage: 100,
             taxYear: new Date().getFullYear(),
             category: "business_expense",
+            amount: 0, // Add tax amount field
           },
           category: "other", // Default category when OCR fails
           tags: ["manual-entry-required"],
@@ -1097,6 +1101,7 @@ export const ScanReceiptScreen = () => {
               deductionPercentage: (ocrData as any).taxAnalysis?.suggestedPercentage ?? 100,
               taxYear: new Date().getFullYear(),
               category: category,
+              amount: ocrData.tax || 0, // Add the actual tax amount from OCR
             },
             category: category,
             tags: ["ocr-processed"],
