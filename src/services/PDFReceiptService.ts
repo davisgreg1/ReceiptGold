@@ -62,6 +62,7 @@ export class PDFReceiptService {
             hour12: true 
           })
         : '12:30 PM',
+      description: transaction.name || '', // Add transaction name as description
       items,
       subtotal,
       tax,

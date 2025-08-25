@@ -131,6 +131,16 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     letterSpacing: -0.2,
   },
+  fieldLabelContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  characterCount: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
   inputContainer: {
     borderRadius: 12,
     paddingHorizontal: 16,
@@ -315,7 +325,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   };
 
   const [formData, setFormData] = useState({
-    vendor: receipt.vendor || '',
+    vendor: receipt.vendor || (receipt as any).businessName || '',
     amount: receipt.amount?.toString() || '0',
     date: safeParseDate(receipt.date),
     description: receipt.description || '',
@@ -341,14 +351,15 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   console.log('Initial receipt data:', {
     receiptId: receipt.receiptId,
     vendor: receipt.vendor,
+    businessName: (receipt as any).businessName,
+    finalVendor: receipt.vendor || (receipt as any).businessName || '',
     amount: receipt.amount,
     businessId: receipt.businessId,
     businessIdType: typeof receipt.businessId,
-    fullReceipt: receipt
   });
 
   console.log('Initial formData:', {
-    vendor: receipt.vendor || '',
+    vendor: receipt.vendor || (receipt as any).businessName || '',
     amount: receipt.amount?.toString() || '0',
     businessId: receipt.businessId ?? (selectedBusiness?.id || null),
   });
@@ -371,7 +382,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     
     setFormData(prevFormData => ({
       ...prevFormData,
-      vendor: receipt.vendor || '',
+      vendor: receipt.vendor || (receipt as any).businessName || '',
       amount: receipt.amount?.toString() || '0',
       date: safeParseDate(receipt.date),
       description: receipt.description || '',
@@ -737,7 +748,12 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           )}
 
           <View style={styles.fieldGroup}>
-            <Text style={[styles.fieldLabel, { color: theme.text.primary }]}>Description</Text>
+            <View style={styles.fieldLabelContainer}>
+              <Text style={[styles.fieldLabel, { color: theme.text.primary }]}>Description</Text>
+              <Text style={[styles.characterCount, { color: theme.text.secondary }]}>
+                {formData.description.length}/200
+              </Text>
+            </View>
             <View style={[styles.inputContainer, { 
               backgroundColor: theme.background.secondary,
               borderColor: theme.border.secondary,
@@ -745,11 +761,16 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
               <TextInput
                 style={[styles.input, { color: theme.text.primary }]}
                 value={formData.description}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
+                onChangeText={(text) => {
+                  if (text.length <= 200) {
+                    setFormData(prev => ({ ...prev, description: text }))
+                  }
+                }}
                 placeholder="Enter description"
                 placeholderTextColor={theme.text.secondary}
                 multiline={true}
                 numberOfLines={2}
+                maxLength={200}
               />
             </View>
           </View>
@@ -843,7 +864,12 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
               </View>
 
               <View style={styles.itemField}>
-                <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Description</Text>
+                <View style={styles.fieldLabelContainer}>
+                  <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Description</Text>
+                  <Text style={[styles.characterCount, { color: theme.text.secondary, fontSize: 10 }]}>
+                    {item.description.length}/50
+                  </Text>
+                </View>
                 <TextInput
                   style={[styles.itemInput, { 
                     backgroundColor: theme.background.primary,
@@ -851,9 +877,14 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                     borderColor: theme.border.secondary,
                   }]}
                   value={item.description}
-                  onChangeText={(text) => handleUpdateItem(index, 'description', text)}
+                  onChangeText={(text) => {
+                    if (text.length <= 50) {
+                      handleUpdateItem(index, 'description', text)
+                    }
+                  }}
                   placeholder="Item description"
                   placeholderTextColor={theme.text.secondary}
+                  maxLength={50}
                 />
               </View>
 
