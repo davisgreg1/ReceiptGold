@@ -324,9 +324,15 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     return isNaN(parsed.getTime()) ? new Date() : parsed;
   };
 
+  // Helper function to format amount with 2 decimal places
+  const formatAmountForDisplay = (amount: number | undefined): string => {
+    if (amount === undefined || amount === null) return '0.00';
+    return Number(amount).toFixed(2);
+  };
+
   const [formData, setFormData] = useState({
     vendor: receipt.vendor || (receipt as any).businessName || '',
-    amount: receipt.amount?.toString() || '0',
+    amount: formatAmountForDisplay(receipt.amount),
     date: safeParseDate(receipt.date),
     description: receipt.description || '',
     category: receipt.category || 'business_expense',
@@ -360,7 +366,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
 
   console.log('Initial formData:', {
     vendor: receipt.vendor || (receipt as any).businessName || '',
-    amount: receipt.amount?.toString() || '0',
+    amount: formatAmountForDisplay(receipt.amount),
     businessId: receipt.businessId ?? (selectedBusiness?.id || null),
   });
 
@@ -383,7 +389,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     setFormData(prevFormData => ({
       ...prevFormData,
       vendor: receipt.vendor || (receipt as any).businessName || '',
-      amount: receipt.amount?.toString() || '0',
+      amount: formatAmountForDisplay(receipt.amount),
       date: safeParseDate(receipt.date),
       description: receipt.description || '',
       category: receipt.category || 'business_expense',
@@ -414,7 +420,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
               setFormData(prevFormData => ({
                 ...prevFormData,
                 vendor: refreshedReceipt.vendor || '',
-                amount: refreshedReceipt.amount?.toString() || '0',
+                amount: formatAmountForDisplay(refreshedReceipt.amount),
                 date: safeParseDate(refreshedReceipt.date),
                 description: refreshedReceipt.description || '',
                 category: refreshedReceipt.category || 'business_expense',
@@ -442,7 +448,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     if (!receipt) return false;
     
     // Compare current form data with original receipt data
-    const originalAmount = receipt.amount?.toString() || '';
+    const originalAmount = formatAmountForDisplay(receipt.amount);
     const originalVendor = receipt.vendor || '';
     const originalDescription = receipt.description || '';
     const originalCategory = receipt.category || 'business_expense';
