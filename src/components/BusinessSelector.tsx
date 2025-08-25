@@ -144,6 +144,7 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
   const { theme } = useTheme();
   const { businesses, loading, getBusinessById } = useBusiness();
   const { canAccessFeature } = useSubscription();
+  const hasMultiBusinessAccess = canAccessFeature('multiBusinessManagement');
   
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -152,8 +153,17 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
     console.log('🏢 BusinessSelector: modalVisible changed to:', modalVisible);
   }, [modalVisible]);
 
+  // Auto-select single business for users without multi-business access
+  React.useEffect(() => {
+    if (!hasMultiBusinessAccess && businesses.length === 1 && !loading) {
+      const singleBusiness = businesses[0];
+      if (selectedBusinessId !== singleBusiness.id) {
+        onBusinessSelect(singleBusiness.id || null);
+      }
+    }
+  }, [hasMultiBusinessAccess, businesses, loading, selectedBusinessId, onBusinessSelect]);
+
   const selectedBusiness = selectedBusinessId ? getBusinessById(selectedBusinessId) : null;
-  const hasMultiBusinessAccess = canAccessFeature('multiBusinessManagement');
 
   // Debug logging
   console.log('🏢 BusinessSelector Debug:', {
@@ -213,12 +223,9 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
     );
   };
 
-  // If user doesn't have multi-business access and there's only one business, auto-select it
+  // If user doesn't have multi-business access and there's only one business, show it as disabled
   if (!hasMultiBusinessAccess && businesses.length === 1 && !loading) {
     const singleBusiness = businesses[0];
-    if (selectedBusinessId !== singleBusiness.id) {
-      onBusinessSelect(singleBusiness.id || null);
-    }
     
     return (
       <View style={[styles.container, style]}>
