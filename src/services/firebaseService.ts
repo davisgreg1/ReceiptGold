@@ -88,6 +88,7 @@ export interface Receipt {
     deductionPercentage: number;
     taxYear: number;
     category: string;
+    amount?: number; // Add optional tax amount field
   };
   status: 'uploaded' | 'processing' | 'processed' | 'error';
   processingErrors: string[];

@@ -348,10 +348,12 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     tax: {
       ...receipt.tax,
       deductible: receipt.tax?.deductible ?? true,
-      deductionPercentage: receipt.tax?.deductionPercentage ?? 100,
+      deductionPercentage: receipt.tax?.deductionPercentage ?? 0,
       category: receipt.tax?.category || 'business_expense',
       taxYear: receipt.tax?.taxYear || new Date().getFullYear(),
-    }
+      amount: (receipt.tax as any)?.amount ?? 0,
+    },
+    taxAmountDisplay: ((receipt.tax as any)?.amount ?? 0).toFixed(2),
   });
 
   console.log('Initial receipt data:', {
@@ -362,12 +364,21 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     amount: receipt.amount,
     businessId: receipt.businessId,
     businessIdType: typeof receipt.businessId,
+    fullTaxObject: receipt.tax,
+    taxAmount: (receipt.tax as any)?.amount,
   });
 
   console.log('Initial formData:', {
     vendor: receipt.vendor || (receipt as any).businessName || '',
     amount: formatAmountForDisplay(receipt.amount),
     businessId: receipt.businessId ?? (selectedBusiness?.id || null),
+    taxObject: {
+      deductible: receipt.tax?.deductible ?? true,
+      deductionPercentage: receipt.tax?.deductionPercentage ?? 0,
+      category: receipt.tax?.category || 'business_expense',
+      taxYear: receipt.tax?.taxYear || new Date().getFullYear(),
+      amount: (receipt.tax as any)?.amount ?? 0,
+    }
   });
 
   // Only sync formData when receipt is updated after save (not on initial load)
@@ -395,6 +406,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       category: receipt.category || 'business_expense',
       currency: receipt.currency || 'USD',
       businessId: receipt.businessId ?? null,
+      taxAmountDisplay: ((receipt.tax as any)?.amount ?? 0).toFixed(2),
     }));
   }, [receipt, selectedBusiness?.id]);
 
@@ -426,6 +438,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 category: refreshedReceipt.category || 'business_expense',
                 currency: refreshedReceipt.currency || 'USD',
                 businessId: refreshedReceipt.businessId ?? null,
+                taxAmountDisplay: ((refreshedReceipt.tax as any)?.amount ?? 0).toFixed(2),
               }));
               
               console.log('Receipt refreshed:', {
@@ -464,7 +477,8 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       JSON.stringify(formData.items) !== JSON.stringify(receipt.extractedData?.items || []) ||
       formData.tax.deductible !== (receipt.tax?.deductible || false) ||
       formData.tax.deductionPercentage !== (receipt.tax?.deductionPercentage || 0) ||
-      formData.tax.taxYear !== (receipt.tax?.taxYear || new Date().getFullYear())
+      formData.tax.taxYear !== (receipt.tax?.taxYear || new Date().getFullYear()) ||
+      formData.tax.amount !== ((receipt.tax as any)?.amount || 0)
     );
   }, [formData, receipt]);
 
@@ -503,6 +517,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           deductionPercentage: formData.tax.deductionPercentage,
           taxYear: formData.tax.taxYear,
           category: formData.category, // Use the main category for tax as well
+          amount: formData.tax.amount || 0, // Save the tax amount
         },
         updatedAt: new Date(),
       };
@@ -683,6 +698,30 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 style={[styles.input, { color: theme.text.primary }]}
                 value={formData.amount}
                 onChangeText={(text) => setFormData(prev => ({ ...prev, amount: text }))}
+                keyboardType="decimal-pad"
+                placeholder="0.00"
+                placeholderTextColor={theme.text.secondary}
+              />
+            </View>
+          </View>
+
+          <View style={styles.fieldGroup}>
+            <Text style={[styles.fieldLabel, { color: theme.text.primary }]}>Tax Amount</Text>
+            <View style={[styles.inputContainer, { 
+              backgroundColor: theme.background.secondary,
+              borderColor: theme.border.secondary,
+            }]}>
+              <TextInput
+                style={[styles.input, { color: theme.text.primary }]}
+                value={formData.taxAmountDisplay}
+                onChangeText={(text) => {
+                  const taxAmount = parseFloat(text) || 0;
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    taxAmountDisplay: text,
+                    tax: { ...prev.tax, amount: taxAmount }
+                  }));
+                }}
                 keyboardType="decimal-pad"
                 placeholder="0.00"
                 placeholderTextColor={theme.text.secondary}

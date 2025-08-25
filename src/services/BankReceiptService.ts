@@ -322,6 +322,13 @@ export class BankReceiptService {
         description: '', // Description not available in this receipt type, will be populated from items
         category: 'Generated from Bank Transaction',
         items: generatedReceipt.receiptData.items,
+        tax: {
+          deductible: true, // Bank receipts are typically business expenses, so default to deductible
+          deductionPercentage: 0, // Start with 0, let user set the actual deduction percentage
+          category: 'business_expense',
+          taxYear: new Date().getFullYear(),
+          amount: generatedReceipt.receiptData.tax || 0, // Store the actual tax amount from receipt
+        },
         metadata: {
           source: 'bank_transaction',
           originalTransactionId: generatedReceipt.receiptData.transactionId,
@@ -393,6 +400,13 @@ export class BankReceiptService {
         description: generatedReceiptPDF.receiptData.description || '', // Add description from PDF receipt data
         category: 'Generated from Bank Transaction',
         items: generatedReceiptPDF.receiptData.items,
+        tax: {
+          deductible: true, // Bank receipts are typically business expenses, so default to deductible
+          deductionPercentage: 0, // Start with 0, let user set the actual deduction percentage
+          category: 'business_expense',
+          taxYear: new Date().getFullYear(),
+          amount: generatedReceiptPDF.receiptData.tax || 0, // Store the actual tax amount from receipt
+        },
         receiptData: generatedReceiptPDF.receiptData, // Store complete receipt data for regeneration
         metadata: {
           source: 'bank_transaction',
