@@ -4,7 +4,7 @@
  * Features:
  * - Works on both Android and iOS
  * - Shows friendly category names
- * - Supports AI suggestions with confidence indicators
+ * - Supports AI suggestions for optimal ordering
  * - Accessible and themeable
  * - Smooth animations and native feel
  */
@@ -121,11 +121,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           ]}>
             {selectedDisplayName}
           </Text>
-          {aiSuggestedCategory === selectedCategory && aiConfidence && (
-            <View style={[styles.aiIndicator, { backgroundColor: theme.gold.primary }]}>
-              <Text style={styles.aiText}>AI</Text>
-            </View>
-          )}
+
         </View>
         <Ionicons 
           name="chevron-down" 
@@ -192,11 +188,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         ]}>
                           {displayName}
                         </Text>
-                        {isAISuggested && aiConfidence && (
-                          <Text style={[styles.aiSuggestion, { color: theme.gold.primary }]}>
-                            AI Suggested ({Math.round(aiConfidence * 100)}% confidence)
-                          </Text>
-                        )}
+
                       </View>
                     </View>
                     {isSelected && (
@@ -253,17 +245,6 @@ const styles = StyleSheet.create({
   selectedText: {
     fontSize: 16,
     flex: 1,
-  },
-  aiIndicator: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-    marginLeft: 8,
-  },
-  aiText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: 'white',
   },
   modalOverlay: {
     flex: 1,
@@ -335,10 +316,5 @@ const styles = StyleSheet.create({
   },
   categoryItemName: {
     fontSize: 16,
-  },
-  aiSuggestion: {
-    fontSize: 12,
-    marginTop: 2,
-    fontWeight: '500',
   },
 });

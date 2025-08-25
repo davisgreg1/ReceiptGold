@@ -703,7 +703,6 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
               }))}
               label="Category"
               aiSuggestedCategory={receipt.category as ReceiptCategory}
-              aiConfidence={0.85}
             />
           </View>
 
