@@ -129,7 +129,7 @@ export default function ReportsScreen() {
   // Calculate business percentage
   const businessPercentage = useMemo(() => {
     const businessAmount = receipts
-      .filter((receipt) => receipt.tax?.deductible === true)
+      .filter((receipt) => receipt.businessId != null)
       .reduce((sum, receipt) => sum + receipt.amount, 0);
     const totalAmount = receipts.reduce((sum, receipt) => sum + receipt.amount, 0);
     
