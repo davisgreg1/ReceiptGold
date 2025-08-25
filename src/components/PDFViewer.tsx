@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator, ViewStyle, StyleSheet, Dimensions, TouchableOpacity, Alert, Modal } from 'react-native';
+import { View, ActivityIndicator, ViewStyle, StyleSheet, TouchableOpacity, Alert, Modal } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import Pdf from 'react-native-pdf';
@@ -118,53 +118,67 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
     );
   }
 
-  console.log('📄 PDFViewer - Rendering PDF preview with sharing');
-  
-  
-  const openPDF = async () => {
-    try {
-      const filePath = pdfUri || pdfFilePath;
-      if (filePath) {
-        setModalVisible(true);
-      } else {
-        Alert.alert('Error', 'PDF file not found');
-      }
-    } catch (error) {
-      console.error('Error opening PDF:', error);
-      Alert.alert('Error', 'Failed to open PDF');
-    }
-  };
+  console.log('📄 PDFViewer - Rendering PDF preview with modal');
   
   return (
     <View style={[{ flex: 1, backgroundColor: '#f0f0f0' }, style]}>
+      {/* Header with Share Button */}
       <View style={styles.header}>
         <Text style={styles.headerText}>PDF Receipt</Text>
-      </View>
-      
-      <View style={styles.pdfPreview}>
-        <Text style={styles.pdfTitle}>PDF Receipt Ready</Text>
-        <Text style={styles.pdfDescription}>
-          Your receipt has been generated as a PDF document.
-        </Text>
-        
-        <TouchableOpacity 
-          style={styles.openButton} 
-          onPress={openPDF}
-        >
-          <Ionicons name="open" size={20} color="#fff" style={styles.buttonIcon} />
-          <Text style={styles.openButtonText}>Open PDF</Text>
-        </TouchableOpacity>
-        
-        <TouchableOpacity 
-          style={styles.shareButtonLarge} 
+        <TouchableOpacity
           onPress={handleSharePDF}
+          style={styles.shareButton}
         >
-          <Ionicons name="share" size={20} color="#0066cc" style={styles.buttonIcon} />
-          <Text style={styles.shareButtonLargeText}>Share PDF</Text>
+          <Ionicons name="share" size={20} color="#fff" />
+          <Text style={styles.shareButtonText}>Share</Text>
         </TouchableOpacity>
       </View>
 
-      {/* PDF Modal */}
+      {/* PDF Preview - Clickable to open modal */}
+      <TouchableOpacity 
+        style={styles.pdfPreviewContainer}
+        onPress={() => setModalVisible(true)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.pdfPreview}>
+          {pdfSource ? (
+            <Pdf
+              source={pdfSource}
+              style={styles.pdfPreviewViewer}
+              enablePaging={false}
+              enableRTL={false}
+              enableAnnotationRendering={true}
+              password=""
+              spacing={0}
+              enableDoubleTapZoom={false}
+              maxScale={1}
+              minScale={1}
+              scale={1.0}
+              horizontal={false}
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              onError={(error) => {
+                console.error('PDF preview error:', error);
+              }}
+            />
+          ) : (
+            <View style={styles.pdfLoading}>
+              <ActivityIndicator size="large" color="#0066cc" />
+              <Text style={styles.loadingText}>Loading PDF...</Text>
+            </View>
+          )}
+          
+          {/* Overlay with tap hint */}
+          <View style={styles.previewOverlay}>
+            <View style={styles.tapHint}>
+              <Ionicons name="expand" size={24} color="#fff" />
+              <Text style={styles.tapHintText}>Tap to view full PDF</Text>
+            </View>
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {/* Full PDF Modal */}
       <Modal
         visible={modalVisible}
         animationType="slide"
@@ -191,20 +205,20 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
             </View>
           </View>
 
-          {/* PDF Content */}
+          {/* Full Interactive PDF */}
           <View style={styles.modalContent}>
             {pdfSource ? (
               <Pdf
                 source={pdfSource}
                 style={styles.pdfViewer}
                 onLoadComplete={(numberOfPages, filePath) => {
-                  console.log(`PDF loaded: ${numberOfPages} pages at ${filePath}`);
+                  console.log(`PDF loaded in modal: ${numberOfPages} pages at ${filePath}`);
                 }}
                 onPageChanged={(page, numberOfPages) => {
                   console.log(`Current page: ${page}/${numberOfPages}`);
                 }}
                 onError={(error) => {
-                  console.error('PDF error:', error);
+                  console.error('PDF modal error:', error);
                   Alert.alert('Error', 'Failed to load PDF');
                 }}
                 onPressLink={(uri) => {
@@ -253,6 +267,8 @@ const styles = StyleSheet.create({
     color: '#333',
   },
   shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#0066cc',
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -261,67 +277,52 @@ const styles = StyleSheet.create({
   shareButtonText: {
     color: '#fff',
     fontWeight: '600',
+    marginLeft: 6,
+  },
+  pdfPreviewContainer: {
+    flex: 1,
+    margin: 16,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   pdfPreview: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
+    position: 'relative',
   },
-  pdfTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#333',
-    marginBottom: 8,
-    textAlign: 'center',
+  pdfPreviewViewer: {
+    flex: 1,
   },
-  pdfDescription: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 22,
+  previewOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
-  openButton: {
+  tapHint: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0066cc',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-    minWidth: 150,
     justifyContent: 'center',
   },
-  openButtonText: {
+  tapHintText: {
     color: '#fff',
     fontSize: 16,
     fontWeight: '600',
+    marginLeft: 8,
   },
-  shareButtonLarge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#0066cc',
-    minWidth: 150,
-    justifyContent: 'center',
-  },
-  shareButtonLargeText: {
-    color: '#0066cc',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  buttonIcon: {
-    marginRight: 8,
-  },
-  loadingContainer: {
+  pdfLoading: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#f5f5f5',
   },
   loadingText: {
     marginTop: 8,
@@ -370,11 +371,5 @@ const styles = StyleSheet.create({
   },
   pdfViewer: {
     flex: 1,
-  },
-  pdfLoading: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
   },
 });
