@@ -899,7 +899,7 @@ export const BankTransactionsScreen: React.FC = () => {
       overflow: 'hidden',
     },
     pdfViewer: {
-      height: 300,
+      height: 250, // Preview height
       width: '100%',
     },
     receiptDetails: {
