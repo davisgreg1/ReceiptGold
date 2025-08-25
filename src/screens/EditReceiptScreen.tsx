@@ -26,6 +26,22 @@ import { BankReceiptService } from '../services/BankReceiptService';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import BusinessSelector from '../components/BusinessSelector';
+import { Receipt } from '../services/firebaseService';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
+
+interface FormItem {
+  description: string;
+  quantity: number;
+  price: number;
+  amount: number;
+  tax: number;
+}
+
+type RootStackParamList = {
+  EditReceipt: { receipt: Receipt };
+};
+
+type EditReceiptScreenProps = NativeStackScreenProps<RootStackParamList, 'EditReceipt'>;
 
 const styles = StyleSheet.create({
   container: {
@@ -265,25 +281,10 @@ const styles = StyleSheet.create({
   },
 });
 
-import { Receipt } from '../services/firebaseService';
-
-interface FormItem {
-  description: string;
-  quantity: number;
-  price: number;
-  amount: number;
-  tax: number;
-}
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-
-type RootStackParamList = {
-  EditReceipt: { receipt: Receipt };
-};
-
-type EditReceiptScreenProps = NativeStackScreenProps<RootStackParamList, 'EditReceipt'>;
-
 export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, navigation }) => {
-  const { receipt } = route.params;
+  const initialReceipt = route.params.receipt;
+  const [receipt, setReceipt] = useState(initialReceipt);
+  const [isLoadingReceipt, setIsLoadingReceipt] = useState(false);
   const { theme } = useTheme();
   const { user } = useAuth();
   const { selectedBusiness } = useBusiness();
@@ -299,7 +300,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     description: receipt.description || '',
     category: receipt.category || 'business_expense',
     currency: receipt.currency || 'USD',
-    businessId: receipt.businessId || selectedBusiness?.id || null,
+    businessId: receipt.businessId ?? (selectedBusiness?.id || null),
     items: (receipt.extractedData?.items || []).map(item => ({
       description: item.description,
       quantity: item.quantity,
@@ -315,6 +316,49 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       taxYear: receipt.tax?.taxYear || new Date().getFullYear(),
     }
   });
+
+  console.log('Initial receipt data:', {
+    receiptId: receipt.receiptId,
+    vendor: receipt.vendor,
+    amount: receipt.amount,
+    businessId: receipt.businessId,
+    businessIdType: typeof receipt.businessId,
+    fullReceipt: receipt
+  });
+
+  console.log('Initial formData:', {
+    vendor: receipt.vendor || '',
+    amount: receipt.amount?.toString() || '0',
+    businessId: receipt.businessId ?? (selectedBusiness?.id || null),
+  });
+
+  // Only sync formData when receipt is updated after save (not on initial load)
+  React.useEffect(() => {
+    // Only update if this is clearly an update after save, not initial load
+    const isAfterSave = receipt.updatedAt && receipt.createdAt && 
+                       receipt.updatedAt.getTime() > receipt.createdAt.getTime();
+    
+    if (!isAfterSave) {
+      console.log('Skipping formData sync - initial load or no save detected');
+      return;
+    }
+    
+    console.log('Syncing formData after save:', {
+      receiptVendor: receipt.vendor,
+      receiptBusinessId: receipt.businessId,
+    });
+    
+    setFormData(prevFormData => ({
+      ...prevFormData,
+      vendor: receipt.vendor || '',
+      amount: receipt.amount?.toString() || '0',
+      date: new Date(receipt.date),
+      description: receipt.description || '',
+      category: receipt.category || 'business_expense',
+      currency: receipt.currency || 'USD',
+      businessId: receipt.businessId ?? null,
+    }));
+  }, [receipt, selectedBusiness?.id]);
 
   const handleRegeneratePDF = async () => {
     if (!user?.uid || !receipt.receiptId) {
@@ -373,13 +417,43 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         updatedAt: new Date(),
       };
 
-      // Add businessId only if it has a value (not null)
-      const updatedReceipt: Partial<Receipt> = formData.businessId 
-        ? { ...updatedReceiptBase, businessId: formData.businessId }
-        : updatedReceiptBase;
+      // Create the update object - convert null businessId to undefined so Firestore can delete the field
+      const updatedReceipt: Partial<Receipt> = {
+        ...updatedReceiptBase,
+        businessId: formData.businessId || undefined
+      };
+
+      console.log('Saving receipt with data:', {
+        formDataVendor: formData.vendor,
+        formDataAmount: formData.amount,
+        formDataBusinessId: formData.businessId,
+        updatedReceiptVendor: updatedReceipt.vendor,
+        updatedReceiptBusinessId: updatedReceipt.businessId,
+        receiptId: receipt.receiptId
+      });
 
       // Update the receipt with only the changed fields
       await receiptService.updateReceipt(receipt.receiptId, updatedReceipt);
+      
+      // Update local receipt state with the saved changes
+      setReceipt(prevReceipt => {
+        const newReceipt = {
+          ...prevReceipt,
+          ...updatedReceipt,
+          updatedAt: new Date()
+        };
+        
+        console.log('Receipt state updated:', {
+          oldVendor: prevReceipt.vendor,
+          newVendor: newReceipt.vendor,
+          oldBusinessId: prevReceipt.businessId,
+          newBusinessId: newReceipt.businessId
+        });
+        
+        return newReceipt;
+      });
+
+      console.log('Receipt state updated. New businessId:', updatedReceipt.businessId);
       
       showSuccess(
         'Success',
@@ -532,6 +606,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           <View style={styles.fieldGroup}>
             <Text style={[styles.fieldLabel, { color: theme.text.primary }]}>Business</Text>
             <BusinessSelector
+              key={`business-selector-${formData.businessId}`}
               selectedBusinessId={formData.businessId}
               onBusinessSelect={(businessId) => setFormData(prev => ({
                 ...prev,
@@ -544,6 +619,9 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 borderColor: theme.border.secondary,
               }]}
             />
+            <Text style={{ color: theme.text.secondary, fontSize: 12, marginTop: 4 }}>
+              Debug: {formData.businessId ? `Selected: ${formData.businessId}` : 'No business selected'}
+            </Text>
           </View>
 
           <View style={styles.fieldGroup}>

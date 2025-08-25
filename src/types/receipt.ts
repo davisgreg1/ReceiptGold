@@ -1,6 +1,7 @@
 export interface Receipt {
   receiptId: string;
   userId: string;
+  businessId?: string | null;
   vendor: string;
   amount: number;
   date: Date;

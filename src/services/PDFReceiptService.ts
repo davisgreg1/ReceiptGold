@@ -20,6 +20,7 @@ export interface GeneratedReceiptPDF {
     total: number;
     paymentMethod: string;
     transactionId: string;
+    fallback?: boolean; // Optional flag for fallback receipts
   };
 }
 
@@ -361,14 +362,33 @@ export class PDFReceiptService {
     try {
       console.log('📄 Generating PDF receipt for transaction...');
       
+      // Check if Print is available
+      if (!Print || !Print.printToFileAsync) {
+        console.warn('⚠️ expo-print not available, creating text receipt instead');
+        return await this.createFallbackTextReceipt(transaction);
+      }
+      
+      console.log('🔍 Platform:', Platform.OS);
+      console.log('🔍 expo-print available:', !!Print.printToFileAsync);
+      
       // Generate receipt data
+      console.log('🔍 Generating receipt data...');
       const receiptData = this.generateReceiptData(transaction);
       
       // Generate HTML content
+      console.log('🔍 Generating HTML content...');
       const htmlContent = this.generateReceiptHTML(receiptData);
+      console.log('🔍 HTML content length:', htmlContent.length);
       
-      // Create PDF from HTML
-      const { uri } = await Print.printToFileAsync({
+      // Create PDF from HTML with timeout
+      console.log('🔍 Starting PDF generation with expo-print...');
+      
+      // Shorter timeout for better UX - 10 seconds instead of 30
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('PDF generation took too long. Please try again.')), 10000);
+      });
+      
+      const printPromise = Print.printToFileAsync({
         html: htmlContent,
         base64: false,
         margins: {
@@ -378,26 +398,50 @@ export class PDFReceiptService {
           bottom: 10,
         },
       });
+      
+      console.log('🔍 Waiting for PDF generation to complete...');
+      
+      let uri: string;
+      try {
+        const result = await Promise.race([printPromise, timeoutPromise]);
+        uri = result.uri;
+        console.log('✅ PDF generated at temporary location:', uri);
+      } catch (error) {
+        // If PDF generation fails, throw a user-friendly error
+        if (error instanceof Error && error.message.includes('took too long')) {
+          throw new Error('PDF generation is taking longer than expected. This might be due to device performance or network issues. Please try again.');
+        }
+        throw new Error('Failed to generate PDF. Please check your device storage and try again.');
+      }
 
       // Generate a permanent file path for the PDF
       const fileName = `receipt_${transaction.transaction_id}_${Date.now()}.pdf`;
       const permanentPath = `${FileSystem.documentDirectory}receipts/${fileName}`;
       
+      console.log('🔍 Creating permanent directory and copying file...');
+      
       // Create receipts directory if it doesn't exist
       const receiptsDir = `${FileSystem.documentDirectory}receipts/`;
       const dirInfo = await FileSystem.getInfoAsync(receiptsDir);
       if (!dirInfo.exists) {
+        console.log('🔍 Creating receipts directory...');
         await FileSystem.makeDirectoryAsync(receiptsDir, { intermediates: true });
       }
 
       // Copy the temporary PDF to permanent location
+      console.log('🔍 Copying PDF from temporary to permanent location...');
       await FileSystem.copyAsync({
         from: uri,
         to: permanentPath
       });
 
       // Clean up temporary file
-      await FileSystem.deleteAsync(uri, { idempotent: true });
+      console.log('🔍 Cleaning up temporary file...');
+      try {
+        await FileSystem.deleteAsync(uri, { idempotent: true });
+      } catch (cleanupError) {
+        console.warn('⚠️ Failed to delete temporary file (non-critical):', cleanupError);
+      }
 
       console.log('✅ PDF receipt generated successfully at:', permanentPath);
       
@@ -408,8 +452,89 @@ export class PDFReceiptService {
       };
     } catch (error) {
       console.error('❌ Error generating PDF receipt:', error);
+      
+      // Try to create a fallback text-based receipt
+      try {
+        console.log('🔄 Attempting to create fallback text receipt...');
+        const fallbackReceipt = await this.createFallbackTextReceipt(transaction);
+        return fallbackReceipt;
+      } catch (fallbackError) {
+        console.error('❌ Fallback receipt creation also failed:', fallbackError);
+        throw new Error('Unable to generate receipt. Please check your device storage and internet connection, then try again.');
+      }
+    }
+  }
+
+  /**
+   * Create a simple text-based receipt as fallback when PDF generation fails
+   */
+  private async createFallbackTextReceipt(transaction: PlaidTransaction): Promise<GeneratedReceiptPDF> {
+    try {
+      const receiptData = this.generateReceiptData(transaction);
+      
+      // Create simple text content
+      const textContent = this.generateReceiptText(receiptData);
+      
+      // Generate a text file instead of PDF
+      const fileName = `receipt_${transaction.transaction_id}_${Date.now()}.txt`;
+      const textPath = `${FileSystem.documentDirectory}receipts/${fileName}`;
+      
+      // Create receipts directory if it doesn't exist
+      const receiptsDir = `${FileSystem.documentDirectory}receipts/`;
+      const dirInfo = await FileSystem.getInfoAsync(receiptsDir);
+      if (!dirInfo.exists) {
+        await FileSystem.makeDirectoryAsync(receiptsDir, { intermediates: true });
+      }
+
+      // Write text file
+      await FileSystem.writeAsStringAsync(textPath, textContent);
+
+      console.log('✅ Fallback text receipt created at:', textPath);
+      
+      return {
+        receiptPdfUrl: textPath,
+        receiptPdfPath: textPath,
+        receiptData: {
+          ...receiptData,
+          fallback: true, // Flag to indicate this is a fallback receipt
+        }
+      };
+    } catch (error) {
+      console.error('❌ Error creating fallback receipt:', error);
       throw error;
     }
+  }
+
+  /**
+   * Generate simple text content for fallback receipts
+   */
+  private generateReceiptText(receiptData: any): string {
+    return `
+RECEIPT
+=======
+
+Business: ${receiptData.businessName}
+Address: ${receiptData.address}
+Date: ${receiptData.date}
+Time: ${receiptData.time}
+
+Items:
+------
+${receiptData.items.map((item: any) => `${item.description}: $${item.amount.toFixed(2)}`).join('\n')}
+
+Summary:
+--------
+Subtotal: $${receiptData.subtotal.toFixed(2)}
+Tax: $${receiptData.tax.toFixed(2)}
+TOTAL: $${receiptData.total.toFixed(2)}
+
+Transaction ID: ${receiptData.transactionId || 'N/A'}
+Receipt ID: ${receiptData.receiptId || 'N/A'}
+
+---
+Generated by ReceiptGold
+${new Date().toISOString()}
+    `.trim();
   }
 
   /**
