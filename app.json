@@ -81,6 +81,12 @@
       ],
       [
         "@react-native-firebase/messaging"
+      ],
+      [
+        "@config-plugins/react-native-blob-util"
+      ],
+      [
+        "@config-plugins/react-native-pdf"
       ]
     ],
     "owner": "davisgreg1"

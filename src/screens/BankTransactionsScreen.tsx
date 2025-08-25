@@ -24,6 +24,7 @@ import { BankReceiptService, TransactionCandidate } from '../services/BankReceip
 import { PlaidService } from '../services/PlaidService';
 import { GeneratedReceipt } from '../services/HTMLReceiptService';
 import { GeneratedReceiptPDF } from '../services/PDFReceiptService';
+import { PDFViewer } from '../components/PDFViewer';
 import { useInAppNotifications } from '../components/InAppNotificationProvider';
 import { PlaidLinkButton } from '../components/PlaidLinkButton';
 
@@ -598,17 +599,12 @@ export const BankTransactionsScreen: React.FC = () => {
         {generatedReceipt && (
           <View style={styles.generatedReceiptContainer}>
             <Text style={styles.receiptTitle}>Generated PDF Receipt</Text>
-            <View style={styles.pdfPreviewContainer}>
-              <Ionicons 
-                name="document-text" 
-                size={80} 
-                color={theme.text.accent} 
-                style={styles.pdfIcon}
+            
+            <View style={styles.pdfViewerContainer}>
+              <PDFViewer 
+                pdfFilePath={generatedReceipt.receiptPdfPath}
+                style={styles.pdfViewer}
               />
-              <Text style={styles.pdfText}>PDF Receipt Generated</Text>
-              <Text style={styles.pdfPath}>
-                Path: {generatedReceipt.receiptPdfPath.split('/').pop()}
-              </Text>
             </View>
             
             <Text style={styles.receiptDetails}>
@@ -893,6 +889,18 @@ export const BankTransactionsScreen: React.FC = () => {
       fontSize: 12,
       color: theme.text.secondary,
       textAlign: 'center',
+    },
+    pdfViewerContainer: {
+      backgroundColor: theme.background.secondary,
+      borderRadius: 8,
+      marginVertical: 8,
+      borderWidth: 1,
+      borderColor: theme.border.primary,
+      overflow: 'hidden',
+    },
+    pdfViewer: {
+      height: 300,
+      width: '100%',
     },
     receiptDetails: {
       fontSize: 12,

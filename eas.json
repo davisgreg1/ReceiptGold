@@ -4,6 +4,7 @@
   },
   "build": {
     "development": {
+      "developmentClient": true,
       "distribution": "internal",
       "prebuildCommand": "npx expo prebuild --clean",
       "ios": {
