@@ -153,16 +153,6 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
     console.log('🏢 BusinessSelector: modalVisible changed to:', modalVisible);
   }, [modalVisible]);
 
-  // Auto-select single business for users without multi-business access
-  React.useEffect(() => {
-    if (!hasMultiBusinessAccess && businesses.length === 1 && !loading) {
-      const singleBusiness = businesses[0];
-      if (selectedBusinessId !== singleBusiness.id) {
-        onBusinessSelect(singleBusiness.id || null);
-      }
-    }
-  }, [hasMultiBusinessAccess, businesses, loading, selectedBusinessId, onBusinessSelect]);
-
   const selectedBusiness = selectedBusinessId ? getBusinessById(selectedBusinessId) : null;
 
   // Debug logging
@@ -222,25 +212,6 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
       </Text>
     );
   };
-
-  // If user doesn't have multi-business access and there's only one business, show it as disabled
-  if (!hasMultiBusinessAccess && businesses.length === 1 && !loading) {
-    const singleBusiness = businesses[0];
-    
-    return (
-      <View style={[styles.container, style]}>
-        <View style={[styles.selector, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
-          <View style={styles.selectedBusinessContent}>
-            <Ionicons name="business" size={16} color={theme.text.secondary} />
-            <Text style={[styles.selectedBusinessText, { color: theme.text.primary }]}>
-              {singleBusiness.name}
-            </Text>
-          </View>
-          <Ionicons name="lock-closed" size={16} color={theme.text.tertiary} />
-        </View>
-      </View>
-    );
-  }
 
   return (
     <View style={[styles.container, style]}>
