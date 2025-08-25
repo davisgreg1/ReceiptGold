@@ -11,14 +11,21 @@ interface PDFViewerProps {
   pdfUri?: string;
   pdfFilePath?: string;
   style?: ViewStyle;
+  showShare?: boolean;
 }
 
-export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style }) => {
+export const PDFViewer: React.FC<PDFViewerProps> = ({ 
+  pdfUri, 
+  pdfFilePath, 
+  style,
+  showShare = true 
+}) => {
   const { theme } = useTheme();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pdfSource, setPdfSource] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [pdfKey, setPdfKey] = useState(0); // Add this for forcing refreshes
 
   console.log('📄 PDFViewer - Component rendered with:', { pdfUri, pdfFilePath });
 
@@ -28,6 +35,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
       try {
         setLoading(true);
         setError(null);
+        setPdfKey(prev => prev + 1); // Force refresh when path changes
 
         // Determine which PDF source to use
         const filePath = pdfUri || pdfFilePath;
@@ -188,7 +196,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
       justifyContent: 'center',
     },
     tapHintText: {
-      color: theme.text.inverse,
+      color: theme.text.primary,
       fontSize: 16,
       fontWeight: '600',
       marginLeft: 8,
@@ -252,17 +260,19 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
   
   return (
     <View style={[{ flex: 1, backgroundColor: theme.background.primary }, style]}>
-      {/* Header with Share Button */}
-      <View style={styles.header}>
-        <Text style={styles.headerText}>PDF Receipt</Text>
-        <TouchableOpacity
-          onPress={handleSharePDF}
-          style={styles.shareButton}
-        >
-          <Ionicons name="share" size={20} color="#fff" />
-          <Text style={styles.shareButtonText}>Share</Text>
-        </TouchableOpacity>
-      </View>
+      {/* Header with Share Button - only show when share is enabled */}
+      {showShare && (
+        <View style={styles.header}>
+          <Text style={styles.headerText}>Receipt</Text>
+          <TouchableOpacity
+            onPress={handleSharePDF}
+            style={styles.shareButton}
+          >
+            <Ionicons name="share" size={20} color={theme.text.inverse} />
+            <Text style={styles.shareButtonText}>Share</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* PDF Preview - Clickable to open modal */}
       <TouchableOpacity 
@@ -273,6 +283,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
         <View style={styles.pdfPreview}>
           {pdfSource ? (
             <Pdf
+              key={`pdf-preview-${pdfKey}`}
               source={pdfSource}
               style={[styles.pdfPreviewViewer, { backgroundColor: theme.background.elevated }]}
               enablePaging={false}
@@ -301,7 +312,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
           {/* Overlay with tap hint */}
           <View style={styles.previewOverlay}>
             <View style={styles.tapHint}>
-              <Ionicons name="expand" size={24} color={theme.text.inverse} />
+              <Ionicons name="expand" size={24} color={theme.text.primary} />
               <Text style={styles.tapHintText}>Tap to view full PDF</Text>
             </View>
           </View>
@@ -319,14 +330,16 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
         <View style={styles.modalContainer}>
           {/* Modal Header */}
           <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>PDF Receipt</Text>
+            <Text style={styles.modalTitle}>Receipt</Text>
             <View style={styles.modalActions}>
-              <TouchableOpacity
-                onPress={handleSharePDF}
-                style={styles.modalShareButton}
-              >
-                <Ionicons name="share" size={24} color={theme.gold.primary} />
-              </TouchableOpacity>
+              {showShare && (
+                <TouchableOpacity
+                  onPress={handleSharePDF}
+                  style={styles.modalShareButton}
+                >
+                  <Ionicons name="share" size={24} color={theme.gold.primary} />
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 onPress={() => setModalVisible(false)}
                 style={styles.modalCloseButton}
@@ -341,6 +354,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({ pdfUri, pdfFilePath, style
             {pdfSource ? (
               <View style={{ flex: 1, backgroundColor: theme.background.primary }}>
                 <Pdf
+                  key={`pdf-modal-${pdfKey}`}
                   source={pdfSource}
                   style={[styles.pdfViewer, { backgroundColor: theme.background.primary }]}
                   onLoadComplete={(numberOfPages, filePath) => {

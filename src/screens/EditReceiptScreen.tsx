@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -15,6 +15,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { Text } from '../components/Text';
+import { PDFViewer } from '../components/PDFViewer';
 import { receiptService } from '../services/firebaseService';
 import { format } from 'date-fns';
 import { CategoryPicker } from '../components/CategoryPicker';
@@ -72,36 +73,29 @@ const styles = StyleSheet.create({
   
   // Image/PDF Container
   mediaContainer: {
-    aspectRatio: 3/4,
     width: '100%',
     borderRadius: 16,
     overflow: 'hidden',
     marginBottom: 8,
+    minHeight: 300,
   },
   image: {
     width: '100%',
-    height: '100%',
+    height: 300,
     resizeMode: 'contain',
   },
-  pdfPreview: {
+  pdfContainer: {
     flex: 1,
+    minHeight: 300,
+  },
+  pdfViewer: {
+    flex: 1,
+  },
+  regenerateContainer: {
+    padding: 16,
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 32,
-  },
-  pdfIcon: {
-    marginBottom: 16,
-  },
-  pdfText: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  pdfPath: {
-    fontSize: 13,
-    textAlign: 'center',
-    marginBottom: 20,
-    opacity: 0.7,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 215, 0, 0.2)',
   },
   regenerateButton: {
     flexDirection: 'row',
@@ -114,6 +108,16 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     fontSize: 15,
     fontWeight: '600',
+  },
+  regenerateInfoContainer: {
+    padding: 16,
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    borderRadius: 8,
+  },
+  regenerateInfoText: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
   
   // Form Fields
@@ -360,23 +364,30 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     }));
   }, [receipt, selectedBusiness?.id]);
 
-  const handleRegeneratePDF = async () => {
-    if (!user?.uid || !receipt.receiptId) {
-      showError('Error', 'Cannot regenerate PDF - missing user or receipt ID');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      await bankReceiptService.regeneratePDFForReceipt(receipt.receiptId, user.uid);
-      showSuccess('Success', 'PDF receipt has been regenerated successfully');
-    } catch (error) {
-      console.error('Error regenerating PDF:', error);
-      showError('Error', 'Failed to regenerate PDF. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Track if there are unsaved changes
+  const hasUnsavedChanges = useMemo(() => {
+    if (!receipt) return false;
+    
+    // Compare current form data with original receipt data
+    const originalAmount = receipt.amount?.toString() || '';
+    const originalVendor = receipt.vendor || '';
+    const originalDescription = receipt.description || '';
+    const originalCategory = receipt.category || 'business_expense';
+    const originalCurrency = receipt.currency || 'USD';
+    
+    return (
+      formData.amount !== originalAmount ||
+      formData.vendor !== originalVendor ||
+      formData.description !== originalDescription ||
+      formData.category !== originalCategory ||
+      formData.currency !== originalCurrency ||
+      formData.businessId !== (receipt.businessId ?? null) ||
+      JSON.stringify(formData.items) !== JSON.stringify(receipt.extractedData?.items || []) ||
+      formData.tax.deductible !== (receipt.tax?.deductible || false) ||
+      formData.tax.deductionPercentage !== (receipt.tax?.deductionPercentage || 0) ||
+      formData.tax.taxYear !== (receipt.tax?.taxYear || new Date().getFullYear())
+    );
+  }, [formData, receipt]);
 
   const handleSave = async () => {
     try {
@@ -455,6 +466,18 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
 
       console.log('Receipt state updated. New businessId:', updatedReceipt.businessId);
       
+      // If this is a PDF receipt from bank transaction, regenerate PDF with updated data
+      if ((receipt as any).metadata?.source === 'bank_transaction' && (receipt as any).type === 'pdf') {
+        try {
+          console.log('🔄 Auto-regenerating PDF after data update...');
+          await bankReceiptService.regeneratePDFForReceipt(receipt.receiptId, user?.uid || '');
+          console.log('✅ PDF regenerated successfully after update');
+        } catch (pdfError) {
+          console.error('⚠️ Failed to regenerate PDF after update:', pdfError);
+          // Don't show error to user as the main save was successful
+        }
+      }
+      
       showSuccess(
         'Success',
         'Receipt updated successfully',
@@ -519,41 +542,26 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         {/* Media Section */}
         <View style={[styles.card, { backgroundColor: theme.background.elevated }]}>
           <Text style={[styles.cardTitle, { color: theme.text.primary }]}>
-            {(receipt as any).type === 'pdf' ? 'Receipt PDF' : 'Receipt Image'}
+            Receipt
           </Text>
           <View style={[styles.mediaContainer, { backgroundColor: theme.background.secondary }]}>
             {(receipt as any).type === 'pdf' ? (
-              // PDF Preview
-              <View style={styles.pdfPreview}>
-                <Ionicons 
-                  name="document-text" 
-                  size={80} 
-                  color={theme.gold.primary}
-                  style={styles.pdfIcon}
+              // PDF Preview with Modal
+              <View style={styles.pdfContainer}>
+                <PDFViewer 
+                  key={`pdf-${receipt.receiptId}-${receipt.updatedAt?.toISOString() || 'default'}`}
+                  pdfFilePath={(receipt as any).pdfPath}
+                  style={styles.pdfViewer}
+                  showShare={false}
                 />
-                <Text style={[styles.pdfText, { color: theme.text.primary }]}>
-                  PDF Receipt
-                </Text>
-                <Text style={[styles.pdfPath, { color: theme.text.secondary }]}>
-                  {(receipt as any).pdfPath ? (receipt as any).pdfPath.split('/').pop() : 'Receipt.pdf'}
-                </Text>
-                {(receipt as any).metadata?.source === 'bank_transaction' && (
-                  <TouchableOpacity 
-                    style={[styles.regenerateButton, { backgroundColor: theme.gold.background, borderColor: theme.gold.primary, borderWidth: 1 }]}
-                    onPress={handleRegeneratePDF}
-                    disabled={loading}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="small" color={theme.gold.primary} />
-                    ) : (
-                      <>
-                        <Ionicons name="refresh" size={18} color={theme.gold.primary} />
-                        <Text style={[styles.regenerateText, { color: theme.gold.primary }]}>
-                          Regenerate PDF
-                        </Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+                {(receipt as any).metadata?.source === 'bank_transaction' && hasUnsavedChanges && (
+                  <View style={styles.regenerateContainer}>
+                    <View style={styles.regenerateInfoContainer}>
+                      <Text style={[styles.regenerateInfoText, { color: theme.text.secondary }]}>
+                        You have unsaved changes. Save to regenerate the PDF with updated information.
+                      </Text>
+                    </View>
+                  </View>
                 )}
               </View>
             ) : (
