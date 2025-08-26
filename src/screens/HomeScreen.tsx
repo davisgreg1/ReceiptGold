@@ -231,7 +231,7 @@ export const HomeScreen: React.FC = () => {
               onPress={() => navigationHelpers.switchToReceiptsTab(tabNavigation)}
             >
               <Text style={styles.actionButtonIcon}>📄</Text>
-              <ButtonText size="medium" color="inverse">
+              <ButtonText size="medium" color="inverse" style={styles.actionButtonText}>
                 Scan Receipt
               </ButtonText>
             </TouchableOpacity>
@@ -241,7 +241,7 @@ export const HomeScreen: React.FC = () => {
               onPress={() => navigationHelpers.switchToReportsTab(tabNavigation)}
             >
               <Text style={styles.actionButtonIcon}>📊</Text>
-              <ButtonText size="medium" color="primary">
+              <ButtonText size="medium" color="primary" style={styles.actionButtonText}>
                 View Reports
               </ButtonText>
             </TouchableOpacity>
@@ -249,11 +249,11 @@ export const HomeScreen: React.FC = () => {
             {/* Bank Transactions - Professional Feature */}
             {subscription.currentTier === 'professional' && (
               <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: theme.status.success, marginTop: 12 }]}
+                style={[styles.actionButton, { backgroundColor: theme.status.success }]}
                 onPress={() => homeNavigation.navigate('BankTransactions')}
               >
                 <Text style={styles.actionButtonIcon}>🏦</Text>
-                <ButtonText size="medium" color="inverse" style={{width: '100%', textAlign: 'center'}}>
+                <ButtonText size="medium" color="inverse" style={styles.actionButtonText}>
                   Bank Sync
                 </ButtonText>
               </TouchableOpacity>
@@ -408,16 +408,21 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: 12,
     marginTop: 16,
   },
   actionButton: {
     flex: 1,
-    padding: 20,
+    minWidth: 100,
+    padding: 16,
     borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     minHeight: 80,
+  },
+  actionButtonText: {
+    textAlign: "center",
   },
   actionButtonIcon: {
     fontSize: 24,
