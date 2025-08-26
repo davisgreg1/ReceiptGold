@@ -30,6 +30,7 @@ interface BusinessCardProps {
   onSelect: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onLongPress?: () => void;
   showActions?: boolean;
 }
 
@@ -39,6 +40,7 @@ const BusinessCard: React.FC<BusinessCardProps> = ({
   onSelect,
   onEdit,
   onDelete,
+  onLongPress,
   showActions = true,
 }) => {
   const { theme } = useTheme();
@@ -54,6 +56,7 @@ const BusinessCard: React.FC<BusinessCardProps> = ({
         },
       ]}
       onPress={onSelect}
+      onLongPress={onLongPress}
       activeOpacity={0.7}
     >
       {/* Selected Indicator */}
@@ -424,6 +427,7 @@ const BusinessManagementScreen: React.FC = () => {
               onSelect={() => handleSelectBusiness(business)}
               onEdit={() => handleEditBusiness(business)}
               onDelete={() => handleDeleteBusiness(business)}
+              onLongPress={() => handleEditBusiness(business)}
               showActions={true}
             />
           ))
