@@ -147,7 +147,10 @@ export default function ReportsScreen() {
       .reduce((acc, receipt) => {
         const category = receipt.category;
         if (!acc[category]) acc[category] = 0;
-        acc[category] += receipt.amount;
+        // Apply deduction percentage - default to 100% if not set
+        const deductionPercentage = (receipt.tax as any)?.deductionPercentage ?? 100;
+        const deductibleAmount = receipt.amount * (deductionPercentage / 100);
+        acc[category] += deductibleAmount;
         return acc;
       }, {} as Record<string, number>);
   }, [receipts]);
@@ -771,7 +774,12 @@ export default function ReportsScreen() {
                     {formatCurrency(
                       receipts
                         .filter((r) => r.tax?.deductible === true)
-                        .reduce((sum, r) => sum + r.amount, 0) * 0.25
+                        .reduce((sum, r) => {
+                          // Apply deduction percentage - default to 100% if not set
+                          const deductionPercentage = (r.tax as any)?.deductionPercentage ?? 100;
+                          const deductibleAmount = r.amount * (deductionPercentage / 100);
+                          return sum + deductibleAmount;
+                        }, 0) * 0.25
                     )}
                   </Text>
                   <Text style={[styles.taxSavingsNote, { color: theme.text.secondary }]}>
