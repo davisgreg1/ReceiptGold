@@ -24,6 +24,9 @@ COPY package*.json ./
 # Install all dependencies (including dev)
 RUN npm install
 
+# Explicitly install config plugins to ensure they're available
+RUN npm install @config-plugins/react-native-blob-util @config-plugins/react-native-pdf
+
 # Copy app source
 COPY . .
 
@@ -52,13 +55,13 @@ fi\n\
 echo ""\n\
 echo "🌐 Access points:"\n\
 echo "   • DevTools: http://localhost:19000"\n\
-echo "   • Metro: http://localhost:8081"\n\
+echo "   • Metro: http://localhost:8083"\n\
 echo ""\n\
 exec "$@"' > /entrypoint-expo.sh && \
     chmod +x /entrypoint-expo.sh
 
 # Expose Expo ports
-EXPOSE 8081 19000 19001 19002
+EXPOSE 8083 19000 19001 19002
 
 # Set environment for Expo
 ENV EXPO_DEVTOOLS_LISTEN_ADDRESS=0.0.0.0

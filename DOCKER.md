@@ -39,7 +39,7 @@
 5. **Access Applications**:
    - Backend API: http://localhost:3000
    - HTML Service: http://localhost:3001  
-   - Expo DevTools: http://localhost:19000
+   - Expo DevTools: http://localhost:19003
 
 ## Architecture
 
@@ -49,7 +49,7 @@ ReceiptGold runs 3 main services in Docker:
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
 │                 │    │                  │    │                     │
 │  Expo Dev       │    │  Backend API     │    │  HTML-to-Image      │
-│  Port: 19000    │    │  Port: 3000      │    │  Port: 3001         │
+│  Port: 19003    │    │  Port: 3000      │    │  Port: 3001         │
 │                 │    │                  │    │                     │
 │  - React Native │    │  - Stripe API    │    │  - Puppeteer        │
 │  - Development  │    │  - Firebase      │    │  - Receipt HTML     │
@@ -86,9 +86,9 @@ ReceiptGold runs 3 main services in Docker:
 - **Dockerfile**: `Dockerfile.html-service`
 
 ### 3. Expo Development (`expo-dev`)
-- **Port**: 19000 (DevTools), 8081 (Bundler)
+- **Port**: 19003 (DevTools), 8080 (Bundler)
 - **Purpose**: React Native development server
-- **Access**: `http://localhost:19000`
+- **Access**: `http://localhost:19003`
 - **Dockerfile**: `Dockerfile.expo`
 
 ### 4. Nginx Gateway (`nginx`) - Production Only
