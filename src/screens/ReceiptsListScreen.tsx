@@ -2512,7 +2512,6 @@ const styles = StyleSheet.create({
   sectionHeader: {
     paddingVertical: 8,
     paddingHorizontal: 4,
-    marginTop: 4,
     marginBottom: 8,
   },
   sectionHeaderText: {
