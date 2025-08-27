@@ -41,6 +41,7 @@ import { ReceiptCategoryService } from "../services/ReceiptCategoryService";
 import { useCustomAlert } from "../hooks/useCustomAlert";
 import { FirebaseErrorScenarios } from "../utils/firebaseErrorHandler";
 import { ReceiptsLoadingAnimation } from "../components/ReceiptsLoadingAnimation";
+import CollapsibleFilterSection from "../components/CollapsibleFilterSection";
 import { Receipt as FirebaseReceipt } from "../services/firebaseService";
 
 export const ReceiptsListScreen: React.FC = () => {
@@ -82,7 +83,6 @@ export const ReceiptsListScreen: React.FC = () => {
   const [groupByDate, setGroupByDate] = useState(true); // New state for grouping
   const [selectedFilter, setSelectedFilter] = useState<string | null>(null); // Category filter
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [showDateRangePicker, setShowDateRangePicker] = useState(false);
   const [dateRangeFilter, setDateRangeFilter] = useState<{
     startDate: Date | null;
     endDate: Date | null;
@@ -130,23 +130,23 @@ export const ReceiptsListScreen: React.FC = () => {
         // Apply filter
         setSelectedFilter(category);
         setSearchQuery("");
-        
+
         // Map filter names to actual categories
         const categoryMap: Record<string, string[]> = {
-          "Food": ["restaurant", "groceries"],
-          "Transportation": ["transportation", "travel"],
-          "Office": ["other"], // Office supplies might be categorized as "other"
-          "Entertainment": ["entertainment"],
-          "Healthcare": ["healthcare"],
+          Food: ["restaurant", "groceries"],
+          Transportation: ["transportation", "travel"],
+          Office: ["other"], // Office supplies might be categorized as "other"
+          Entertainment: ["entertainment"],
+          Healthcare: ["healthcare"],
         };
-        
+
         const targetCategories = categoryMap[category] || [];
-        
+
         const filtered = receipts.filter((receipt) => {
           const receiptCategory = receipt.category as string;
           return targetCategories.includes(receiptCategory);
         });
-        
+
         setFilteredReceipts(filtered);
         // Close search UI when a filter is applied
         setShowSearch(false);
@@ -172,7 +172,6 @@ export const ReceiptsListScreen: React.FC = () => {
     setSearchQuery(""); // Clear search
     // Close search UI when date filter is applied
     setShowSearch(false);
-    setShowDateRangePicker(false);
   }, []);
 
   // Handle custom date range
@@ -186,13 +185,9 @@ export const ReceiptsListScreen: React.FC = () => {
         };
         setDateRangeFilter(newDateFilter);
 
-        // Close search UI if both dates are now selected
-        if (
-          (datePickerMode === "start" && newDateFilter.endDate) ||
-          (datePickerMode === "end" && newDateFilter.startDate)
-        ) {
+        // Only close search UI when both dates are now selected
+        if (newDateFilter.startDate && newDateFilter.endDate) {
           setShowSearch(false);
-          setShowDateRangePicker(false);
         }
       }
       setShowDatePicker(false);
@@ -622,15 +617,15 @@ export const ReceiptsListScreen: React.FC = () => {
     if (selectedFilter) {
       // Map filter names to actual categories
       const categoryMap: Record<string, string[]> = {
-        "Food": ["restaurant", "groceries"],
-        "Transportation": ["transportation", "travel"],
-        "Office": ["other"], // Office supplies might be categorized as "other"
-        "Entertainment": ["entertainment"],
-        "Healthcare": ["healthcare"],
+        Food: ["restaurant", "groceries"],
+        Transportation: ["transportation", "travel"],
+        Office: ["other"], // Office supplies might be categorized as "other"
+        Entertainment: ["entertainment"],
+        Healthcare: ["healthcare"],
       };
-      
+
       const targetCategories = categoryMap[selectedFilter] || [];
-      
+
       filtered = filtered.filter((receipt) => {
         const receiptCategory = receipt.category as string;
         return targetCategories.includes(receiptCategory);
@@ -1328,11 +1323,134 @@ export const ReceiptsListScreen: React.FC = () => {
                   </View>
                 </TouchableWithoutFeedback>
 
-                {/* Compact Filter Row */}
-                <View style={styles.compactFiltersRow}>
-                  {/* Category Chips - Show first 4 */}
+                <CollapsibleFilterSection
+                  title="Date Range"
+                  defaultExpanded={false}
+                  iconColor={theme.text.primary}
+                  headerBackgroundColor={theme.background.secondary}
+                  contentBackgroundColor={theme.background.primary}
+                  titleColor={theme.text.primary}
+                  shadowColor={theme.text.primary}
+                >
+                  {/* Quick Date Buttons - Horizontal Scroll */}
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    style={styles.quickDateScroll}
+                    contentContainerStyle={styles.quickDateScrollContent}
+                  >
+                    {quickDateFilters.map((filter) => (
+                      <TouchableOpacity
+                        key={filter.label}
+                        style={[
+                          styles.quickDateChip,
+                          {
+                            backgroundColor: theme.background.secondary,
+                            borderColor: theme.border.primary,
+                          },
+                        ]}
+                        onPress={() => handleQuickDateFilter(filter.days)}
+                      >
+                        <Text
+                          style={[
+                            styles.quickDateChipText,
+                            { color: theme.text.secondary },
+                          ]}
+                        >
+                          {filter.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+
+                  {/* Custom Date Range Row */}
+                  <View style={styles.customDateRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.dateButton,
+                        {
+                          backgroundColor: theme.background.secondary,
+                          borderColor: theme.border.primary,
+                        },
+                      ]}
+                      onPress={() => {
+                        setDatePickerMode("start");
+                        setShowDatePicker(true);
+                      }}
+                    >
+                      <Ionicons
+                        name="calendar-outline"
+                        size={14}
+                        color={theme.text.secondary}
+                      />
+                      <Text
+                        style={[
+                          styles.dateButtonText,
+                          { color: theme.text.primary },
+                        ]}
+                      >
+                        {dateRangeFilter.startDate
+                          ? formatDate(dateRangeFilter.startDate)
+                          : "From"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.dateButton,
+                        {
+                          backgroundColor: theme.background.secondary,
+                          borderColor: theme.border.primary,
+                        },
+                      ]}
+                      onPress={() => {
+                        setDatePickerMode("end");
+                        setShowDatePicker(true);
+                      }}
+                    >
+                      <Ionicons
+                        name="calendar-outline"
+                        size={14}
+                        color={theme.text.secondary}
+                      />
+                      <Text
+                        style={[
+                          styles.dateButtonText,
+                          { color: theme.text.primary },
+                        ]}
+                      >
+                        {dateRangeFilter.endDate
+                          ? formatDate(dateRangeFilter.endDate)
+                          : "To"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {dateRangeFilter.active && (
+                      <TouchableOpacity
+                        style={[
+                          styles.clearDateButton,
+                          { backgroundColor: theme.status.error },
+                        ]}
+                        onPress={clearDateFilter}
+                      >
+                        <Ionicons name="close" size={12} color="white" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </CollapsibleFilterSection>
+
+                {/* Filter Sections */}
+                <CollapsibleFilterSection
+                  title="Category Filters"
+                  defaultExpanded={false}
+                  iconColor={theme.text.primary}
+                  headerBackgroundColor={theme.background.secondary}
+                  contentBackgroundColor={theme.background.primary}
+                  titleColor={theme.text.primary}
+                  shadowColor={theme.text.primary}
+                >
                   <View style={styles.categoryChips}>
-                    {quickFilters.slice(0, 4).map((filter) => (
+                    {quickFilters.map((filter) => (
                       <TouchableOpacity
                         key={filter}
                         style={[
@@ -1366,170 +1484,7 @@ export const ReceiptsListScreen: React.FC = () => {
                       </TouchableOpacity>
                     ))}
                   </View>
-
-                  {/* Date Filter Toggle */}
-                  <TouchableOpacity
-                    style={[
-                      styles.dateFilterToggle,
-                      {
-                        backgroundColor: dateRangeFilter.active
-                          ? theme.gold.primary
-                          : theme.background.primary,
-                        borderColor: dateRangeFilter.active
-                          ? theme.gold.primary
-                          : theme.border.primary,
-                      },
-                    ]}
-                    onPress={() => {
-                      Keyboard.dismiss();
-                      searchInputRef.current?.blur();
-                      setShowDateRangePicker(!showDateRangePicker);
-                    }}
-                  >
-                    <Ionicons
-                      name="calendar-outline"
-                      size={16}
-                      color={
-                        dateRangeFilter.active ? "white" : theme.text.secondary
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.dateFilterToggleText,
-                        {
-                          color: dateRangeFilter.active
-                            ? "white"
-                            : theme.text.secondary,
-                        },
-                      ]}
-                    >
-                      Date
-                    </Text>
-                    <Ionicons
-                      name={showDateRangePicker ? "chevron-up" : "chevron-down"}
-                      size={12}
-                      color={
-                        dateRangeFilter.active ? "white" : theme.text.secondary
-                      }
-                    />
-                  </TouchableOpacity>
-                </View>
-
-                {/* Expandable Date Range Picker */}
-                {showDateRangePicker && (
-                  <View
-                    style={[
-                      styles.dateRangeExpanded,
-                      { backgroundColor: theme.background.primary },
-                    ]}
-                  >
-                    {/* Quick Date Buttons - Horizontal Scroll */}
-                    <ScrollView
-                      horizontal
-                      showsHorizontalScrollIndicator={false}
-                      style={styles.quickDateScroll}
-                      contentContainerStyle={styles.quickDateScrollContent}
-                    >
-                      {quickDateFilters.map((filter) => (
-                        <TouchableOpacity
-                          key={filter.label}
-                          style={[
-                            styles.quickDateChip,
-                            {
-                              backgroundColor: theme.background.secondary,
-                              borderColor: theme.border.primary,
-                            },
-                          ]}
-                          onPress={() => handleQuickDateFilter(filter.days)}
-                        >
-                          <Text
-                            style={[
-                              styles.quickDateChipText,
-                              { color: theme.text.secondary },
-                            ]}
-                          >
-                            {filter.label}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </ScrollView>
-
-                    {/* Custom Date Range Row */}
-                    <View style={styles.customDateRow}>
-                      <TouchableOpacity
-                        style={[
-                          styles.dateButton,
-                          {
-                            backgroundColor: theme.background.secondary,
-                            borderColor: theme.border.primary,
-                          },
-                        ]}
-                        onPress={() => {
-                          setDatePickerMode("start");
-                          setShowDatePicker(true);
-                        }}
-                      >
-                        <Ionicons
-                          name="calendar-outline"
-                          size={14}
-                          color={theme.text.secondary}
-                        />
-                        <Text
-                          style={[
-                            styles.dateButtonText,
-                            { color: theme.text.primary },
-                          ]}
-                        >
-                          {dateRangeFilter.startDate
-                            ? formatDate(dateRangeFilter.startDate)
-                            : "From"}
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[
-                          styles.dateButton,
-                          {
-                            backgroundColor: theme.background.secondary,
-                            borderColor: theme.border.primary,
-                          },
-                        ]}
-                        onPress={() => {
-                          setDatePickerMode("end");
-                          setShowDatePicker(true);
-                        }}
-                      >
-                        <Ionicons
-                          name="calendar-outline"
-                          size={14}
-                          color={theme.text.secondary}
-                        />
-                        <Text
-                          style={[
-                            styles.dateButtonText,
-                            { color: theme.text.primary },
-                          ]}
-                        >
-                          {dateRangeFilter.endDate
-                            ? formatDate(dateRangeFilter.endDate)
-                            : "To"}
-                        </Text>
-                      </TouchableOpacity>
-
-                      {dateRangeFilter.active && (
-                        <TouchableOpacity
-                          style={[
-                            styles.clearDateButton,
-                            { backgroundColor: theme.status.error },
-                          ]}
-                          onPress={clearDateFilter}
-                        >
-                          <Ionicons name="close" size={12} color="white" />
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  </View>
-                )}
+                </CollapsibleFilterSection>
 
                 {/* Results Summary */}
                 {(searchQuery || selectedFilter || dateRangeFilter.active) && (
@@ -1630,11 +1585,10 @@ export const ReceiptsListScreen: React.FC = () => {
                           minimumFontScale={0.8}
                         >
                           {formatCurrency(
-                            section.data
-                              .reduce(
-                                (sum, receipt) => sum + (receipt.amount || 0),
-                                0
-                              )
+                            section.data.reduce(
+                              (sum, receipt) => sum + (receipt.amount || 0),
+                              0
+                            )
                           )}
                         </Text>
                       )}
@@ -2600,7 +2554,7 @@ const styles = StyleSheet.create({
   recentSectionAmount: {
     fontSize: 13,
     fontWeight: "bold",
-    textAlign: 'center',
+    textAlign: "center",
   },
   recentSectionNote: {
     fontSize: 12,
@@ -2713,18 +2667,20 @@ const styles = StyleSheet.create({
   categoryChips: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    flex: 1,
+    gap: 10,
+    marginVertical: 4,
   },
   categoryChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 18,
     borderWidth: 1,
+    minWidth: 80,
+    alignItems: "center",
   },
   categoryChipText: {
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "600",
   },
   dateFilterToggle: {
     flexDirection: "row",
@@ -2748,37 +2704,41 @@ const styles = StyleSheet.create({
     maxHeight: 50,
   },
   quickDateScrollContent: {
-    gap: 8,
+    gap: 12,
     paddingHorizontal: 4,
   },
   quickDateChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 14,
     borderWidth: 1,
+    minWidth: 70,
+    alignItems: "center",
   },
   quickDateChipText: {
-    fontSize: 11,
-    fontWeight: "500",
+    fontSize: 12,
+    fontWeight: "600",
   },
   customDateRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 12,
+    marginTop: 8,
   },
   dateButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
     borderWidth: 1,
-    gap: 6,
+    gap: 8,
     flex: 1,
+    minHeight: 40,
   },
   dateButtonText: {
-    fontSize: 12,
-    fontWeight: "500",
+    fontSize: 13,
+    fontWeight: "600",
     flex: 1,
   },
   clearDateButton: {
