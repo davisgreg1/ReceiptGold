@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useRef,
+  useCallback,
+} from "react";
 import {
   View,
   Text,
@@ -13,43 +19,55 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { LinkSuccess, LinkExit } from 'react-native-plaid-link-sdk';
-import { useTheme } from '../theme/ThemeProvider';
-import { useAuth } from '../context/AuthContext';
-import { useSubscription } from '../context/SubscriptionContext';
-import { BankReceiptService, TransactionCandidate } from '../services/BankReceiptService';
-import { PlaidService } from '../services/PlaidService';
-import { GeneratedReceipt } from '../services/HTMLReceiptService';
-import { GeneratedReceiptPDF } from '../services/PDFReceiptService';
-import { PDFViewer } from '../components/PDFViewer';
-import { useInAppNotifications } from '../components/InAppNotificationProvider';
-import { PlaidLinkButton } from '../components/PlaidLinkButton';
-import DateTimePicker from '@react-native-community/datetimepicker';
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { LinkSuccess, LinkExit } from "react-native-plaid-link-sdk";
+import { useTheme } from "../theme/ThemeProvider";
+import { useAuth } from "../context/AuthContext";
+import { useSubscription } from "../context/SubscriptionContext";
+import {
+  BankReceiptService,
+  TransactionCandidate,
+} from "../services/BankReceiptService";
+import { PlaidService } from "../services/PlaidService";
+import { GeneratedReceipt } from "../services/HTMLReceiptService";
+import { GeneratedReceiptPDF } from "../services/PDFReceiptService";
+import { PDFViewer } from "../components/PDFViewer";
+import { useInAppNotifications } from "../components/InAppNotificationProvider";
+import { PlaidLinkButton } from "../components/PlaidLinkButton";
+import CollapsibleFilterSection from "../components/CollapsibleFilterSection";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 export const BankTransactionsScreen: React.FC = () => {
   const { theme } = useTheme();
   const { user } = useAuth();
   const { subscription } = useSubscription();
   const { showNotification } = useInAppNotifications();
-  
-  const [candidates, setCandidates] = useState<(TransactionCandidate & { _id?: string })[]>([]);
+
+  const [candidates, setCandidates] = useState<
+    (TransactionCandidate & { _id?: string })[]
+  >([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [generatingReceipt, setGeneratingReceipt] = useState<string | null>(null);
-  const [generatedReceipts, setGeneratedReceipts] = useState<Map<string, GeneratedReceiptPDF>>(new Map());
+  const [generatingReceipt, setGeneratingReceipt] = useState<string | null>(
+    null
+  );
+  const [generatedReceipts, setGeneratedReceipts] = useState<
+    Map<string, GeneratedReceiptPDF>
+  >(new Map());
   const [linkToken, setLinkToken] = useState<string | null>(null);
-  
+
   // Track cancelled operations
   const cancelledOperations = useRef<Set<string>>(new Set());
-  
+
   // Quick filter state
-  const [currentFilter, setCurrentFilter] = useState<'all' | 'recent' | 'high' | 'dining' | 'shopping' | 'transport'>('all');
+  const [currentFilter, setCurrentFilter] = useState<
+    "all" | "recent" | "high" | "dining" | "shopping" | "transport"
+  >("all");
   const [showSearchSection, setShowSearchSection] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  
+  const [searchQuery, setSearchQuery] = useState("");
+
   // Date filter state
   const [showDateRangePicker, setShowDateRangePicker] = useState(false);
   const [dateRangeFilter, setDateRangeFilter] = useState<{
@@ -61,12 +79,14 @@ export const BankTransactionsScreen: React.FC = () => {
     endDate: null,
     active: false,
   });
-  const [datePickerMode, setDatePickerMode] = useState<'start' | 'end'>('start');
+  const [datePickerMode, setDatePickerMode] = useState<"start" | "end">(
+    "start"
+  );
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
-  
+
   // Filtered and sorted candidates
   const filteredAndSortedCandidates = useMemo(() => {
     let filtered = candidates;
@@ -74,73 +94,98 @@ export const BankTransactionsScreen: React.FC = () => {
     // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(candidate => 
-        candidate.transaction.merchant_name?.toLowerCase().includes(query) ||
-        candidate.transaction.name?.toLowerCase().includes(query)
+      filtered = filtered.filter(
+        (candidate) =>
+          candidate.transaction.merchant_name?.toLowerCase().includes(query) ||
+          candidate.transaction.name?.toLowerCase().includes(query)
       );
     }
 
     // Apply quick filter
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    
+
     switch (currentFilter) {
-      case 'recent':
-        filtered = filtered.filter(candidate => 
-          new Date(candidate.transaction.date) >= sevenDaysAgo
+      case "recent":
+        filtered = filtered.filter(
+          (candidate) => new Date(candidate.transaction.date) >= sevenDaysAgo
         );
         break;
-      case 'high':
-        filtered = filtered.filter(candidate => 
-          Math.abs(candidate.transaction.amount) >= 100
+      case "high":
+        filtered = filtered.filter(
+          (candidate) => Math.abs(candidate.transaction.amount) >= 100
         );
         break;
-      case 'dining':
-        filtered = filtered.filter(candidate => 
-          candidate.transaction.category?.[0]?.toLowerCase().includes('food') ||
-          candidate.transaction.category?.[0]?.toLowerCase().includes('dining') ||
-          candidate.transaction.category?.[0]?.toLowerCase().includes('restaurant')
+      case "dining":
+        filtered = filtered.filter(
+          (candidate) =>
+            candidate.transaction.category?.[0]
+              ?.toLowerCase()
+              .includes("food") ||
+            candidate.transaction.category?.[0]
+              ?.toLowerCase()
+              .includes("dining") ||
+            candidate.transaction.category?.[0]
+              ?.toLowerCase()
+              .includes("restaurant")
         );
         break;
-      case 'shopping':
-        filtered = filtered.filter(candidate => 
-          candidate.transaction.category?.[0]?.toLowerCase().includes('shop') ||
-          candidate.transaction.category?.[0]?.toLowerCase().includes('retail') ||
-          candidate.transaction.category?.[0]?.toLowerCase().includes('store')
+      case "shopping":
+        filtered = filtered.filter(
+          (candidate) =>
+            candidate.transaction.category?.[0]
+              ?.toLowerCase()
+              .includes("shop") ||
+            candidate.transaction.category?.[0]
+              ?.toLowerCase()
+              .includes("retail") ||
+            candidate.transaction.category?.[0]?.toLowerCase().includes("store")
         );
         break;
-      case 'transport':
-        filtered = filtered.filter(candidate => 
-          candidate.transaction.category?.[0]?.toLowerCase().includes('transport') ||
-          candidate.transaction.category?.[0]?.toLowerCase().includes('travel') ||
-          candidate.transaction.category?.[0]?.toLowerCase().includes('gas') ||
-          candidate.transaction.category?.[0]?.toLowerCase().includes('uber') ||
-          candidate.transaction.category?.[0]?.toLowerCase().includes('taxi')
+      case "transport":
+        filtered = filtered.filter(
+          (candidate) =>
+            candidate.transaction.category?.[0]
+              ?.toLowerCase()
+              .includes("transport") ||
+            candidate.transaction.category?.[0]
+              ?.toLowerCase()
+              .includes("travel") ||
+            candidate.transaction.category?.[0]
+              ?.toLowerCase()
+              .includes("gas") ||
+            candidate.transaction.category?.[0]
+              ?.toLowerCase()
+              .includes("uber") ||
+            candidate.transaction.category?.[0]?.toLowerCase().includes("taxi")
         );
         break;
-      case 'all':
+      case "all":
       default:
         // No filtering
         break;
     }
 
     // Date range filter
-    if (dateRangeFilter.active && (dateRangeFilter.startDate || dateRangeFilter.endDate)) {
-      filtered = filtered.filter(candidate => {
+    if (
+      dateRangeFilter.active &&
+      (dateRangeFilter.startDate || dateRangeFilter.endDate)
+    ) {
+      filtered = filtered.filter((candidate) => {
         const transactionDate = new Date(candidate.transaction.date);
-        
+
         if (dateRangeFilter.startDate) {
           const startOfDay = new Date(dateRangeFilter.startDate);
           startOfDay.setHours(0, 0, 0, 0);
           if (transactionDate < startOfDay) return false;
         }
-        
+
         if (dateRangeFilter.endDate) {
           const endOfDay = new Date(dateRangeFilter.endDate);
           endOfDay.setHours(23, 59, 59, 999);
           if (transactionDate > endOfDay) return false;
         }
-        
+
         return true;
       });
     }
@@ -153,10 +198,10 @@ export const BankTransactionsScreen: React.FC = () => {
     });
 
     return filtered;
-  }, [candidates, currentFilter, searchQuery, dateRangeFilter]);  // Get unique categories for filter
+  }, [candidates, currentFilter, searchQuery, dateRangeFilter]); // Get unique categories for filter
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
-    candidates.forEach(candidate => {
+    candidates.forEach((candidate) => {
       if (candidate.transaction.category?.[0]) {
         categories.add(candidate.transaction.category[0]);
       }
@@ -165,7 +210,7 @@ export const BankTransactionsScreen: React.FC = () => {
   }, [candidates]);
 
   useEffect(() => {
-    if (user && subscription.currentTier === 'professional') {
+    if (user && subscription.currentTier === "professional") {
       // Only load candidates and create link token; do not clear bank connections in dev mode
       loadTransactionCandidates();
       createLinkToken(); // Prepare link token for bank connection
@@ -177,51 +222,77 @@ export const BankTransactionsScreen: React.FC = () => {
 
     try {
       setLoading(true);
-      
+
       // First, try to get candidates from cache
-      const cachedCandidates = await bankReceiptService.getCachedTransactionCandidates(user.uid);
-      
+      const cachedCandidates =
+        await bankReceiptService.getCachedTransactionCandidates(user.uid);
+
       if (cachedCandidates.length > 0) {
-        console.log('� Using cached candidates:', cachedCandidates.length);
-        setCandidates(cachedCandidates.map(candidate => ({ _id: candidate.transaction?.transaction_id || 'unknown', ...candidate })));
-        
+        console.log("� Using cached candidates:", cachedCandidates.length);
+        setCandidates(
+          cachedCandidates.map((candidate) => ({
+            _id: candidate.transaction?.transaction_id || "unknown",
+            ...candidate,
+          }))
+        );
+
         // Load generated receipts for candidates with 'generated' status
-        await loadGeneratedReceipts(cachedCandidates.filter(c => c.status === 'generated').map(candidate => ({ _id: candidate.transaction?.transaction_id || 'unknown', ...candidate })));
+        await loadGeneratedReceipts(
+          cachedCandidates
+            .filter((c) => c.status === "generated")
+            .map((candidate) => ({
+              _id: candidate.transaction?.transaction_id || "unknown",
+              ...candidate,
+            }))
+        );
         return;
       }
-      
+
       // No cache, run the full sync process
-      console.log('� No cache found, running full sync...');
+      console.log("� No cache found, running full sync...");
       await bankReceiptService.monitorTransactions(user.uid);
-      
+
       // Now fetch the newly created candidates from Firestore
-      const { getDocs, collection, query, where } = await import('firebase/firestore');
-      const { db } = await import('../config/firebase');
+      const { getDocs, collection, query, where } = await import(
+        "firebase/firestore"
+      );
+      const { db } = await import("../config/firebase");
       const candidatesQuery = query(
-        collection(db, 'transactionCandidates'),
-        where('userId', '==', user.uid),
-        where('status', '!=', 'rejected')
+        collection(db, "transactionCandidates"),
+        where("userId", "==", user.uid),
+        where("status", "!=", "rejected")
       );
       const snapshot = await getDocs(candidatesQuery);
-      const allCandidates = snapshot.docs.map(doc => ({ _id: doc.id, ...(doc.data() as TransactionCandidate) }));
+      const allCandidates = snapshot.docs.map((doc) => ({
+        _id: doc.id,
+        ...(doc.data() as TransactionCandidate),
+      }));
       setCandidates(allCandidates);
-      
+
       // Cache these candidates with their Firestore IDs
-      await bankReceiptService.cacheFirestoreCandidates(user.uid, allCandidates);
-      
+      await bankReceiptService.cacheFirestoreCandidates(
+        user.uid,
+        allCandidates
+      );
+
       // Load generated receipts for candidates with 'generated' status
-      await loadGeneratedReceipts(allCandidates.filter(c => c.status === 'generated'));
+      await loadGeneratedReceipts(
+        allCandidates.filter((c) => c.status === "generated")
+      );
     } catch (error) {
-      console.error('Error loading transaction candidates:', error);
+      console.error("Error loading transaction candidates:", error);
       // Check if error is due to no bank connections
-      if (error instanceof Error && error.message.includes('Network request failed')) {
-        console.log('ℹ️ Network error - likely no bank connections exist yet');
+      if (
+        error instanceof Error &&
+        error.message.includes("Network request failed")
+      ) {
+        console.log("ℹ️ Network error - likely no bank connections exist yet");
         setCandidates([]); // Set empty array so UI shows connect button
       } else {
         showNotification({
-          type: 'error',
-          title: 'Error Loading Transactions',
-          message: 'Failed to load recent transactions. Please try again.',
+          type: "error",
+          title: "Error Loading Transactions",
+          message: "Failed to load recent transactions. Please try again.",
         });
       }
     } finally {
@@ -229,32 +300,36 @@ export const BankTransactionsScreen: React.FC = () => {
     }
   };
 
-  const loadGeneratedReceipts = async (candidatesWithReceipts: (TransactionCandidate & { _id?: string })[]) => {
+  const loadGeneratedReceipts = async (
+    candidatesWithReceipts: (TransactionCandidate & { _id?: string })[]
+  ) => {
     if (candidatesWithReceipts.length === 0) return;
-    
+
     try {
-      const { getDocs, collection, query, where } = await import('firebase/firestore');
-      const { db } = await import('../config/firebase');
-      
+      const { getDocs, collection, query, where } = await import(
+        "firebase/firestore"
+      );
+      const { db } = await import("../config/firebase");
+
       const newGeneratedReceipts = new Map<string, GeneratedReceiptPDF>();
-      
+
       for (const candidate of candidatesWithReceipts) {
         const docId = (candidate as any)._id;
         if (!docId) continue;
-        
+
         // Query the generatedReceipts collection with userId filter for security
         const receiptsQuery = query(
-          collection(db, 'generatedReceipts'),
-          where('candidateId', '==', docId),
-          where('userId', '==', user?.uid)
+          collection(db, "generatedReceipts"),
+          where("candidateId", "==", docId),
+          where("userId", "==", user?.uid)
         );
         const receiptSnap = await getDocs(receiptsQuery);
-        
+
         if (!receiptSnap.empty) {
           const receiptData = receiptSnap.docs[0].data();
-          
+
           // Convert to GeneratedReceiptPDF format if it's a PDF receipt
-          if (receiptData.type === 'pdf' && receiptData.receiptPdfUrl) {
+          if (receiptData.type === "pdf" && receiptData.receiptPdfUrl) {
             const generatedReceiptPDF: GeneratedReceiptPDF = {
               receiptPdfUrl: receiptData.receiptPdfUrl,
               receiptPdfPath: receiptData.receiptPdfPath,
@@ -269,27 +344,27 @@ export const BankTransactionsScreen: React.FC = () => {
                 total: receiptData.total,
                 paymentMethod: receiptData.paymentMethod,
                 transactionId: receiptData.transactionId,
-              }
+              },
             };
             newGeneratedReceipts.set(docId, generatedReceiptPDF);
           }
         }
       }
-      
+
       setGeneratedReceipts(newGeneratedReceipts);
     } catch (error) {
-      console.error('Error loading generated receipts:', error);
+      console.error("Error loading generated receipts:", error);
     }
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    
+
     // Clear cache to force fresh data fetch
     if (user) {
       await bankReceiptService.clearTransactionCache(user.uid);
     }
-    
+
     await loadTransactionCandidates();
     setRefreshing(false);
   };
@@ -301,11 +376,11 @@ export const BankTransactionsScreen: React.FC = () => {
       const token = await plaidService.createLinkToken(user.uid);
       setLinkToken(token);
     } catch (error) {
-      console.error('Error creating link token:', error);
+      console.error("Error creating link token:", error);
       showNotification({
-        type: 'error',
-        title: 'Connection Error',
-        message: 'Failed to prepare bank connection. Please try again.',
+        type: "error",
+        title: "Connection Error",
+        message: "Failed to prepare bank connection. Please try again.",
       });
     }
   };
@@ -315,16 +390,18 @@ export const BankTransactionsScreen: React.FC = () => {
 
     try {
       setLoading(true);
-      const accessToken = await plaidService.exchangePublicToken(success.publicToken);
+      const accessToken = await plaidService.exchangePublicToken(
+        success.publicToken
+      );
       const accounts = await plaidService.getAccounts(accessToken);
-      
+
       // Create bank connection record
       const bankConnection = {
         id: `bank_${user.uid}_${Date.now()}`,
         userId: user.uid,
         accessToken,
-        institutionName: 'Connected Bank',
-        accounts: accounts.map(acc => ({
+        institutionName: "Connected Bank",
+        accounts: accounts.map((acc) => ({
           accountId: acc.account_id,
           name: acc.name,
           type: acc.type,
@@ -337,20 +414,20 @@ export const BankTransactionsScreen: React.FC = () => {
       };
 
       await bankReceiptService.saveBankConnectionLocally(bankConnection);
-      
+
       showNotification({
-        type: 'success',
-        title: 'Bank Connected!',
-        message: 'Your bank account has been connected successfully.',
+        type: "success",
+        title: "Bank Connected!",
+        message: "Your bank account has been connected successfully.",
       });
-      
+
       await loadTransactionCandidates();
     } catch (error) {
-      console.error('Error handling Plaid success:', error);
+      console.error("Error handling Plaid success:", error);
       showNotification({
-        type: 'error',
-        title: 'Connection Failed',
-        message: 'Failed to complete bank connection. Please try again.',
+        type: "error",
+        title: "Connection Failed",
+        message: "Failed to complete bank connection. Please try again.",
       });
     } finally {
       setLoading(false);
@@ -358,85 +435,97 @@ export const BankTransactionsScreen: React.FC = () => {
   };
 
   const handlePlaidExit = (exit: LinkExit) => {
-    console.log('Plaid Link exited:', exit);
+    console.log("Plaid Link exited:", exit);
     if (exit.error) {
       showNotification({
-        type: 'error',
-        title: 'Connection Error',
-        message: exit.error.errorMessage || 'Failed to connect bank account.',
+        type: "error",
+        title: "Connection Error",
+        message: exit.error.errorMessage || "Failed to connect bank account.",
       });
     }
   };
 
-  const generateReceipt = async (candidate: TransactionCandidate, candidateId: string) => {
+  const generateReceipt = async (
+    candidate: TransactionCandidate,
+    candidateId: string
+  ) => {
     try {
-      console.log('� Generate receipt called for candidate:', candidateId);
-      console.log('🔍 Current user:', user);
-      console.log('🔍 User UID:', user?.uid);
-      
+      console.log("� Generate receipt called for candidate:", candidateId);
+      console.log("🔍 Current user:", user);
+      console.log("🔍 User UID:", user?.uid);
+
       if (!user?.uid) {
-        console.error('❌ No authenticated user found');
+        console.error("❌ No authenticated user found");
         showNotification({
-          type: 'error',
-          title: 'Authentication Error',
-          message: 'You must be logged in to generate receipts.',
+          type: "error",
+          title: "Authentication Error",
+          message: "You must be logged in to generate receipts.",
         });
         return;
       }
 
       setGeneratingReceipt(candidateId);
-      
+
       // Clear any previous cancellation for this candidate
       cancelledOperations.current.delete(candidateId);
-    
-      
-      console.log('🔍 Calling generateReceiptForTransaction with userId:', user.uid);
-      const generatedReceipt = await bankReceiptService.generateReceiptForTransaction(
-        candidateId,
-        candidate.transaction,
+
+      console.log(
+        "🔍 Calling generateReceiptForTransaction with userId:",
         user.uid
       );
-      
+      const generatedReceipt =
+        await bankReceiptService.generateReceiptForTransaction(
+          candidateId,
+          candidate.transaction,
+          user.uid
+        );
+
       // Check if operation was cancelled after generation completed
       if (cancelledOperations.current.has(candidateId)) {
-        console.log('🔍 Generation was cancelled, not storing receipt');
+        console.log("🔍 Generation was cancelled, not storing receipt");
         cancelledOperations.current.delete(candidateId);
         return;
       }
-      setGeneratedReceipts(prev => {
+      setGeneratedReceipts((prev) => {
         const newMap = new Map(prev);
         newMap.set(candidateId, generatedReceipt);
         return newMap;
       });
-      
+
       // Clear generating state after storing receipt
       setGeneratingReceipt(null);
     } catch (error) {
-      console.error('Error generating and saving receipt:', error);
-      
+      console.error("Error generating and saving receipt:", error);
+
       // Provide more helpful error messages based on error type
-      let errorTitle = 'Generation Failed';
-      let errorMessage = 'Failed to generate receipt. Please try again.';
-      
+      let errorTitle = "Generation Failed";
+      let errorMessage = "Failed to generate receipt. Please try again.";
+
       if (error instanceof Error) {
-        if (error.message.includes('took too long') || error.message.includes('longer than expected')) {
-          errorTitle = 'Timeout Error';
-          errorMessage = 'PDF generation is taking longer than usual. This might be due to device performance. Would you like to try again?';
-        } else if (error.message.includes('storage')) {
-          errorTitle = 'Storage Error';
-          errorMessage = 'Unable to save receipt. Please check your device storage space and try again.';
-        } else if (error.message.includes('expo-print')) {
-          errorTitle = 'PDF Generation Error';
-          errorMessage = 'There was an issue with PDF generation. A simplified receipt was created instead.';
+        if (
+          error.message.includes("took too long") ||
+          error.message.includes("longer than expected")
+        ) {
+          errorTitle = "Timeout Error";
+          errorMessage =
+            "PDF generation is taking longer than usual. This might be due to device performance. Would you like to try again?";
+        } else if (error.message.includes("storage")) {
+          errorTitle = "Storage Error";
+          errorMessage =
+            "Unable to save receipt. Please check your device storage space and try again.";
+        } else if (error.message.includes("expo-print")) {
+          errorTitle = "PDF Generation Error";
+          errorMessage =
+            "There was an issue with PDF generation. A simplified receipt was created instead.";
         }
       }
-      
+
       showNotification({
-        type: 'error',
+        type: "error",
         title: errorTitle,
         message: errorMessage,
       });
-      
+
       // Clear generating state on error
       setGeneratingReceipt(null);
     } finally {
@@ -458,121 +547,126 @@ export const BankTransactionsScreen: React.FC = () => {
         generatedReceiptPDF,
         candidateId
       );
-      
+
       // Remove from candidates list by Firestore doc id
-      setCandidates(prev => prev.filter(c => (c as any)._id !== candidateId));
-      setGeneratedReceipts(prev => {
+      setCandidates((prev) =>
+        prev.filter((c) => (c as any)._id !== candidateId)
+      );
+      setGeneratedReceipts((prev) => {
         const newMap = new Map(prev);
         newMap.delete(candidateId);
         return newMap;
       });
-      
+
       showNotification({
-        type: 'success',
-        title: 'Receipt Saved!',
-        message: 'The generated receipt has been added to your collection.',
+        type: "success",
+        title: "Receipt Saved!",
+        message: "The generated receipt has been added to your collection.",
       });
     } catch (error) {
-      console.error('Error approving receipt:', error);
+      console.error("Error approving receipt:", error);
       showNotification({
-        type: 'error',
-        title: 'Save Failed',
-        message: 'Failed to save receipt. Please try again.',
+        type: "error",
+        title: "Save Failed",
+        message: "Failed to save receipt. Please try again.",
       });
     }
   };
 
   const rejectCandidate = async (candidateId: string) => {
     try {
-      console.log('🗑️ Reject candidate called for:', candidateId);
-      
+      console.log("🗑️ Reject candidate called for:", candidateId);
+
       if (!user?.uid) {
         showNotification({
-          type: 'error',
-          title: 'Authentication Error',
-          message: 'You must be logged in to dismiss transactions.',
+          type: "error",
+          title: "Authentication Error",
+          message: "You must be logged in to dismiss transactions.",
         });
         return;
       }
 
       // Call the service to dismiss the candidate in Firestore
       await bankReceiptService.dismissCandidate(candidateId, user.uid);
-      
+
       // Remove from local state
-      setCandidates(prev => prev.filter(c => (c as any)._id !== candidateId));
-      setGeneratedReceipts(prev => {
+      setCandidates((prev) =>
+        prev.filter((c) => (c as any)._id !== candidateId)
+      );
+      setGeneratedReceipts((prev) => {
         const newMap = new Map(prev);
         newMap.delete(candidateId);
         return newMap;
       });
-      
     } catch (error) {
-      console.error('Error dismissing candidate:', error);
+      console.error("Error dismissing candidate:", error);
       showNotification({
-        type: 'error',
-        title: 'Dismiss Failed',
-        message: 'Failed to dismiss transaction. Please try again.',
+        type: "error",
+        title: "Dismiss Failed",
+        message: "Failed to dismiss transaction. Please try again.",
       });
     }
   };
 
   const discardGeneratedReceipt = async (candidateId: string) => {
     try {
-      console.log('🗑️ Discarding generated receipt for:', candidateId);
-      
+      console.log("🗑️ Discarding generated receipt for:", candidateId);
+
       if (!user?.uid) {
         showNotification({
-          type: 'error',
-          title: 'Authentication Error',
-          message: 'You must be logged in to discard receipts.',
+          type: "error",
+          title: "Authentication Error",
+          message: "You must be logged in to discard receipts.",
         });
         return;
       }
-      
+
       // Delete the generated receipt from Firestore
-      const { getDocs, collection, query, where, deleteDoc } = await import('firebase/firestore');
-      const { db } = await import('../config/firebase');
-      
+      const { getDocs, collection, query, where, deleteDoc } = await import(
+        "firebase/firestore"
+      );
+      const { db } = await import("../config/firebase");
+
       // Find and delete the generated receipt document
       const receiptsQuery = query(
-        collection(db, 'generatedReceipts'),
-        where('candidateId', '==', candidateId),
-        where('userId', '==', user.uid)
+        collection(db, "generatedReceipts"),
+        where("candidateId", "==", candidateId),
+        where("userId", "==", user.uid)
       );
       const receiptSnap = await getDocs(receiptsQuery);
-      
+
       // Delete all matching generated receipts (should be only one)
-      const deletePromises = receiptSnap.docs.map(doc => deleteDoc(doc.ref));
+      const deletePromises = receiptSnap.docs.map((doc) => deleteDoc(doc.ref));
       await Promise.all(deletePromises);
-      
+
       // Remove from local state
-      setGeneratedReceipts(prev => {
+      setGeneratedReceipts((prev) => {
         const newMap = new Map(prev);
         newMap.delete(candidateId);
         return newMap;
       });
-      
-      console.log('✅ Generated receipt discarded successfully');
+
+      console.log("✅ Generated receipt discarded successfully");
     } catch (error) {
-      console.error('❌ Error discarding generated receipt:', error);
+      console.error("❌ Error discarding generated receipt:", error);
       showNotification({
-        type: 'error',
-        title: 'Discard Failed',
-        message: 'Failed to discard receipt. Please try again.',
+        type: "error",
+        title: "Discard Failed",
+        message: "Failed to discard receipt. Please try again.",
       });
     }
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
     }).format(amount);
   };
 
   const clearFilters = () => {
-    setCurrentFilter('all');
-    setSearchQuery('');
+    setCurrentFilter("all");
+    setSearchQuery("");
     setShowSearchSection(false);
     setDateRangeFilter({
       startDate: null,
@@ -583,19 +677,20 @@ export const BankTransactionsScreen: React.FC = () => {
 
   // Format date for display
   const formatDate = (date: Date) => {
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
+    return date.toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
     });
   };
 
   // Handle quick date filter selection
   const handleQuickDateFilter = useCallback((days: number) => {
     const endDate = new Date();
-    const startDate = days === 0
-      ? new Date()
-      : new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const startDate =
+      days === 0
+        ? new Date()
+        : new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     setDateRangeFilter({
       startDate,
@@ -607,37 +702,40 @@ export const BankTransactionsScreen: React.FC = () => {
   }, []);
 
   // Handle custom date range
-  const handleDatePickerChange = useCallback((event: any, selectedDate?: Date) => {
-    if (selectedDate) {
-      if (datePickerMode === 'start') {
-        // When selecting start date, automatically set end date to today if not set
-        const newDateFilter = {
-          ...dateRangeFilter,
-          startDate: selectedDate,
-          endDate: dateRangeFilter.endDate || new Date(), // Auto-set to today if no end date
-          active: true,
-        };
-        setDateRangeFilter(newDateFilter);
-        
-        // Auto-close filter section when start date is selected (since end date is auto-set)
-        setShowSearchSection(false);
-      } else {
-        // End date selection
-        const newDateFilter = {
-          ...dateRangeFilter,
-          endDate: selectedDate,
-          active: true,
-        };
-        setDateRangeFilter(newDateFilter);
-        
-        // Auto-close filter section when end date is selected and start date exists
-        if (newDateFilter.startDate) {
+  const handleDatePickerChange = useCallback(
+    (event: any, selectedDate?: Date) => {
+      if (selectedDate) {
+        if (datePickerMode === "start") {
+          // When selecting start date, automatically set end date to today if not set
+          const newDateFilter = {
+            ...dateRangeFilter,
+            startDate: selectedDate,
+            endDate: dateRangeFilter.endDate || new Date(), // Auto-set to today if no end date
+            active: true,
+          };
+          setDateRangeFilter(newDateFilter);
+
+          // Auto-close filter section when start date is selected (since end date is auto-set)
           setShowSearchSection(false);
+        } else {
+          // End date selection
+          const newDateFilter = {
+            ...dateRangeFilter,
+            endDate: selectedDate,
+            active: true,
+          };
+          setDateRangeFilter(newDateFilter);
+
+          // Auto-close filter section when end date is selected and start date exists
+          if (newDateFilter.startDate) {
+            setShowSearchSection(false);
+          }
         }
       }
-    }
-    setShowDatePicker(false);
-  }, [datePickerMode, dateRangeFilter]);
+      setShowDatePicker(false);
+    },
+    [datePickerMode, dateRangeFilter]
+  );
 
   // Clear date filter
   const clearDateFilter = () => {
@@ -648,11 +746,20 @@ export const BankTransactionsScreen: React.FC = () => {
     });
   };
 
-  const hasActiveFilters = currentFilter !== 'all' || searchQuery.trim() !== '' || dateRangeFilter.active;
+  const hasActiveFilters =
+    currentFilter !== "all" ||
+    searchQuery.trim() !== "" ||
+    dateRangeFilter.active;
 
   // FlatList item renderer
-  const renderTransactionItem = ({ item: candidate }: { item: TransactionCandidate & { _id?: string } }) => {
-    const docId = (candidate as any)._id ?? `${candidate.transaction.transaction_id}_fallback`;
+  const renderTransactionItem = ({
+    item: candidate,
+  }: {
+    item: TransactionCandidate & { _id?: string };
+  }) => {
+    const docId =
+      (candidate as any)._id ??
+      `${candidate.transaction.transaction_id}_fallback`;
     const generatedReceipt = generatedReceipts.get(docId);
     const isGenerating = generatingReceipt === docId;
 
@@ -661,7 +768,8 @@ export const BankTransactionsScreen: React.FC = () => {
         <View style={styles.candidateHeader}>
           <View style={styles.merchantInfo}>
             <Text style={styles.merchantName}>
-              {candidate.transaction.merchant_name || candidate.transaction.name}
+              {candidate.transaction.merchant_name ||
+                candidate.transaction.name}
             </Text>
             <Text style={styles.transactionDate}>
               {formatDate(new Date(candidate.transaction.date))}
@@ -690,7 +798,8 @@ export const BankTransactionsScreen: React.FC = () => {
             <View style={styles.detailRow}>
               <Text style={styles.detailLabel}>Location:</Text>
               <Text style={styles.detailValue}>
-                {candidate.transaction.location.city}, {candidate.transaction.location.region}
+                {candidate.transaction.location.city},{" "}
+                {candidate.transaction.location.region}
               </Text>
             </View>
           )}
@@ -699,16 +808,17 @@ export const BankTransactionsScreen: React.FC = () => {
         {generatedReceipt && (
           <View style={styles.generatedReceiptContainer}>
             <Text style={styles.receiptTitle}>Generated PDF Receipt</Text>
-            
+
             <View style={styles.pdfViewerContainer}>
-              <PDFViewer 
+              <PDFViewer
                 pdfFilePath={generatedReceipt.receiptPdfPath}
                 style={styles.pdfViewer}
               />
             </View>
-            
+
             <Text style={styles.receiptDetails}>
-              {generatedReceipt.receiptData.businessName} • {generatedReceipt.receiptData.date}
+              {generatedReceipt.receiptData.businessName} •{" "}
+              {generatedReceipt.receiptData.date}
             </Text>
           </View>
         )}
@@ -734,14 +844,14 @@ export const BankTransactionsScreen: React.FC = () => {
               </TouchableOpacity>
             </>
           )}
-          
+
           {(isGenerating || generatedReceipt) && (
             <>
               <TouchableOpacity
                 style={[
-                  styles.actionButton, 
+                  styles.actionButton,
                   styles.approveButton,
-                  !generatedReceipt && { opacity: 0.6 }
+                  !generatedReceipt && { opacity: 0.6 },
                 ]}
                 onPress={() => {
                   if (generatedReceipt) {
@@ -750,16 +860,17 @@ export const BankTransactionsScreen: React.FC = () => {
                     // Receipt is still generating, but user wants to save it
                     // We'll mark it for auto-save when generation completes
                     showNotification({
-                      type: 'info',
-                      title: 'Will Save',
-                      message: 'Receipt will be saved automatically when generation completes.',
+                      type: "info",
+                      title: "Will Save",
+                      message:
+                        "Receipt will be saved automatically when generation completes.",
                     });
                   }
                 }}
                 disabled={!generatedReceipt}
               >
                 <Text style={[styles.buttonText, styles.approveButtonText]}>
-                  {isGenerating ? 'Generating...' : 'Save Receipt'}
+                  {isGenerating ? "Generating..." : "Save Receipt"}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -770,9 +881,9 @@ export const BankTransactionsScreen: React.FC = () => {
                     cancelledOperations.current.add(docId);
                     setGeneratingReceipt(null);
                     showNotification({
-                      type: 'info',
-                      title: 'Cancelled',
-                      message: 'Receipt generation cancelled.',
+                      type: "info",
+                      title: "Cancelled",
+                      message: "Receipt generation cancelled.",
                     });
                   } else {
                     // Discard generated receipt
@@ -781,7 +892,7 @@ export const BankTransactionsScreen: React.FC = () => {
                 }}
               >
                 <Text style={[styles.buttonText, styles.rejectButtonText]}>
-                  {isGenerating ? 'Cancel' : 'Discard'}
+                  {isGenerating ? "Cancel" : "Discard"}
                 </Text>
               </TouchableOpacity>
             </>
@@ -804,32 +915,32 @@ export const BankTransactionsScreen: React.FC = () => {
       paddingTop: 8,
       paddingBottom: 8,
       marginTop: -30,
-      alignItems: 'center',
+      alignItems: "center",
       backgroundColor: theme.background.primary,
     },
     countText: {
       fontSize: 14,
       color: theme.text.secondary,
-      textAlign: 'center',
+      textAlign: "center",
     },
     emptyState: {
       flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
+      justifyContent: "center",
+      alignItems: "center",
       padding: 40,
     },
     emptyTitle: {
       fontSize: 20,
-      fontWeight: '600',
+      fontWeight: "600",
       color: theme.text.primary,
       marginTop: 16,
-      textAlign: 'center',
+      textAlign: "center",
     },
     emptySubtitle: {
       fontSize: 16,
       color: theme.text.secondary,
       marginTop: 8,
-      textAlign: 'center',
+      textAlign: "center",
       lineHeight: 22,
     },
     connectButton: {
@@ -842,7 +953,7 @@ export const BankTransactionsScreen: React.FC = () => {
     connectButtonText: {
       color: theme.background.primary,
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: "600",
     },
     candidateCard: {
       backgroundColor: theme.background.secondary,
@@ -854,9 +965,9 @@ export const BankTransactionsScreen: React.FC = () => {
       borderColor: theme.border.primary,
     },
     candidateHeader: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'flex-start',
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
       marginBottom: 12,
     },
     merchantInfo: {
@@ -864,7 +975,7 @@ export const BankTransactionsScreen: React.FC = () => {
     },
     merchantName: {
       fontSize: 18,
-      fontWeight: '600',
+      fontWeight: "600",
       color: theme.text.primary,
       marginBottom: 4,
     },
@@ -873,11 +984,11 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.text.secondary,
     },
     amountContainer: {
-      alignItems: 'flex-end',
+      alignItems: "flex-end",
     },
     amount: {
       fontSize: 20,
-      fontWeight: 'bold',
+      fontWeight: "bold",
       color: theme.gold.primary,
     },
     category: {
@@ -896,8 +1007,8 @@ export const BankTransactionsScreen: React.FC = () => {
       borderTopColor: theme.border.primary,
     },
     detailRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
+      flexDirection: "row",
+      justifyContent: "space-between",
       marginBottom: 4,
     },
     detailLabel: {
@@ -909,17 +1020,17 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.text.primary,
     },
     buttonContainer: {
-  flexDirection: 'row',
-  marginTop: 4,
-  gap: 2,
+      flexDirection: "row",
+      marginTop: 4,
+      gap: 2,
     },
     actionButton: {
-  flex: 1,
-  paddingVertical: 10,
-  paddingHorizontal: 6,
-  borderRadius: 4,
-  alignItems: 'center',
-  justifyContent: 'center',
+      flex: 1,
+      paddingVertical: 10,
+      paddingHorizontal: 6,
+      borderRadius: 4,
+      alignItems: "center",
+      justifyContent: "center",
     },
     generateButton: {
       backgroundColor: theme.gold.primary,
@@ -933,9 +1044,9 @@ export const BankTransactionsScreen: React.FC = () => {
       borderColor: theme.status.error,
     },
     buttonText: {
-  fontSize: 10,
-      fontWeight: '600',
-      textAlign: 'center',
+      fontSize: 10,
+      fontWeight: "600",
+      textAlign: "center",
     },
     generateButtonText: {
       color: theme.background.primary,
@@ -947,28 +1058,28 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.status.error,
     },
     generatedReceiptContainer: {
-  marginTop: 8,
-  padding: 8,
-  backgroundColor: theme.background.primary,
-  borderRadius: 6,
-  borderWidth: 1,
-  borderColor: theme.gold.primary,
+      marginTop: 8,
+      padding: 8,
+      backgroundColor: theme.background.primary,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: theme.gold.primary,
     },
     receiptTitle: {
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: "600",
       color: theme.text.primary,
       marginBottom: 8,
     },
     receiptImage: {
-      width: '100%',
+      width: "100%",
       height: 200,
       borderRadius: 8,
       marginBottom: 8,
     },
     pdfPreviewContainer: {
-      alignItems: 'center',
-      justifyContent: 'center',
+      alignItems: "center",
+      justifyContent: "center",
       backgroundColor: theme.background.secondary,
       borderRadius: 8,
       padding: 20,
@@ -981,14 +1092,14 @@ export const BankTransactionsScreen: React.FC = () => {
     },
     pdfText: {
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: "600",
       color: theme.text.primary,
       marginBottom: 4,
     },
     pdfPath: {
       fontSize: 12,
       color: theme.text.secondary,
-      textAlign: 'center',
+      textAlign: "center",
     },
     pdfViewerContainer: {
       backgroundColor: theme.background.secondary,
@@ -996,11 +1107,11 @@ export const BankTransactionsScreen: React.FC = () => {
       marginVertical: 8,
       borderWidth: 1,
       borderColor: theme.border.primary,
-      overflow: 'hidden',
+      overflow: "hidden",
     },
     pdfViewer: {
       height: 250, // Preview height
-      width: '100%',
+      width: "100%",
     },
     receiptDetails: {
       fontSize: 12,
@@ -1017,21 +1128,21 @@ export const BankTransactionsScreen: React.FC = () => {
     },
     textReceiptTitle: {
       fontSize: 16,
-      fontWeight: 'bold',
+      fontWeight: "bold",
       color: theme.text.primary,
-      textAlign: 'center',
+      textAlign: "center",
       marginBottom: 4,
     },
     textReceiptAddress: {
       fontSize: 12,
       color: theme.text.secondary,
-      textAlign: 'center',
+      textAlign: "center",
       marginBottom: 8,
     },
     textReceiptDate: {
       fontSize: 12,
       color: theme.text.primary,
-      fontFamily: 'monospace',
+      fontFamily: "monospace",
       marginBottom: 2,
     },
     textReceiptLine: {
@@ -1040,37 +1151,37 @@ export const BankTransactionsScreen: React.FC = () => {
       marginVertical: 8,
     },
     textReceiptItemRow: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
+      flexDirection: "row",
+      justifyContent: "space-between",
       marginBottom: 4,
     },
     textReceiptItemName: {
       fontSize: 12,
       color: theme.text.primary,
-      fontFamily: 'monospace',
+      fontFamily: "monospace",
       flex: 1,
     },
     textReceiptItemPrice: {
       fontSize: 12,
       color: theme.text.primary,
-      fontFamily: 'monospace',
+      fontFamily: "monospace",
     },
     textReceiptTotalLabel: {
       fontSize: 14,
-      fontWeight: 'bold',
+      fontWeight: "bold",
       color: theme.text.primary,
-      fontFamily: 'monospace',
+      fontFamily: "monospace",
     },
     textReceiptTotalAmount: {
       fontSize: 14,
-      fontWeight: 'bold',
+      fontWeight: "bold",
       color: theme.text.primary,
-      fontFamily: 'monospace',
+      fontFamily: "monospace",
     },
     loadingContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
       padding: 16,
     },
     loadingText: {
@@ -1085,21 +1196,21 @@ export const BankTransactionsScreen: React.FC = () => {
       backgroundColor: theme.background.primary,
       zIndex: 1000,
       elevation: 6,
-      shadowColor: '#000',
+      shadowColor: "#000",
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.1,
       shadowRadius: 8,
     },
     searchContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
+      flexDirection: "row",
+      alignItems: "center",
       padding: 16,
       borderBottomWidth: 1,
       borderBottomColor: theme.border.primary,
     },
     searchInputContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
+      flexDirection: "row",
+      alignItems: "center",
       backgroundColor: theme.background.tertiary,
       borderRadius: 16,
       paddingHorizontal: 16,
@@ -1119,22 +1230,22 @@ export const BankTransactionsScreen: React.FC = () => {
     searchInput: {
       flex: 1,
       fontSize: 16,
-      color: '#000000',
-      backgroundColor: '#FFFFFF',
+      color: "#000000",
+      backgroundColor: "#FFFFFF",
       paddingVertical: 8,
       paddingHorizontal: 8,
       minHeight: 36,
       minWidth: 150,
       borderRadius: 8,
       borderWidth: 1,
-      borderColor: '#E0E0E0',
+      borderColor: "#E0E0E0",
     },
     clearButton: {
       padding: 8,
       marginLeft: 4,
       borderRadius: 16,
-      justifyContent: 'center',
-      alignItems: 'center',
+      justifyContent: "center",
+      alignItems: "center",
     },
     filterButton: {
       padding: 8,
@@ -1142,16 +1253,16 @@ export const BankTransactionsScreen: React.FC = () => {
       backgroundColor: theme.background.secondary,
       borderWidth: 1,
       borderColor: theme.gold.primary,
-      alignItems: 'center',
-      justifyContent: 'center',
+      alignItems: "center",
+      justifyContent: "center",
     },
-    
+
     // FAB styles
     fabContainer: {
-      position: 'absolute',
+      position: "absolute",
       bottom: 30,
       right: 20,
-      alignItems: 'center',
+      alignItems: "center",
     },
     filterLabel: {
       backgroundColor: theme.gold.primary,
@@ -1161,20 +1272,20 @@ export const BankTransactionsScreen: React.FC = () => {
       marginBottom: 8,
     },
     filterLabelText: {
-      color: 'white',
+      color: "white",
       fontSize: 12,
-      fontWeight: '600',
-      textTransform: 'capitalize',
+      fontWeight: "600",
+      textTransform: "capitalize",
     },
     fab: {
       width: 56,
       height: 56,
       borderRadius: 28,
       backgroundColor: theme.gold.primary,
-      justifyContent: 'center',
-      alignItems: 'center',
+      justifyContent: "center",
+      alignItems: "center",
       elevation: 8,
-      shadowColor: '#000',
+      shadowColor: "#000",
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.3,
       shadowRadius: 8,
@@ -1195,19 +1306,19 @@ export const BankTransactionsScreen: React.FC = () => {
     },
     filtersSectionTitle: {
       fontSize: 16,
-      fontWeight: '600',
+      fontWeight: "600",
       color: theme.text.primary,
       marginBottom: 16,
       letterSpacing: 0.5,
     },
     filtersContainer: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
+      flexDirection: "row",
+      flexWrap: "wrap",
       gap: 12,
     },
     filterChip: {
-      flexDirection: 'row',
-      alignItems: 'center',
+      flexDirection: "row",
+      alignItems: "center",
       paddingHorizontal: 16,
       paddingVertical: 10,
       backgroundColor: theme.background.secondary,
@@ -1233,38 +1344,38 @@ export const BankTransactionsScreen: React.FC = () => {
     },
     filterChipText: {
       fontSize: 14,
-      fontWeight: '500',
+      fontWeight: "500",
       color: theme.text.secondary,
     },
     filterChipTextActive: {
-      color: 'white',
-      fontWeight: '600',
+      color: "white",
+      fontWeight: "600",
     },
     generatingContainer: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  justifyContent: 'center',
-  paddingVertical: 4,
-  paddingHorizontal: 6,
-  backgroundColor: theme.background.secondary,
-  borderRadius: 4,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      paddingVertical: 4,
+      paddingHorizontal: 6,
+      backgroundColor: theme.background.secondary,
+      borderRadius: 4,
     },
     generatingSpinner: {
-  marginRight: 4,
+      marginRight: 4,
     },
     generatingText: {
-  fontSize: 10,
-  color: theme.text.primary,
-  marginRight: 4,
+      fontSize: 10,
+      color: theme.text.primary,
+      marginRight: 4,
     },
     cancelButton: {
-  paddingVertical: 3,
-  paddingHorizontal: 6,
-  backgroundColor: theme.status.error,
-  borderRadius: 4,
-  borderWidth: 1,
-  borderColor: theme.text.tertiary,
-},
+      paddingVertical: 3,
+      paddingHorizontal: 6,
+      backgroundColor: theme.status.error,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: theme.text.tertiary,
+    },
     quickSaveButton: {
       backgroundColor: theme.text.tertiary,
       marginTop: 8,
@@ -1285,18 +1396,18 @@ export const BankTransactionsScreen: React.FC = () => {
     },
     quickDateFilterText: {
       fontSize: 12,
-      fontWeight: '500',
+      fontWeight: "500",
     },
     customDateRow: {
-      flexDirection: 'row',
-      alignItems: 'center',
+      flexDirection: "row",
+      alignItems: "center",
       paddingHorizontal: 16,
       paddingVertical: 8,
     },
     dateButton: {
       flex: 1,
-      flexDirection: 'row',
-      alignItems: 'center',
+      flexDirection: "row",
+      alignItems: "center",
       paddingHorizontal: 12,
       paddingVertical: 8,
       borderRadius: 8,
@@ -1309,17 +1420,17 @@ export const BankTransactionsScreen: React.FC = () => {
     dateSeparator: {
       marginHorizontal: 8,
       fontSize: 14,
-      fontWeight: '500',
+      fontWeight: "500",
     },
     activeFilterBadges: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
+      flexDirection: "row",
+      flexWrap: "wrap",
       gap: 6,
       marginTop: 8,
     },
     filterBadge: {
-      flexDirection: 'row',
-      alignItems: 'center',
+      flexDirection: "row",
+      alignItems: "center",
       paddingHorizontal: 8,
       paddingVertical: 4,
       borderRadius: 12,
@@ -1327,8 +1438,8 @@ export const BankTransactionsScreen: React.FC = () => {
     },
     filterBadgeText: {
       fontSize: 12,
-      color: 'white',
-      fontWeight: '500',
+      color: "white",
+      fontWeight: "500",
     },
     filterBadgeClose: {
       padding: 2,
@@ -1337,17 +1448,24 @@ export const BankTransactionsScreen: React.FC = () => {
   });
 
   // Check if user has Professional subscription
-  if (subscription.currentTier !== 'professional') {
+  if (subscription.currentTier !== "professional") {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.emptyState}>
-          <Ionicons name="card-outline" size={64} color={theme.text.secondary} />
+          <Ionicons
+            name="card-outline"
+            size={64}
+            color={theme.text.secondary}
+          />
           <Text style={styles.emptyTitle}>Professional Feature</Text>
           <Text style={styles.emptySubtitle}>
-            Bank transaction monitoring and automatic receipt generation is available for Professional subscribers only.
+            Bank transaction monitoring and automatic receipt generation is
+            available for Professional subscribers only.
           </Text>
           <TouchableOpacity style={styles.connectButton}>
-            <Text style={styles.connectButtonText}>Upgrade to Professional</Text>
+            <Text style={styles.connectButtonText}>
+              Upgrade to Professional
+            </Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -1373,53 +1491,70 @@ export const BankTransactionsScreen: React.FC = () => {
             {filteredAndSortedCandidates.length === 0 && hasActiveFilters
               ? `No transactions match the current filter`
               : filteredAndSortedCandidates.length === 0
-              ? 'No recent purchases found'
-              : `${filteredAndSortedCandidates.length} of ${candidates.length} transactions`
-            }
+              ? "No recent purchases found"
+              : `${filteredAndSortedCandidates.length} of ${candidates.length} transactions`}
           </Text>
-          
+
           {/* Active Filter Badges */}
           {!showSearchSection && hasActiveFilters && (
             <View style={styles.activeFilterBadges}>
-              {currentFilter !== 'all' && (
-                <View style={[styles.filterBadge, { backgroundColor: theme.gold.primary }]}>
+              {currentFilter !== "all" && (
+                <View
+                  style={[
+                    styles.filterBadge,
+                    { backgroundColor: theme.gold.primary },
+                  ]}
+                >
                   <Text style={styles.filterBadgeText}>{currentFilter}</Text>
                   <TouchableOpacity
-                    onPress={() => setCurrentFilter('all')}
+                    onPress={() => setCurrentFilter("all")}
                     style={styles.filterBadgeClose}
                   >
                     <Ionicons name="close" size={18} color="white" />
                   </TouchableOpacity>
                 </View>
               )}
-              {searchQuery.trim() !== '' && (
-                <View style={[styles.filterBadge, { backgroundColor: theme.gold.rich }]}>
+              {searchQuery.trim() !== "" && (
+                <View
+                  style={[
+                    styles.filterBadge,
+                    { backgroundColor: theme.gold.rich },
+                  ]}
+                >
                   <Text style={styles.filterBadgeText}>"{searchQuery}"</Text>
                   <TouchableOpacity
-                    onPress={() => setSearchQuery('')}
+                    onPress={() => setSearchQuery("")}
                     style={styles.filterBadgeClose}
                   >
                     <Ionicons name="close" size={18} color="white" />
                   </TouchableOpacity>
                 </View>
               )}
-              {dateRangeFilter.active && (dateRangeFilter.startDate || dateRangeFilter.endDate) && (
-                <View style={[styles.filterBadge, { backgroundColor: theme.status.success }]}>
-                  <Text style={styles.filterBadgeText}>
-                    {dateRangeFilter.startDate && dateRangeFilter.endDate
-                      ? `${formatDate(dateRangeFilter.startDate)} - ${formatDate(dateRangeFilter.endDate)}`
-                      : dateRangeFilter.startDate
-                      ? `From ${formatDate(dateRangeFilter.startDate)}`
-                      : `Until ${formatDate(dateRangeFilter.endDate!)}`}
-                  </Text>
-                  <TouchableOpacity
-                    onPress={clearDateFilter}
-                    style={styles.filterBadgeClose}
+              {dateRangeFilter.active &&
+                (dateRangeFilter.startDate || dateRangeFilter.endDate) && (
+                  <View
+                    style={[
+                      styles.filterBadge,
+                      { backgroundColor: theme.status.success },
+                    ]}
                   >
-                    <Ionicons name="close" size={18} color="white" />
-                  </TouchableOpacity>
-                </View>
-              )}
+                    <Text style={styles.filterBadgeText}>
+                      {dateRangeFilter.startDate && dateRangeFilter.endDate
+                        ? `${formatDate(
+                            dateRangeFilter.startDate
+                          )} - ${formatDate(dateRangeFilter.endDate)}`
+                        : dateRangeFilter.startDate
+                        ? `From ${formatDate(dateRangeFilter.startDate)}`
+                        : `Until ${formatDate(dateRangeFilter.endDate!)}`}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={clearDateFilter}
+                      style={styles.filterBadgeClose}
+                    >
+                      <Ionicons name="close" size={18} color="white" />
+                    </TouchableOpacity>
+                  </View>
+                )}
             </View>
           )}
         </View>
@@ -1430,8 +1565,13 @@ export const BankTransactionsScreen: React.FC = () => {
           {/* Search Section */}
           <View style={styles.searchSection}>
             <View style={styles.searchInputContainer}>
-              <Ionicons name="search-outline" size={22} color={theme.text.secondary} style={styles.searchIcon} />
-                            <TextInput
+              <Ionicons
+                name="search-outline"
+                size={22}
+                color={theme.text.secondary}
+                style={styles.searchIcon}
+              />
+              <TextInput
                 style={styles.searchInput}
                 placeholder="Type here..."
                 placeholderTextColor="#999999"
@@ -1443,11 +1583,11 @@ export const BankTransactionsScreen: React.FC = () => {
                 onSubmitEditing={() => setShowSearchSection(false)}
                 blurOnSubmit={true}
               />
-              <TouchableOpacity 
-                onPress={() => setSearchQuery('')}
+              <TouchableOpacity
+                onPress={() => setSearchQuery("")}
                 style={[
                   styles.clearButton,
-                  { opacity: searchQuery.length > 0 ? 1 : 0 }
+                  { opacity: searchQuery.length > 0 ? 1 : 0 },
                 ]}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
@@ -1457,160 +1597,197 @@ export const BankTransactionsScreen: React.FC = () => {
           </View>
 
           {/* Filters Section */}
-          <ScrollView 
+          <ScrollView
             style={styles.filtersSection}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.filtersSectionTitle}>Quick Filters</Text>
-            <View style={styles.filtersContainer}>
-              {[
-                { key: 'all', label: 'All', icon: 'list' },
-                { key: 'recent', label: 'Recent', icon: 'time' },
-                { key: 'high', label: 'High Amount', icon: 'trending-up' },
-                { key: 'dining', label: 'Dining', icon: 'restaurant' },
-                { key: 'shopping', label: 'Shopping', icon: 'bag' },
-                { key: 'transport', label: 'Transport', icon: 'car' }
-              ].map(option => (
+            {/* Date Range Collapsible Section */}
+            <CollapsibleFilterSection
+              title="Date Range"
+              defaultExpanded={false}
+              iconColor={theme.text.primary}
+              headerBackgroundColor={theme.background.secondary}
+              contentBackgroundColor={theme.background.primary}
+              titleColor={theme.text.primary}
+              shadowColor={theme.text.primary}
+            >
+              {/* Quick Date Filters */}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.quickDateFiltersScroll}
+              >
+                {[
+                  { label: "Last 7 Days", days: 7 },
+                  { label: "Last 30 Days", days: 30 },
+                  { label: "Last 90 Days", days: 90 },
+                  { label: "Last Year", days: 365 },
+                ].map((filter) => (
+                  <TouchableOpacity
+                    key={filter.label}
+                    style={[
+                      styles.quickDateFilter,
+                      {
+                        backgroundColor: theme.background.secondary,
+                        borderColor: theme.border.primary,
+                      },
+                    ]}
+                    onPress={() => handleQuickDateFilter(filter.days)}
+                  >
+                    <Text
+                      style={[
+                        styles.quickDateFilterText,
+                        { color: theme.text.primary },
+                      ]}
+                    >
+                      {filter.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Custom Date Range Row */}
+              <View style={styles.customDateRow}>
                 <TouchableOpacity
-                  key={option.key}
                   style={[
-                    styles.filterChip,
-                    currentFilter === option.key && styles.filterChipActive
+                    styles.dateButton,
+                    {
+                      backgroundColor: theme.background.secondary,
+                      borderColor: theme.border.primary,
+                    },
                   ]}
                   onPress={() => {
-                    setCurrentFilter(option.key as any);
-                    setShowSearchSection(false);
+                    setDatePickerMode("start");
+                    setShowDatePicker(true);
                   }}
                 >
-                  <Ionicons 
-                    name={option.icon as any} 
-                    size={16} 
-                    color={currentFilter === option.key ? 'white' : theme.text.secondary} 
-                    style={styles.filterChipIcon}
+                  <Ionicons
+                    name="calendar-outline"
+                    size={14}
+                    color={theme.text.secondary}
                   />
-                  <Text style={[
-                    styles.filterChipText,
-                    currentFilter === option.key && styles.filterChipTextActive
-                  ]}>
-                    {option.label}
+                  <Text
+                    style={[
+                      styles.dateButtonText,
+                      { color: theme.text.primary },
+                    ]}
+                  >
+                    {dateRangeFilter.startDate
+                      ? formatDate(dateRangeFilter.startDate)
+                      : "Start Date"}
                   </Text>
                 </TouchableOpacity>
-              ))}
-            </View>
 
-            {/* Date Filter Section */}
-            <Text style={[styles.filtersSectionTitle, { marginTop: 20 }]}>Date Range</Text>
-            
-            {/* Quick Date Filters */}
-            <ScrollView 
-              horizontal 
-              showsHorizontalScrollIndicator={false} 
-              style={styles.quickDateFiltersScroll}
-            >
-              {[
-                { label: "Last 7 Days", days: 7 },
-                { label: "Last 30 Days", days: 30 },
-                { label: "Last 90 Days", days: 90 },
-                { label: "Last Year", days: 365 }
-              ].map(filter => (
+                <Text
+                  style={[
+                    styles.dateSeparator,
+                    { color: theme.text.secondary },
+                  ]}
+                >
+                  to
+                </Text>
+
                 <TouchableOpacity
-                  key={filter.label}
                   style={[
-                    styles.quickDateFilter,
-                    { 
+                    styles.dateButton,
+                    {
                       backgroundColor: theme.background.secondary,
-                      borderColor: theme.border.primary
-                    }
+                      borderColor: theme.border.primary,
+                    },
                   ]}
-                  onPress={() => handleQuickDateFilter(filter.days)}
+                  onPress={() => {
+                    setDatePickerMode("end");
+                    setShowDatePicker(true);
+                  }}
                 >
-                  <Text style={[
-                    styles.quickDateFilterText,
-                    { color: theme.text.primary }
-                  ]}>
-                    {filter.label}
+                  <Ionicons
+                    name="calendar-outline"
+                    size={14}
+                    color={theme.text.secondary}
+                  />
+                  <Text
+                    style={[
+                      styles.dateButtonText,
+                      { color: theme.text.primary },
+                    ]}
+                  >
+                    {dateRangeFilter.endDate
+                      ? formatDate(dateRangeFilter.endDate)
+                      : "End Date"}
                   </Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
+              </View>
+            </CollapsibleFilterSection>
 
-            {/* Custom Date Range Row */}
-            <View style={styles.customDateRow}>
-              <TouchableOpacity
-                style={[
-                  styles.dateButton,
-                  {
-                    backgroundColor: theme.background.secondary,
-                    borderColor: theme.border.primary,
-                  },
-                ]}
-                onPress={() => {
-                  setDatePickerMode('start');
-                  setShowDatePicker(true);
-                }}
-              >
-                <Ionicons
-                  name="calendar-outline"
-                  size={14}
-                  color={theme.text.secondary}
-                />
-                <Text
-                  style={[
-                    styles.dateButtonText,
-                    { color: theme.text.primary },
-                  ]}
-                >
-                  {dateRangeFilter.startDate
-                    ? formatDate(dateRangeFilter.startDate)
-                    : "Start Date"}
-                </Text>
-              </TouchableOpacity>
-
-              <Text style={[styles.dateSeparator, { color: theme.text.secondary }]}>
-                to
-              </Text>
-
-              <TouchableOpacity
-                style={[
-                  styles.dateButton,
-                  {
-                    backgroundColor: theme.background.secondary,
-                    borderColor: theme.border.primary,
-                  },
-                ]}
-                onPress={() => {
-                  setDatePickerMode('end');
-                  setShowDatePicker(true);
-                }}
-              >
-                <Ionicons
-                  name="calendar-outline"
-                  size={14}
-                  color={theme.text.secondary}
-                />
-                <Text
-                  style={[
-                    styles.dateButtonText,
-                    { color: theme.text.primary },
-                  ]}
-                >
-                  {dateRangeFilter.endDate
-                    ? formatDate(dateRangeFilter.endDate)
-                    : "End Date"}
-                </Text>
-              </TouchableOpacity>
-            </View>
+            {/* Quick Filters Collapsible Section */}
+            <CollapsibleFilterSection
+              title="Quick Filters"
+              defaultExpanded={false}
+              iconColor={theme.text.primary}
+              headerBackgroundColor={theme.background.secondary}
+              contentBackgroundColor={theme.background.primary}
+              titleColor={theme.text.primary}
+              shadowColor={theme.text.primary}
+            >
+              <View style={styles.filtersContainer}>
+                {[
+                  { key: "all", label: "All", icon: "list" },
+                  { key: "recent", label: "Recent", icon: "time" },
+                  { key: "high", label: "High Amount", icon: "trending-up" },
+                  { key: "dining", label: "Dining", icon: "restaurant" },
+                  { key: "shopping", label: "Shopping", icon: "bag" },
+                  { key: "transport", label: "Transport", icon: "car" },
+                ].map((option) => (
+                  <TouchableOpacity
+                    key={option.key}
+                    style={[
+                      styles.filterChip,
+                      currentFilter === option.key && styles.filterChipActive,
+                    ]}
+                    onPress={() => {
+                      setCurrentFilter(option.key as any);
+                      setShowSearchSection(false);
+                    }}
+                  >
+                    <Ionicons
+                      name={option.icon as any}
+                      size={16}
+                      color={
+                        currentFilter === option.key
+                          ? "white"
+                          : theme.text.secondary
+                      }
+                      style={styles.filterChipIcon}
+                    />
+                    <Text
+                      style={[
+                        styles.filterChipText,
+                        currentFilter === option.key &&
+                          styles.filterChipTextActive,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </CollapsibleFilterSection>
           </ScrollView>
         </View>
       )}
 
       {candidates.length === 0 ? (
         <View style={styles.emptyState}>
-          <Ionicons name="card-outline" size={64} color={theme.text.secondary} />
+          <Ionicons
+            name="card-outline"
+            size={64}
+            color={theme.text.secondary}
+          />
           <Text style={styles.emptyTitle}>No Recent Purchases</Text>
           <Text style={styles.emptySubtitle}>
-            We'll monitor your connected accounts for new purchases and notify you when we find potential receipts.
+            We'll monitor your connected accounts for new purchases and notify
+            you when we find potential receipts.
           </Text>
           {linkToken ? (
             <PlaidLinkButton
@@ -1622,27 +1799,35 @@ export const BankTransactionsScreen: React.FC = () => {
               <Text style={styles.connectButtonText}>Connect Bank Account</Text>
             </PlaidLinkButton>
           ) : (
-            <TouchableOpacity style={styles.connectButton} onPress={createLinkToken}>
+            <TouchableOpacity
+              style={styles.connectButton}
+              onPress={createLinkToken}
+            >
               <Text style={styles.connectButtonText}>Connect Bank Account</Text>
             </TouchableOpacity>
           )}
         </View>
       ) : filteredAndSortedCandidates.length === 0 ? (
         <View style={styles.emptyState}>
-          <Ionicons name="search-outline" size={64} color={theme.text.secondary} />
+          <Ionicons
+            name="search-outline"
+            size={64}
+            color={theme.text.secondary}
+          />
           <Text style={styles.emptyTitle}>No Transactions Found</Text>
           <Text style={styles.emptySubtitle}>
-            {currentFilter !== 'all' 
+            {currentFilter !== "all"
               ? `No transactions match the "${currentFilter}" filter.`
-              : "Connect your bank account to see transactions here."
-            }
+              : "Connect your bank account to see transactions here."}
           </Text>
-          {currentFilter !== 'all' && (
-            <TouchableOpacity 
+          {currentFilter !== "all" && (
+            <TouchableOpacity
               style={styles.connectButton}
               onPress={clearFilters}
             >
-              <Text style={styles.connectButtonText}>Show All Transactions</Text>
+              <Text style={styles.connectButtonText}>
+                Show All Transactions
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -1650,7 +1835,9 @@ export const BankTransactionsScreen: React.FC = () => {
         <FlatList
           data={filteredAndSortedCandidates}
           renderItem={renderTransactionItem}
-          keyExtractor={(item) => (item as any)._id ?? `${item.transaction.transaction_id}_fallback`}
+          keyExtractor={(item) =>
+            (item as any)._id ?? `${item.transaction.transaction_id}_fallback`
+          }
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -1666,9 +1853,11 @@ export const BankTransactionsScreen: React.FC = () => {
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={10}
-          getItemLayout={(data, index) => (
-            {length: 200, offset: 200 * index, index}
-          )}
+          getItemLayout={(data, index) => ({
+            length: 200,
+            offset: 200 * index,
+            index,
+          })}
         />
       )}
 
@@ -1678,28 +1867,33 @@ export const BankTransactionsScreen: React.FC = () => {
           {hasActiveFilters && !showSearchSection && (
             <View style={styles.filterLabel}>
               <Text style={styles.filterLabelText}>
-                {searchQuery.trim() ? 'Search Active' : currentFilter.charAt(0).toUpperCase() + currentFilter.slice(1)}
+                {searchQuery.trim()
+                  ? "Search Active"
+                  : currentFilter.charAt(0).toUpperCase() +
+                    currentFilter.slice(1)}
               </Text>
             </View>
           )}
           <TouchableOpacity
-            style={[styles.fab, (hasActiveFilters || showSearchSection) && styles.fabActive]}
+            style={[
+              styles.fab,
+              (hasActiveFilters || showSearchSection) && styles.fabActive,
+            ]}
             onPress={() => setShowSearchSection(!showSearchSection)}
           >
-            <Ionicons 
-              name={showSearchSection ? 'close' : 'search'}
-              size={24} 
-              color="white" 
+            <Ionicons
+              name={showSearchSection ? "close" : "search"}
+              size={24}
+              color="white"
             />
           </TouchableOpacity>
         </View>
       )}
-
       {/* Date Picker */}
       {showDatePicker && (
         <DateTimePicker
           value={
-            datePickerMode === 'start' 
+            datePickerMode === "start"
               ? dateRangeFilter.startDate || new Date()
               : dateRangeFilter.endDate || new Date()
           }
@@ -1708,7 +1902,6 @@ export const BankTransactionsScreen: React.FC = () => {
           onChange={handleDatePickerChange}
         />
       )}
-
     </SafeAreaView>
   );
 };
