@@ -6,19 +6,24 @@ import Pdf from 'react-native-pdf';
 import { Ionicons } from '@expo/vector-icons';
 import { Text } from './Text';
 import { useTheme } from '../theme/ThemeProvider';
+import { pdfRecoveryService } from '../services/PDFRecoveryService';
 
 interface PDFViewerProps {
   pdfUri?: string;
   pdfFilePath?: string;
   style?: ViewStyle;
   showShare?: boolean;
+  receiptId?: string; // Add receiptId for recovery
+  userId?: string; // Add userId for recovery
 }
 
 export const PDFViewer: React.FC<PDFViewerProps> = ({ 
   pdfUri, 
   pdfFilePath, 
   style,
-  showShare = true 
+  showShare = true,
+  receiptId,
+  userId
 }) => {
   const { theme } = useTheme();
   const [loading, setLoading] = useState(true);
@@ -26,6 +31,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
   const [pdfSource, setPdfSource] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [pdfKey, setPdfKey] = useState(0); // Add this for forcing refreshes
+  const [recovering, setRecovering] = useState(false);
 
   console.log('📄 PDFViewer - Component rendered with:', { pdfUri, pdfFilePath });
 
@@ -67,9 +73,40 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         console.error('📄 PDFViewer - Error setting up PDF:', error);
         const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         
+        // Check if this is a missing file error and we can attempt recovery
+        if (errorMessage.includes('PDF file does not exist') && receiptId && userId) {
+          console.log('📄 PDFViewer - PDF missing, attempting recovery...');
+          try {
+            setRecovering(true);
+            const recoveredPath = await pdfRecoveryService.recoverMissingPDF(receiptId, userId);
+            
+            if (recoveredPath) {
+              console.log('✅ PDF recovered successfully:', recoveredPath);
+              // Retry setting up the PDF with the recovered path
+              const fileInfo = await FileSystem.getInfoAsync(recoveredPath);
+              if (fileInfo.exists) {
+                const source = {
+                  uri: recoveredPath,
+                  cache: true
+                };
+                setPdfSource(source);
+                setError(null);
+                setRecovering(false);
+                return;
+              }
+            }
+          } catch (recoveryError) {
+            console.error('Failed to recover PDF:', recoveryError);
+          }
+          setRecovering(false);
+        }
+        
         // Provide user-friendly error messages
-        if (errorMessage.includes('PDF file does not exist') && (pdfUri || pdfFilePath)) {
-          setError(`PDF file is no longer available. This may be an old receipt - try regenerating it from the bank transactions screen.`);
+        if (errorMessage.includes('PDF file does not exist')) {
+          const friendlyMessage = receiptId && userId ? 
+            'PDF file is no longer available. We attempted to recover it but were unsuccessful. You may need to regenerate this receipt.' :
+            'PDF file is no longer available. This may be an old receipt - try regenerating it from the bank transactions screen.';
+          setError(friendlyMessage);
         } else {
           setError(errorMessage);
         }
@@ -79,7 +116,45 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     };
 
     setupPDF();
-  }, [pdfUri, pdfFilePath]);
+  }, [pdfUri, pdfFilePath, receiptId, userId]);
+
+  // Handle manual PDF recovery
+  const handleRecovery = async () => {
+    if (!receiptId || !userId) {
+      Alert.alert('Error', 'Cannot recover PDF - missing receipt or user information');
+      return;
+    }
+
+    try {
+      setRecovering(true);
+      setError(null);
+      
+      const recoveredPath = await pdfRecoveryService.recoverMissingPDF(receiptId, userId);
+      
+      if (recoveredPath) {
+        // Retry setting up the PDF with the recovered path
+        const fileInfo = await FileSystem.getInfoAsync(recoveredPath);
+        if (fileInfo.exists) {
+          const source = {
+            uri: recoveredPath,
+            cache: true
+          };
+          setPdfSource(source);
+          setPdfKey(prev => prev + 1);
+          Alert.alert('Success', 'PDF recovered successfully!');
+        } else {
+          throw new Error('Recovery appeared successful but file still not found');
+        }
+      } else {
+        throw new Error('Unable to recover PDF from available data');
+      }
+    } catch (error) {
+      console.error('Manual recovery failed:', error);
+      Alert.alert('Recovery Failed', 'Unable to recover the PDF. You may need to regenerate this receipt from the original source.');
+    } finally {
+      setRecovering(false);
+    }
+  };
 
   // Handle share PDF functionality
   const handleSharePDF = async () => {
@@ -99,12 +174,14 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     }
   };
 
-  if (loading) {
+  if (loading || recovering) {
     console.log('📄 PDFViewer - Rendering loading state');
     return (
       <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background.secondary }, style]}>
         <ActivityIndicator size="large" color={theme.gold.primary} />
-        <Text style={{ marginTop: 10, color: theme.text.secondary }}>Loading PDF...</Text>
+        <Text style={{ marginTop: 10, color: theme.text.secondary }}>
+          {recovering ? 'Recovering PDF...' : 'Loading PDF...'}
+        </Text>
       </View>
     );
   }
@@ -113,9 +190,27 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
     console.log('📄 PDFViewer - Rendering error state:', error);
     return (
       <View style={[{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: theme.background.secondary, padding: 20 }, style]}>
-        <Text style={{ color: theme.status.error, textAlign: 'center', fontSize: 14 }}>
+        <Ionicons name="document-text" size={64} color={theme.text.secondary} style={{ marginBottom: 16 }} />
+        <Text style={{ color: theme.status.error, textAlign: 'center', fontSize: 14, marginBottom: 16 }}>
           Error loading PDF: {error}
         </Text>
+        {receiptId && userId && (
+          <TouchableOpacity
+            onPress={handleRecovery}
+            style={{
+              backgroundColor: theme.gold.primary,
+              paddingHorizontal: 20,
+              paddingVertical: 10,
+              borderRadius: 8,
+              marginTop: 8,
+            }}
+            disabled={recovering}
+          >
+            <Text style={{ color: 'white', fontWeight: '600' }}>
+              {recovering ? 'Recovering...' : 'Try to Recover PDF'}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
     );
   }

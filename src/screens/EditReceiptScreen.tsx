@@ -467,19 +467,50 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     const originalCategory = receipt.category || 'business_expense';
     const originalCurrency = receipt.currency || 'USD';
     
-    return (
+    // Compare items properly - transform original items to match formData structure for comparison
+    const originalItems = (receipt.extractedData?.items || []).map(item => ({
+      description: item.description,
+      quantity: item.quantity,
+      price: item.amount / (item.quantity || 1),
+      amount: item.amount,
+      tax: 0
+    }));
+    
+    const itemsChanged = JSON.stringify(formData.items) !== JSON.stringify(originalItems);
+    
+    // Debug logging for unsaved changes detection
+    const hasChanges = (
       formData.amount !== originalAmount ||
       formData.vendor !== originalVendor ||
       formData.description !== originalDescription ||
       formData.category !== originalCategory ||
       formData.currency !== originalCurrency ||
       formData.businessId !== (receipt.businessId ?? null) ||
-      JSON.stringify(formData.items) !== JSON.stringify(receipt.extractedData?.items || []) ||
+      itemsChanged ||
       formData.tax.deductible !== (receipt.tax?.deductible || false) ||
       formData.tax.deductionPercentage !== (receipt.tax?.deductionPercentage || 0) ||
       formData.tax.taxYear !== (receipt.tax?.taxYear || new Date().getFullYear()) ||
       formData.tax.amount !== ((receipt.tax as any)?.amount || 0)
     );
+    
+    // Only log when there are changes to avoid spam
+    if (hasChanges) {
+      console.log('🔄 Unsaved changes detected:', {
+        amountChanged: formData.amount !== originalAmount,
+        vendorChanged: formData.vendor !== originalVendor,
+        descriptionChanged: formData.description !== originalDescription,
+        categoryChanged: formData.category !== originalCategory,
+        currencyChanged: formData.currency !== originalCurrency,
+        businessIdChanged: formData.businessId !== (receipt.businessId ?? null),
+        itemsChanged,
+        taxChanged: formData.tax.deductible !== (receipt.tax?.deductible || false) ||
+                   formData.tax.deductionPercentage !== (receipt.tax?.deductionPercentage || 0) ||
+                   formData.tax.taxYear !== (receipt.tax?.taxYear || new Date().getFullYear()) ||
+                   formData.tax.amount !== ((receipt.tax as any)?.amount || 0)
+      });
+    }
+    
+    return hasChanges;
   }, [formData, receipt]);
 
   const handleSave = async () => {
@@ -647,6 +678,8 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                   pdfFilePath={(receipt as any).pdfPath}
                   style={styles.pdfViewer}
                   showShare={false}
+                  receiptId={receipt.receiptId}
+                  userId={receipt.userId}
                 />
                 {(receipt as any).metadata?.source === 'bank_transaction' && hasUnsavedChanges && (
                   <View style={styles.regenerateContainer}>
