@@ -81,6 +81,7 @@
     "@config-plugins/react-native-pdf": "^11.0.0",
     "@types/react": "~19.0.10",
     "concurrently": "^9.2.0",
+    "expo-build-properties": "^0.14.8",
     "nodemon": "^3.1.10",
     "ts-node": "^10.9.2",
     "typescript": "~5.8.3"
