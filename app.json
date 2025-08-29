@@ -12,14 +12,20 @@
       "resizeMode": "contain",
       "backgroundColor": "#000000"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.receiptgold.app",
       "buildNumber": "1",
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["plaid"],
-        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs camera access to scan and capture your receipts"
+        "LSApplicationQueriesSchemes": [
+          "plaid",
+          "plaid"
+        ],
+        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs camera access to scan and capture your receipts",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
