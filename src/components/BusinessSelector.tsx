@@ -51,6 +51,15 @@ const BusinessOption: React.FC<BusinessOptionProps> = ({
       onPress={onSelect}
       activeOpacity={0.7}
     >
+      {isSelected && (
+        <View style={styles.checkmarkContainer}>
+          <Ionicons
+            name="checkmark-circle"
+            size={20}
+            color={theme.gold.primary}
+          />
+        </View>
+      )}
       <View style={styles.businessOptionContent}>
         {business ? (
           <>
@@ -122,13 +131,6 @@ const BusinessOption: React.FC<BusinessOptionProps> = ({
           </>
         )}
       </View>
-      {isSelected && (
-        <Ionicons
-          name="checkmark-circle"
-          size={24}
-          color={theme.gold.primary}
-        />
-      )}
     </TouchableOpacity>
   );
 };
@@ -411,6 +413,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   businessOption: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
@@ -424,6 +427,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+  },
+  checkmarkContainer: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
   },
   businessIcon: {
     marginRight: 12,

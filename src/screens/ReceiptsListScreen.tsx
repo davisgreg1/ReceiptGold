@@ -19,6 +19,7 @@ import {
   Modal,
   Keyboard,
   TouchableWithoutFeedback,
+  Platform,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -95,6 +96,7 @@ export const ReceiptsListScreen: React.FC = () => {
   const [datePickerMode, setDatePickerMode] = useState<"start" | "end">(
     "start"
   );
+  const [tempSelectedDate, setTempSelectedDate] = useState<Date | null>(null);
 
   // Quick filter categories
   const quickFilters = [
@@ -174,26 +176,63 @@ export const ReceiptsListScreen: React.FC = () => {
     setShowSearch(false);
   }, []);
 
-  // Handle custom date range
+  // Handle custom date range for Android
   const handleDatePickerChange = useCallback(
     (event: any, selectedDate?: Date) => {
-      if (selectedDate) {
-        const newDateFilter = {
-          ...dateRangeFilter,
-          [datePickerMode === "start" ? "startDate" : "endDate"]: selectedDate,
-          active: true,
-        };
-        setDateRangeFilter(newDateFilter);
+      if (Platform.OS === 'android') {
+        if (selectedDate) {
+          const newDateFilter = {
+            ...dateRangeFilter,
+            [datePickerMode === "start" ? "startDate" : "endDate"]: selectedDate,
+            active: true,
+          };
+          setDateRangeFilter(newDateFilter);
 
-        // Only close search UI when both dates are now selected
-        if (newDateFilter.startDate && newDateFilter.endDate) {
-          setShowSearch(false);
+          // Only close search UI when both dates are now selected
+          if (newDateFilter.startDate && newDateFilter.endDate) {
+            setShowSearch(false);
+          }
         }
+        setShowDatePicker(false);
       }
-      setShowDatePicker(false);
     },
     [datePickerMode, dateRangeFilter]
   );
+
+  // Handle iOS date picker change (just updates temp state)
+  const handleIOSDatePickerChange = useCallback(
+    (event: any, selectedDate?: Date) => {
+      if (selectedDate) {
+        setTempSelectedDate(selectedDate);
+      }
+    },
+    []
+  );
+
+  // Handle iOS date picker done
+  const handleIOSDatePickerDone = useCallback(() => {
+    if (tempSelectedDate) {
+      const newDateFilter = {
+        ...dateRangeFilter,
+        [datePickerMode === "start" ? "startDate" : "endDate"]: tempSelectedDate,
+        active: true,
+      };
+      setDateRangeFilter(newDateFilter);
+
+      // Only close search UI when both dates are now selected
+      if (newDateFilter.startDate && newDateFilter.endDate) {
+        setShowSearch(false);
+      }
+    }
+    setShowDatePicker(false);
+    setTempSelectedDate(null);
+  }, [datePickerMode, dateRangeFilter, tempSelectedDate]);
+
+  // Handle iOS date picker cancel
+  const handleIOSDatePickerCancel = useCallback(() => {
+    setShowDatePicker(false);
+    setTempSelectedDate(null);
+  }, []);
 
   // Clear date range filter
   const clearDateFilter = useCallback(() => {
@@ -1375,6 +1414,7 @@ export const ReceiptsListScreen: React.FC = () => {
                       ]}
                       onPress={() => {
                         setDatePickerMode("start");
+                        setTempSelectedDate(dateRangeFilter.startDate || new Date());
                         setShowDatePicker(true);
                       }}
                     >
@@ -1405,6 +1445,7 @@ export const ReceiptsListScreen: React.FC = () => {
                       ]}
                       onPress={() => {
                         setDatePickerMode("end");
+                        setTempSelectedDate(dateRangeFilter.endDate || new Date());
                         setShowDatePicker(true);
                       }}
                     >
@@ -1516,7 +1557,40 @@ export const ReceiptsListScreen: React.FC = () => {
           )}
 
           {/* Date Picker Modal */}
-          {showDatePicker && (
+          {showDatePicker && Platform.OS === 'ios' && (
+            <Modal
+              transparent={true}
+              animationType="slide"
+              visible={showDatePicker}
+              onRequestClose={() => setShowDatePicker(false)}
+            >
+              <View style={styles.modalOverlay}>
+                <View style={[styles.datePickerModal, { backgroundColor: theme.background.secondary }]}>
+                  <View style={styles.datePickerHeader}>
+                    <TouchableOpacity onPress={handleIOSDatePickerCancel}>
+                      <Text style={[styles.datePickerCancel, { color: theme.text.secondary }]}>Cancel</Text>
+                    </TouchableOpacity>
+                    <Text style={[styles.datePickerTitle, { color: theme.text.primary }]}>
+                      Select {datePickerMode === 'start' ? 'Start' : 'End'} Date
+                    </Text>
+                    <TouchableOpacity onPress={handleIOSDatePickerDone}>
+                      <Text style={[styles.datePickerDone, { color: theme.gold.primary }]}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <DateTimePicker
+                    value={tempSelectedDate || new Date()}
+                    mode="date"
+                    display="spinner"
+                    onChange={handleIOSDatePickerChange}
+                    textColor={theme.text.primary}
+                  />
+                </View>
+              </View>
+            </Modal>
+          )}
+          
+          {/* Android Date Picker */}
+          {showDatePicker && Platform.OS === 'android' && (
             <DateTimePicker
               value={
                 (datePickerMode === "start"
@@ -2784,5 +2858,38 @@ const styles = StyleSheet.create({
   filterBadgeClose: {
     padding: 2,
     marginLeft: 2,
+  },
+
+  // iOS Date Picker Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  datePickerModal: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 40,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  datePickerCancel: {
+    fontSize: 16,
+    fontWeight: '400',
+  },
+  datePickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  datePickerDone: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -181,7 +181,8 @@ const ReceiptsStackNavigator = () => {
         name="ReceiptsList" 
         component={ReceiptsListScreen} 
         options={{ 
-          headerShown: false 
+          headerShown: false,
+          title: 'Receipts'
         }} 
       />
       <ReceiptsStack.Screen 

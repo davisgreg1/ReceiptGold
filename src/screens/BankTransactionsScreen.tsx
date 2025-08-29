@@ -762,6 +762,7 @@ export const BankTransactionsScreen: React.FC = () => {
       `${candidate.transaction.transaction_id}_fallback`;
     const generatedReceipt = generatedReceipts.get(docId);
     const isGenerating = generatingReceipt === docId;
+    console.log("🚀 ~ renderTransactionItem ~ candidate:", candidate);
 
     return (
       <View style={styles.candidateCard}>
@@ -794,15 +795,16 @@ export const BankTransactionsScreen: React.FC = () => {
               {candidate.transaction.payment_channel}
             </Text>
           </View>
-          {candidate.transaction.location && (
-            <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Location:</Text>
-              <Text style={styles.detailValue}>
-                {candidate.transaction.location.city},{" "}
-                {candidate.transaction.location.region}
-              </Text>
-            </View>
-          )}
+          {candidate.transaction?.location?.city &&
+            candidate.transaction?.location?.region && (
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Location:</Text>
+                <Text style={styles.detailValue}>
+                  {candidate.transaction.location.city},{" "}
+                  {candidate.transaction.location.region}
+                </Text>
+              </View>
+            )}
         </View>
 
         {generatedReceipt && (

@@ -77,6 +77,7 @@ const CreateBusinessScreen: React.FC = () => {
   });
 
   const [showIOSPicker, setShowIOSPicker] = useState(false);
+  const [showIOSIndustryPicker, setShowIOSIndustryPicker] = useState(false);
 
   const businessTypes = BusinessService.getBusinessTypes();
   const industries = BusinessService.getIndustryOptions();
@@ -193,26 +194,69 @@ const CreateBusinessScreen: React.FC = () => {
     }
   };
 
-  const formatTaxId = (text: string) => {
+  const handleTaxIdChange = (text: string) => {
     // Remove all non-digits
     const digits = text.replace(/\D/g, '');
     
-    // Format as EIN (XX-XXXXXXX) or SSN (XXX-XX-XXXX)
-    if (digits.length <= 9) {
-      // EIN format
-      if (digits.length >= 3) {
-        return `${digits.slice(0, 2)}-${digits.slice(2)}`;
-      }
-      return digits;
-    } else {
-      // SSN format
-      if (digits.length >= 6) {
-        return `${digits.slice(0, 3)}-${digits.slice(3, 5)}-${digits.slice(5, 9)}`;
-      } else if (digits.length >= 4) {
-        return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-      }
-      return digits;
+    // Limit to 9 digits for EIN format
+    if (digits.length > 9) {
+      return; // Don't update if more than 9 digits
     }
+    
+    // Format as EIN (XX-XXXXXXX)
+    let formatted = '';
+    if (digits.length > 2) {
+      formatted = `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    } else {
+      formatted = digits;
+    }
+    
+    updateFormData('taxId', formatted);
+  };
+
+  const handlePhoneNumberChange = (text: string) => {
+    // Remove all non-digits from the new input
+    const digits = text.replace(/\D/g, '');
+    const currentDigits = (formData.phone || '').replace(/\D/g, '');
+    
+    // If user is trying to add more than 10 digits, don't update at all
+    if (digits.length > 10) {
+      return; // Don't call updateFormData
+    }
+    
+    // Format the phone number
+    let formatted = '';
+    if (digits.length >= 6) {
+      formatted = `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+    } else if (digits.length >= 3) {
+      formatted = `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+    } else {
+      formatted = digits;
+    }
+    
+    updateFormData('phone', formatted);
+  };
+
+  const handleZipCodeChange = (text: string) => {
+    // Remove all non-digits from the new input
+    const digits = text.replace(/\D/g, '');
+    
+    // If user is trying to add more than 9 digits (ZIP+4 format), don't update at all
+    if (digits.length > 9) {
+      return; // Don't call updateFormData
+    }
+    
+    // Format the zip code
+    let formatted = '';
+    if (digits.length > 5) {
+      // ZIP+4 format: 12345-6789
+      formatted = `${digits.slice(0, 5)}-${digits.slice(5)}`;
+    } else {
+      // Basic ZIP: 12345
+      formatted = digits;
+    }
+    
+    updateFormData('address.zipCode', formatted);
   };
 
   return (
@@ -306,11 +350,11 @@ const CreateBusinessScreen: React.FC = () => {
                   },
                 ]}
                 value={formData.taxId}
-                onChangeText={(text) => updateFormData('taxId', formatTaxId(text))}
-                placeholder="XX-XXXXXXX or XXX-XX-XXXX"
+                onChangeText={handleTaxIdChange}
+                placeholder="XX-XXXXXXX"
                 placeholderTextColor={theme.text.tertiary}
                 keyboardType="numeric"
-                maxLength={11}
+                maxLength={10}
               />
             </View>
 
@@ -325,20 +369,32 @@ const CreateBusinessScreen: React.FC = () => {
                   borderColor: theme.border.primary,
                 },
               ]}>
-                <Picker
-                  selectedValue={formData.industry}
-                  onValueChange={(value) => updateFormData('industry', value)}
-                  style={[styles.picker, { color: theme.text.primary }]}
-                >
-                  <Picker.Item label="Select industry..." value="" />
-                  {industries.map((industry, index) => (
-                    <Picker.Item
-                      key={index}
-                      label={industry}
-                      value={industry}
-                    />
-                  ))}
-                </Picker>
+                {Platform.OS === 'ios' ? (
+                  <TouchableOpacity 
+                    style={styles.iosPickerButton}
+                    onPress={() => setShowIOSIndustryPicker(true)}
+                  >
+                    <Text style={[styles.iosPickerText, { color: formData.industry ? theme.text.primary : theme.text.tertiary }]}>
+                      {formData.industry || "Select industry..."}
+                    </Text>
+                    <Ionicons name="chevron-down" size={20} color={theme.text.tertiary} />
+                  </TouchableOpacity>
+                ) : (
+                  <Picker
+                    selectedValue={formData.industry}
+                    onValueChange={(value) => updateFormData('industry', value)}
+                    style={[styles.picker, { color: theme.text.primary }]}
+                  >
+                    <Picker.Item label="Select industry..." value="" />
+                    {industries.map((industry, index) => (
+                      <Picker.Item
+                        key={index}
+                        label={industry}
+                        value={industry}
+                      />
+                    ))}
+                  </Picker>
+                )}
               </View>
             </View>
           </View>
@@ -363,10 +419,11 @@ const CreateBusinessScreen: React.FC = () => {
                   },
                 ]}
                 value={formData.phone || ''}
-                onChangeText={(text) => updateFormData('phone', text)}
+                onChangeText={handlePhoneNumberChange}
                 placeholder="(555) 123-4567"
                 placeholderTextColor={theme.text.tertiary}
                 keyboardType="phone-pad"
+                maxLength={14}
               />
             </View>
 
@@ -448,10 +505,11 @@ const CreateBusinessScreen: React.FC = () => {
                   },
                 ]}
                 value={formData.address?.zipCode || ''}
-                onChangeText={(text) => updateFormData('address.zipCode', text)}
-                placeholder="12345"
+                onChangeText={handleZipCodeChange}
+                placeholder="12345 or 12345-6789"
                 placeholderTextColor={theme.text.tertiary}
                 keyboardType="numeric"
+                maxLength={10}
               />
             </View>
 
@@ -524,6 +582,39 @@ const CreateBusinessScreen: React.FC = () => {
                   key={type} 
                   label={type} 
                   value={type} 
+                  color={theme.text.primary}
+                />
+              ))}
+            </Picker>
+          </View>
+        </View>
+      )}
+
+      {/* iOS Industry Picker Modal */}
+      {showIOSIndustryPicker && Platform.OS === 'ios' && (
+        <View style={[styles.modalOverlay, { backgroundColor: theme.background.overlay }]}>
+          <View style={[styles.iosPickerModal, { backgroundColor: theme.background.secondary }]}>
+            <View style={[styles.iosPickerHeader, { borderBottomColor: theme.border.primary }]}>
+              <TouchableOpacity onPress={() => setShowIOSIndustryPicker(false)}>
+                <Text style={[styles.iosPickerAction, { color: theme.text.secondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={[styles.iosPickerTitle, { color: theme.text.primary }]}>Industry</Text>
+              <TouchableOpacity onPress={() => setShowIOSIndustryPicker(false)}>
+                <Text style={[styles.iosPickerAction, { color: theme.gold.primary }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+            <Picker
+              selectedValue={formData.industry}
+              onValueChange={(value) => updateFormData('industry', value)}
+              style={[styles.iosPickerWheel, { backgroundColor: theme.background.secondary }]}
+              itemStyle={{ color: theme.text.primary, fontSize: 18 }}
+            >
+              <Picker.Item label="Select industry..." value="" color={theme.text.tertiary} />
+              {industries.map((industry) => (
+                <Picker.Item 
+                  key={industry} 
+                  label={industry} 
+                  value={industry} 
                   color={theme.text.primary}
                 />
               ))}
