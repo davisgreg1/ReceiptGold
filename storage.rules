@@ -1,36 +1,115 @@
 
-// Cloud Storage Security Rules
+// Cloud Storage Security Rules with Firebase Authentication Integration
 rules_version = '2';
 service firebase.storage {
     match /b/{bucket}/o {
-        // Receipt images - users can only access their own files
+        
+        // Helper function to check if user is authenticated
+        function isAuthenticated() {
+            return request.auth != null;
+        }
+        
+        // Helper function to check if user owns the resource
+        function isOwner(userId) {
+            return request.auth != null && request.auth.uid == userId;
+        }
+        
+        // Helper function to validate file size (in bytes)
+        function isValidFileSize(maxSizeInMB) {
+            return resource.size < maxSizeInMB * 1024 * 1024;
+        }
+        
+        // Helper function to check file type by extension
+        function isValidImageType() {
+            return request.resource.contentType.matches('image/.*') ||
+                   request.resource.name.matches('.*\\.(jpg|jpeg|png|gif|webp)$');
+        }
+        
+        function isValidPDFType() {
+            return request.resource.contentType == 'application/pdf' ||
+                   request.resource.name.matches('.*\\.pdf$');
+        }
+
+        // USER PRIVATE: Receipt images - users can only access their own files
         match /receipts/{userId}/{allPaths=**} {
-            allow read, write: if request.auth != null && 
-            request.auth.uid == userId;
+            allow read: if isOwner(userId);
+            allow write: if isOwner(userId) && 
+                        (isValidImageType() || isValidPDFType()) &&
+                        request.resource.size < 10 * 1024 * 1024; // 10MB limit
+            allow delete: if isOwner(userId);
         }
 
-        // Report files - users can only access their own files
+        // USER PRIVATE: Report files - users can only access their own files
         match /reports/{userId}/{allPaths=**} {
-            allow read, write: if request.auth != null && 
-            request.auth.uid == userId;
+            allow read: if isOwner(userId);
+            allow write: if isOwner(userId) && 
+                        isValidPDFType() &&
+                        request.resource.size < 50 * 1024 * 1024; // 50MB limit for reports
+            allow delete: if isOwner(userId);
         }
 
-        // Thumbnails - users can only access their own files
+        // USER PRIVATE: Thumbnails - users can only access their own files
         match /thumbnails/{userId}/{allPaths=**} {
-            allow read, write: if request.auth != null && 
-            request.auth.uid == userId;
+            allow read: if isOwner(userId);
+            allow write: if isOwner(userId) && 
+                        isValidImageType() &&
+                        request.resource.size < 1 * 1024 * 1024; // 1MB limit for thumbnails
+            allow delete: if isOwner(userId);
         }
 
-        // Profile images (optional)
+        // USER PRIVATE: Profile images
         match /profiles/{userId}/{allPaths=**} {
-            allow read, write: if request.auth != null && 
-            request.auth.uid == userId;
+            allow read: if isOwner(userId);
+            allow write: if isOwner(userId) && 
+                        isValidImageType() &&
+                        request.resource.size < 5 * 1024 * 1024; // 5MB limit for profile images
+            allow delete: if isOwner(userId);
+        }
+        
+        // USER PRIVATE: Business documents
+        match /businesses/{userId}/{businessId}/{allPaths=**} {
+            allow read: if isOwner(userId);
+            allow write: if isOwner(userId) && 
+                        (isValidImageType() || isValidPDFType()) &&
+                        request.resource.size < 20 * 1024 * 1024; // 20MB limit
+            allow delete: if isOwner(userId);
         }
 
-        // Public files (like category icons)
-        match /public/{allPaths=**} {
-            allow read: if true;
-            allow write: if false; // Only via Cloud Functions or admin
+        // AUTHENTICATED PRIVATE: Temp files (accessible by any authenticated user but with restrictions)
+        match /temp/{tempId} {
+            allow read: if isAuthenticated() && 
+                       resource.timeCreated > timestamp.date(2024, 1, 1); // Only recent files
+            allow write: if isAuthenticated() && 
+                        request.resource.size < 10 * 1024 * 1024; // 10MB limit
+            allow delete: if isAuthenticated();
+        }
+
+        // PUBLIC: Category icons and static assets (read-only for everyone)
+        match /public/categories/{allPaths=**} {
+            allow read: if resource.size < 1 * 1024 * 1024; // 1MB limit on public files
+            allow write: if false; // Only via Cloud Functions or Firebase Admin SDK
+        }
+        
+        // PUBLIC: App assets (logos, etc.)
+        match /public/assets/{allPaths=**} {
+            allow read: if resource.size < 5 * 1024 * 1024; // 5MB limit
+            allow write: if false; // Only via Cloud Functions or Firebase Admin SDK
+        }
+
+        // GROUP PRIVATE: Shared business files (based on custom claims)
+        match /shared/{businessId}/{allPaths=**} {
+            allow read: if isAuthenticated() && 
+                       (request.auth.token.businessIds == null || 
+                        businessId in request.auth.token.businessIds);
+            allow write: if isAuthenticated() && 
+                        (request.auth.token.businessIds == null || 
+                         businessId in request.auth.token.businessIds) &&
+                        request.resource.size < 20 * 1024 * 1024; // 20MB limit
+        }
+
+        // Deny all other access patterns
+        match /{allPaths=**} {
+            allow read, write: if false;
         }
     }
 }
