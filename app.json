@@ -62,6 +62,14 @@
       }
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useModularHeaders": true
+          }
+        }
+      ],
       "expo-splash-screen",
       [
         "expo-camera",
@@ -84,10 +92,20 @@
         }
       ],
       [
-        "@react-native-firebase/app"
+        "@react-native-firebase/app",
+        {
+          "ios": {
+            "useModularHeaders": true
+          }
+        }
       ],
       [
-        "@react-native-firebase/messaging"
+        "@react-native-firebase/messaging",
+        {
+          "ios": {
+            "useModularHeaders": true
+          }
+        }
       ]
     ],
     "owner": "davisgreg1"
