@@ -140,4 +140,5 @@ serviceAccountKey.json
 !app.json
 !eas.json
 !tsconfig.json
+!google-services.json
 .env*
