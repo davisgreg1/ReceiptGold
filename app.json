@@ -26,7 +26,8 @@
         ],
         "NSCameraUsageDescription": "$(PRODUCT_NAME) needs camera access to scan and capture your receipts",
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "package": "com.receiptgold.app",
