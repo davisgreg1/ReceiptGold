@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, ActivityIndicator, ViewStyle, StyleSheet, TouchableOpacity, Alert, Modal } from 'react-native';
+import { View, ActivityIndicator, ViewStyle, StyleSheet, TouchableOpacity, Alert, Modal, Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import Pdf from 'react-native-pdf';
@@ -141,7 +142,6 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
           };
           setPdfSource(source);
           setPdfKey(prev => prev + 1);
-          Alert.alert('Success', 'PDF recovered successfully!');
         } else {
           throw new Error('Recovery appeared successful but file still not found');
         }
@@ -312,6 +312,10 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
       flex: 1,
       backgroundColor: theme.background.primary,
     },
+    modalSafeArea: {
+      flex: 1,
+      paddingTop: Platform.OS === 'android' ? 0 : 64,
+    },
     modalHeader: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -423,6 +427,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
         statusBarTranslucent={true}
       >
         <View style={styles.modalContainer}>
+          <SafeAreaView style={styles.modalSafeArea} edges={['top']}>
           {/* Modal Header */}
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Receipt</Text>
@@ -486,6 +491,7 @@ export const PDFViewer: React.FC<PDFViewerProps> = ({
               </View>
             )}
           </View>
+          </SafeAreaView>
         </View>
       </Modal>
     </View>

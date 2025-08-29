@@ -19,7 +19,7 @@
       "buildNumber": "1",
       "infoPlist": {
         "LSApplicationQueriesSchemes": ["plaid"],
-        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs access to your Camera."
+        "NSCameraUsageDescription": "$(PRODUCT_NAME) needs camera access to scan and capture your receipts"
       }
     },
     "android": {
@@ -59,7 +59,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera",
+          "cameraPermission": "$(PRODUCT_NAME) needs camera access to scan and capture your receipts",
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone",
           "recordAudioAndroid": true
         }
@@ -67,7 +67,7 @@
       [
         "react-native-vision-camera",
         {
-          "cameraPermissionText": "$(PRODUCT_NAME) needs access to your Camera."
+          "cameraPermissionText": "$(PRODUCT_NAME) needs camera access to scan and capture your receipts"
         }
       ],
       [
