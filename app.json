@@ -66,7 +66,9 @@
         "expo-build-properties",
         {
           "ios": {
-            "useModularHeaders": true
+            "useModularHeaders": true,
+            "flipper": false,
+            "deploymentTarget": "13.4"
           }
         }
       ],
@@ -92,20 +94,10 @@
         }
       ],
       [
-        "@react-native-firebase/app",
-        {
-          "ios": {
-            "useModularHeaders": true
-          }
-        }
+        "@react-native-firebase/app"
       ],
       [
-        "@react-native-firebase/messaging",
-        {
-          "ios": {
-            "useModularHeaders": true
-          }
-        }
+        "@react-native-firebase/messaging"
       ]
     ],
     "owner": "davisgreg1"
