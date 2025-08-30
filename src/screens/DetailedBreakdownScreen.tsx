@@ -29,6 +29,7 @@ import { db } from "../config/firebase";
 import { useAuth } from "../context/AuthContext";
 import { useFocusEffect } from "@react-navigation/native";
 import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
+import { CustomCategoryService, CustomCategory } from '../services/CustomCategoryService';
 import { formatCurrency } from '../utils/formatCurrency';
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { useTheme } from "../theme/ThemeProvider";
@@ -75,16 +76,29 @@ export const DetailedBreakdownScreen = () => {
   const { user } = useAuth();
   const { theme } = useTheme();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState<"3months" | "6months" | "year">("3months");
+
+  // Fetch custom categories
+  const fetchCustomCategories = async () => {
+    if (!user) return;
+    
+    try {
+      const categories = await CustomCategoryService.getCustomCategories(user.uid);
+      setCustomCategories(categories);
+      console.log('✅ Fetched custom categories:', categories.length);
+    } catch (error) {
+      console.error('❌ Error fetching custom categories:', error);
+    }
+  };
 
   // Fetch receipts with error handling
   const fetchReceipts = async () => {
     if (!user) return;
 
     try {
-      setLoading(true);
       
       // Calculate date range
       const now = new Date();
@@ -134,6 +148,21 @@ export const DetailedBreakdownScreen = () => {
         console.error("Fallback query failed:", fallbackError);
         setReceipts([]);
       }
+    }
+  };
+
+  // Fetch all data
+  const fetchAllData = async () => {
+    if (!user) return;
+    
+    try {
+      setLoading(true);
+      await Promise.all([
+        fetchCustomCategories(),
+        fetchReceipts()
+      ]);
+    } catch (error) {
+      console.error("Error fetching data:", error);
     } finally {
       setLoading(false);
     }
@@ -141,13 +170,16 @@ export const DetailedBreakdownScreen = () => {
 
   const refreshData = async () => {
     setRefreshing(true);
-    await fetchReceipts();
+    await Promise.all([
+      fetchCustomCategories(),
+      fetchReceipts()
+    ]);
     setRefreshing(false);
   };
 
   useFocusEffect(
     React.useCallback(() => {
-      fetchReceipts();
+      fetchAllData();
     }, [user, selectedPeriod])
   );
 
@@ -168,6 +200,15 @@ export const DetailedBreakdownScreen = () => {
       return 'other';
     }
     
+    // Check if it's a custom category - preserve custom categories as-is
+    const isCustomCategory = customCategories.some(cat => 
+      cat.name.toLowerCase().trim() === category.toLowerCase().trim()
+    );
+    
+    if (isCustomCategory) {
+      return category.trim(); // Return the custom category name as-is
+    }
+    
     // Group categories that don't have specific display names and fall back to "Other"
     const knownCategories = [
       'groceries', 'restaurant', 'entertainment', 'shopping', 'travel',
@@ -175,8 +216,7 @@ export const DetailedBreakdownScreen = () => {
     ];
     
     if (!knownCategories.includes(cleaned)) {
-      // If the category isn't in our known list, it will display as "Other" anyway
-      // so group it with other "Other" items
+      // If the category isn't in our known list AND it's not a custom category, group it as "other"
       return 'other';
     }
     
@@ -475,7 +515,7 @@ export const DetailedBreakdownScreen = () => {
             ]}>
               <View style={styles.categoryHeader}>
                 <Text style={[styles.categoryName, { color: theme.text.primary }]}>
-                  {ReceiptCategoryService.getCategoryDisplayName(insight.category as any)}
+                  {ReceiptCategoryService.getCategoryDisplayName(insight.category as any, customCategories)}
                 </Text>
                 <View style={styles.categoryTrend}>
                   <View style={[
@@ -581,7 +621,7 @@ export const DetailedBreakdownScreen = () => {
                   {merchant.name}
                 </Text>
                 <Text style={[styles.merchantCategory, { color: theme.text.secondary }]}>
-                  {ReceiptCategoryService.getCategoryDisplayName(merchant.category as any)}
+                  {ReceiptCategoryService.getCategoryDisplayName(merchant.category as any, customCategories)}
                 </Text>
               </View>
               <View style={styles.merchantStats}>
@@ -624,7 +664,7 @@ export const DetailedBreakdownScreen = () => {
                   {month.month}
                 </Text>
                 <Text style={[styles.monthCategory, { color: theme.text.secondary }]}>
-                  Top: {ReceiptCategoryService.getCategoryDisplayName(month.topCategory as any)}
+                  Top: {ReceiptCategoryService.getCategoryDisplayName(month.topCategory as any, customCategories)}
                 </Text>
               </View>
               <View style={styles.monthStats}>

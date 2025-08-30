@@ -177,6 +177,31 @@ service cloud.firestore {
             allow write: if false;
         }
 
+        // Custom Categories collection - users can only access their own custom categories
+        match /customCategories/{categoryId} {
+            allow read: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+
+            allow create: if isAuthenticated() && 
+            request.auth.uid == request.resource.data.userId &&
+            // Validate required fields
+            request.resource.data.keys().hasAll(['userId', 'name', 'icon']) &&
+            // Validate data types
+            request.resource.data.name is string &&
+            request.resource.data.icon is string &&
+            // Validate name length
+            request.resource.data.name.size() >= 2 && 
+            request.resource.data.name.size() <= 30;
+
+            allow update: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId &&
+            // Prevent changing userId
+            request.resource.data.userId == resource.data.userId;
+
+            allow delete: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+        }
+
         // Admin functions (if needed)
         // You can extend this with custom claims for admin users
         function isAdmin() {
