@@ -54,6 +54,7 @@ import {
 import { PlaidService } from "../services/PlaidService";
 import { LinkSuccess, LinkExit } from "react-native-plaid-link-sdk";
 import { BrandText, HeadingText, BodyText, ButtonText } from '../components/Typography';
+import { Signature } from '../components/Signature';
 import { useInAppNotifications } from '../components/InAppNotificationProvider';
 import { NotificationService } from '../services/ExpoNotificationService';
 import { useNotifications } from '../hooks/useNotifications';
@@ -1544,6 +1545,9 @@ export const SettingsScreen: React.FC = () => {
             </View>
           </SettingsSection>
         )}
+
+        {/* Signature */}
+        <Signature variant="default" />
       </ScrollView>
 
       {/* Name Change Dialog */}

@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { Logo } from '../components/Logo';
+import { Signature } from '../components/Signature';
 
 interface HelpCenterScreenProps {
   navigation: any;
@@ -53,6 +54,13 @@ const faqs: FAQ[] = [
     answer: 'ReceiptGold automatically categorizes receipts, but you can customize them:\n\n1. Open any receipt\n2. Tap on the category field\n3. Choose from categories like:\n   • Office Supplies\n   • Transportation\n   • Restaurant & Dining\n   • Professional Services\n   • Equipment & Software\n4. Mark as "Business" or "Personal"\n5. Add custom categories in Settings\n\nPro tip: Set up custom categories that match your business needs for easier tax preparation.',
     category: 'receipts',
     icon: 'folder-outline'
+  },
+  {
+    id: '12',
+    question: 'Why don\'t I see business data? All my receipts appear as personal.',
+    answer: 'If all your receipts are showing as personal expenses, you need to set up a business first:\n\n**Why this happens:**\n• When you first sign up, all receipts are automatically marked as "Personal"\n• ReceiptGold needs you to create a business profile to categorize expenses as "Business"\n• Without a business setup, you won\'t see business-related reports or data\n\n**How to set up your business:**\n1. Go to Settings > Business Management\n2. Tap "Add New Business"\n3. Enter your business name and details\n4. Save your business profile\n\n**After setup:**\n• New receipts can be assigned to your business during scanning\n• You can edit existing receipts individually to change them from Personal to Business\n• Business reports and analytics will start showing data\n• You can manage multiple businesses (Professional plan)\n\nTip: To convert existing personal receipts to business receipts, tap on each receipt and change its business assignment in the receipt details.',
+    category: 'receipts',
+    icon: 'business-outline'
   },
   {
     id: '5',
@@ -140,6 +148,14 @@ export const HelpCenterScreen: React.FC<HelpCenterScreenProps> = ({
 
   const handleEmailSupport = () => {
     Linking.openURL('mailto:support@receiptgold.com?subject=Help Request');
+  };
+
+  const handleFeatureRequest = () => {
+    navigation.navigate('ContactSupport');
+  };
+
+  const handleFeatureRequestEmail = () => {
+    Linking.openURL('mailto:ideas@receiptgold.com?subject=Feature Request - ReceiptGold&body=Hi ReceiptGold team,%0D%0A%0D%0AI have an idea for a new feature:%0D%0A%0D%0A[Describe your feature idea here]%0D%0A%0D%0AWhy would this be helpful:%0D%0A[Explain how this would improve your experience]%0D%0A%0D%0AThanks!');
   };
 
   return (
@@ -353,12 +369,62 @@ export const HelpCenterScreen: React.FC<HelpCenterScreenProps> = ({
           </View>
         </View>
 
+        {/* Feature Requests Section */}
+        <View style={styles.supportSection}>
+          <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
+            Have an Idea?
+          </Text>
+          <View style={[styles.supportCard, { 
+            backgroundColor: theme.background.secondary,
+            borderColor: theme.border.primary 
+          }]}>
+            <View style={styles.supportContent}>
+              <View style={[styles.supportIcon, { backgroundColor: theme.status.info }]}>
+                <Ionicons name="bulb-outline" size={24} color="white" />
+              </View>
+              <View style={styles.supportText}>
+                <Text style={[styles.supportTitle, { color: theme.text.primary }]}>
+                  Request a Feature
+                </Text>
+                <Text style={[styles.supportSubtitle, { color: theme.text.secondary }]}>
+                  We love hearing your ideas for making ReceiptGold even better
+                </Text>
+              </View>
+            </View>
+            <View style={styles.supportActions}>
+              <TouchableOpacity
+                style={[styles.supportButton, { backgroundColor: theme.status.info }]}
+                onPress={handleFeatureRequest}
+              >
+                <Ionicons name="add-circle-outline" size={16} color="white" />
+                <Text style={styles.supportButtonText}>Suggest Feature</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.supportButton, { 
+                  backgroundColor: 'transparent',
+                  borderColor: theme.status.info,
+                  borderWidth: 1,
+                }]}
+                onPress={handleFeatureRequestEmail}
+              >
+                <Ionicons name="send-outline" size={16} color={theme.status.info} />
+                <Text style={[styles.supportButtonText, { color: theme.status.info }]}>
+                  Email Ideas
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+
         {/* Footer */}
         <View style={styles.footer}>
           <Text style={[styles.footerText, { color: theme.text.tertiary }]}>
             ReceiptGold Help Center • Updated regularly with new guides and FAQs
           </Text>
         </View>
+
+        {/* Signature */}
+        <Signature variant="footer" />
       </ScrollView>
     </SafeAreaView>
   );
