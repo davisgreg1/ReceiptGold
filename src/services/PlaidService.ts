@@ -104,6 +104,7 @@ export class PlaidService {
       } else {
         // For iOS, still use redirect URI
         requestBody.redirect_uri = process.env.EXPO_PUBLIC_PLAID_IOS_REDIRECT_URI;
+        console.log("🚀 ~ PlaidService ~ createLinkToken ~ process.env.EXPO_PUBLIC_PLAID_IOS_REDIRECT_URI:", process.env.EXPO_PUBLIC_PLAID_IOS_REDIRECT_URI)
         console.log('🍎 iOS: Using redirect URI for OAuth');
       }
       

@@ -5,6 +5,7 @@ export interface BusinessData {
   type: 'LLC' | 'Corporation' | 'Sole Proprietorship' | 'Partnership' | 'Other';
   taxId?: string;
   industry?: string;
+  phone?: string;
   address?: {
     street: string;
     city: string;
@@ -32,6 +33,7 @@ export interface CreateBusinessRequest {
   type: 'LLC' | 'Corporation' | 'Sole Proprietorship' | 'Partnership' | 'Other';
   taxId?: string;
   industry?: string;
+  phone?: string;
   address?: {
     street: string;
     city: string;
