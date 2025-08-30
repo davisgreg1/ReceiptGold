@@ -83,7 +83,7 @@ export const ReceiptsListScreen: React.FC = () => {
   const [isLimitReachedPromptDismissed, setIsLimitReachedPromptDismissed] =
     useState(false);
   const [groupByDate, setGroupByDate] = useState(true); // New state for grouping
-  const [selectedFilter, setSelectedFilter] = useState<string | null>(null); // Category filter
+  const [selectedFilters, setSelectedFilters] = useState<string[]>([]); // Category filters (multi-select)
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateRangeFilter, setDateRangeFilter] = useState<{
     startDate: Date | null;
@@ -99,21 +99,37 @@ export const ReceiptsListScreen: React.FC = () => {
   );
   const [tempSelectedDate, setTempSelectedDate] = useState<Date | null>(null);
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
+  const [expandedFilterSection, setExpandedFilterSection] = useState<string | null>(null);
+  const [quickFilters, setQuickFilters] = useState<string[]>([]);
 
-  // Quick filter categories (will be dynamic including custom categories)
-  const staticFilters = [
-    "Food",
-    "Transportation",
-    "Office",
-    "Entertainment",
-    "Healthcare",
-  ];
+  // Load all available categories for filtering
+  useEffect(() => {
+    const loadCategoriesForFilters = async () => {
+      if (!user) {
+        setQuickFilters([]);
+        return;
+      }
+      
+      try {
+        // Get all available categories from the service
+        const baseCategories = await ReceiptCategoryService.getAvailableCategories(user.uid);
+        
+        // Convert to display names for the filter chips
+        const categoryDisplayNames = baseCategories.map(category => 
+          ReceiptCategoryService.getCategoryDisplayName(category, customCategories)
+        );
+        
+        // Remove duplicates and sort
+        const uniqueDisplayNames = [...new Set(categoryDisplayNames)].sort();
+        setQuickFilters(uniqueDisplayNames);
+      } catch (error) {
+        console.error('Error loading categories for filters:', error);
+        setQuickFilters([]);
+      }
+    };
 
-  // Combine static filters with custom categories
-  const quickFilters = useMemo(() => {
-    const customCategoryNames = customCategories.map(cat => cat.name);
-    return [...staticFilters, ...customCategoryNames];
-  }, [customCategories]);
+    loadCategoriesForFilters();
+  }, [user, customCategories]);
 
   // Quick date range filters
   const quickDateFilters = [
@@ -128,53 +144,24 @@ export const ReceiptsListScreen: React.FC = () => {
   // Ref for the search input
   const searchInputRef = useRef<TextInput>(null);
 
-  // Handle quick filter selection
+  // Handle quick filter selection (multi-select)
   const handleQuickFilter = useCallback(
     (category: string) => {
-      if (selectedFilter === category) {
-        // Deselect filter
-        setSelectedFilter(null);
-        setFilteredReceipts(receipts);
-        setSearchQuery("");
+      let newSelectedFilters: string[];
+      
+      if (selectedFilters.includes(category)) {
+        // Deselect filter if already selected
+        newSelectedFilters = selectedFilters.filter(f => f !== category);
       } else {
-        // Apply filter
-        setSelectedFilter(category);
-        setSearchQuery("");
-
-        // Map filter names to actual categories
-        const categoryMap: Record<string, string[]> = {
-          Food: ["restaurant", "groceries"],
-          Transportation: ["transportation", "travel"],
-          Office: ["other"], // Office supplies might be categorized as "other"
-          Entertainment: ["entertainment"],
-          Healthcare: ["healthcare"],
-        };
-
-        // Check if it's a custom category
-        const isCustomCategory = customCategories.some(cat => cat.name === category);
-        
-        let filtered;
-        if (isCustomCategory) {
-          // For custom categories, filter by exact category name match
-          filtered = receipts.filter((receipt) => {
-            const receiptCategory = receipt.category as string;
-            return receiptCategory === category;
-          });
-        } else {
-          // For static categories, use the category mapping
-          const targetCategories = categoryMap[category] || [];
-          filtered = receipts.filter((receipt) => {
-            const receiptCategory = receipt.category as string;
-            return targetCategories.includes(receiptCategory);
-          });
-        }
-
-        setFilteredReceipts(filtered);
-        // Close search UI when a filter is applied
-        setShowSearch(false);
+        // Add filter to selection
+        newSelectedFilters = [...selectedFilters, category];
       }
+      
+      setSelectedFilters(newSelectedFilters);
+      // Don't clear other filters - allow combining category filters with search/date filters
+      // The applyAllFilters useEffect will handle updating the filtered results
     },
-    [receipts, selectedFilter, customCategories]
+    [selectedFilters]
   );
 
   // Handle quick date filter selection
@@ -190,10 +177,7 @@ export const ReceiptsListScreen: React.FC = () => {
       endDate,
       active: true,
     });
-    setSelectedFilter(null); // Clear category filter
-    setSearchQuery(""); // Clear search
-    // Close search UI when date filter is applied
-    setShowSearch(false);
+    // Don't clear other filters - allow combining date filters with category/search filters
   }, []);
 
   // Handle custom date range for Android
@@ -617,7 +601,7 @@ export const ReceiptsListScreen: React.FC = () => {
 
       // Update all states
       setReceipts(receiptData);
-      setFilteredReceipts(receiptData);
+      // Don't reset filteredReceipts here - let applyAllFilters handle it
       setActiveReceiptCount(receiptData.length);
       setHistoricalUsage(historicalUsageData);
     } catch (error) {
@@ -636,28 +620,7 @@ export const ReceiptsListScreen: React.FC = () => {
       console.log("Screen focused, fetching receipts...");
       fetchReceipts();
       fetchCustomCategories();
-
-      // Validate filters when returning to screen
-      // If we have filter badges but no filtered results, clear the filters
-      setTimeout(() => {
-        const hasActiveFilters =
-          searchQuery || selectedFilter || dateRangeFilter.active;
-        if (
-          hasActiveFilters &&
-          filteredReceipts.length === 0 &&
-          receipts.length > 0
-        ) {
-          console.log("Clearing stale filters - no results found");
-          setSearchQuery("");
-          setSelectedFilter(null);
-          setDateRangeFilter({
-            startDate: null,
-            endDate: null,
-            active: false,
-          });
-        }
-      }, 500); // Small delay to ensure receipts are loaded
-    }, [fetchReceipts, fetchCustomCategories]) // Only depend on fetch functions to avoid re-running on filter changes
+    }, [fetchReceipts, fetchCustomCategories])
   );
 
   // Comprehensive filter function that applies all filters
@@ -687,34 +650,15 @@ export const ReceiptsListScreen: React.FC = () => {
       });
     }
 
-    // Apply category filter
-    if (selectedFilter) {
-      // Check if it's a custom category
-      const isCustomCategory = customCategories.some(cat => cat.name === selectedFilter);
-      
-      if (isCustomCategory) {
-        // For custom categories, filter by exact category name match
-        filtered = filtered.filter((receipt) => {
-          const receiptCategory = receipt.category as string;
-          return receiptCategory === selectedFilter;
-        });
-      } else {
-        // For static categories, use the category mapping
-        const categoryMap: Record<string, string[]> = {
-          Food: ["restaurant", "groceries"],
-          Transportation: ["transportation", "travel"],
-          Office: ["other"], // Office supplies might be categorized as "other"
-          Entertainment: ["entertainment"],
-          Healthcare: ["healthcare"],
-        };
-
-        const targetCategories = categoryMap[selectedFilter] || [];
-
-        filtered = filtered.filter((receipt) => {
-          const receiptCategory = receipt.category as string;
-          return targetCategories.includes(receiptCategory);
-        });
-      }
+    // Apply category filters (multiple selection)
+    if (selectedFilters.length > 0) {
+      filtered = filtered.filter((receipt) => {
+        const receiptCategory = receipt.category as string;
+        const receiptCategoryDisplayName = ReceiptCategoryService.getCategoryDisplayName(receiptCategory as any, customCategories);
+        
+        // Match by display name (what the user sees in the filter chips)
+        return selectedFilters.includes(receiptCategoryDisplayName);
+      });
     }
 
     // Apply date range filter
@@ -743,7 +687,7 @@ export const ReceiptsListScreen: React.FC = () => {
     }
 
     setFilteredReceipts(filtered);
-  }, [receipts, searchQuery, selectedFilter, dateRangeFilter, customCategories]);
+  }, [receipts, searchQuery, selectedFilters, dateRangeFilter, customCategories]);
 
   // Filter receipts based on search query
   const filterReceipts = useCallback(
@@ -783,10 +727,9 @@ export const ReceiptsListScreen: React.FC = () => {
   const handleSearchChange = useCallback(
     (query: string) => {
       setSearchQuery(query);
-      setSelectedFilter(null); // Clear category filter when searching
-      clearDateFilter(); // Clear date filter when searching
+      // Don't clear other filters - allow combining search with category/date filters
     },
-    [clearDateFilter]
+    []
   );
 
   // Apply all filters when any filter changes
@@ -803,14 +746,11 @@ export const ReceiptsListScreen: React.FC = () => {
     ]);
   }, [fetchReceipts, fetchCustomCategories]);
 
-  // Reset search when receipts update
+  // Apply filters when receipts update (but don't reset filters)
   React.useEffect(() => {
-    if (searchQuery) {
-      filterReceipts(searchQuery);
-    } else {
-      setFilteredReceipts(receipts);
-    }
-  }, [receipts, searchQuery, filterReceipts]);
+    // Only reapply current filters, don't reset to show all receipts
+    applyAllFilters();
+  }, [receipts, applyAllFilters]);
 
   // Render receipt item for FlatList
   const renderReceiptItem = ({ item: receipt }: { item: FirebaseReceipt }) => (
@@ -1072,7 +1012,7 @@ export const ReceiptsListScreen: React.FC = () => {
   // Render empty state
   const ListEmptyComponent = () => {
     const hasAnyFilter =
-      searchQuery || selectedFilter || dateRangeFilter.active;
+      searchQuery || selectedFilters.length > 0 || dateRangeFilter.active;
     const hasReceipts = receipts.length > 0;
 
     // If user has receipts but no results due to filters
@@ -1089,16 +1029,16 @@ export const ReceiptsListScreen: React.FC = () => {
           </Text>
           <Text style={[styles.emptySubtitle, { color: theme.text.secondary }]}>
             {searchQuery && `No receipts match "${searchQuery}"`}
-            {selectedFilter &&
+            {selectedFilters.length > 0 &&
               !searchQuery &&
-              `No ${selectedFilter.toLowerCase()} receipts found`}
+              `No ${selectedFilters.join(', ').toLowerCase()} receipts found`}
             {dateRangeFilter.active &&
               !searchQuery &&
-              !selectedFilter &&
+              selectedFilters.length === 0 &&
               `No receipts found for selected date range`}
             {searchQuery &&
-              selectedFilter &&
-              ` in ${selectedFilter.toLowerCase()} category`}
+              selectedFilters.length > 0 &&
+              ` in ${selectedFilters.join(', ').toLowerCase()} categories`}
             {searchQuery && dateRangeFilter.active && ` in selected date range`}
           </Text>
           <Text
@@ -1247,50 +1187,48 @@ export const ReceiptsListScreen: React.FC = () => {
               </Text>
               {/* Active Filter Badges */}
               {!showSearch &&
-                (selectedFilter || searchQuery || dateRangeFilter.active) && (
+                (selectedFilters.length > 0 || searchQuery || dateRangeFilter.active) && (
                   <View style={styles.activeFilterBadges}>
-                    {selectedFilter && (
-                      <View
+                    {selectedFilters.map((filter, index) => (
+                      <TouchableOpacity
+                        key={`${filter}-${index}`}
                         style={[
                           styles.filterBadge,
                           { backgroundColor: theme.gold.primary },
                         ]}
+                        onPress={() => setSelectedFilters(prev => prev.filter(f => f !== filter))}
                       >
                         <Text style={styles.filterBadgeText}>
-                          {selectedFilter}
+                          {filter}
                         </Text>
-                        <TouchableOpacity
-                          onPress={() => setSelectedFilter(null)}
-                          style={styles.filterBadgeClose}
-                        >
+                        <View style={styles.filterBadgeClose}>
                           <Ionicons name="close" size={18} color="white" />
-                        </TouchableOpacity>
-                      </View>
-                    )}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
                     {searchQuery && (
-                      <View
+                      <TouchableOpacity
                         style={[
                           styles.filterBadge,
                           { backgroundColor: theme.gold.rich },
                         ]}
+                        onPress={() => setSearchQuery("")}
                       >
                         <Text style={styles.filterBadgeText}>
                           "{searchQuery}"
                         </Text>
-                        <TouchableOpacity
-                          onPress={() => setSearchQuery("")}
-                          style={styles.filterBadgeClose}
-                        >
+                        <View style={styles.filterBadgeClose}>
                           <Ionicons name="close" size={18} color="white" />
-                        </TouchableOpacity>
-                      </View>
+                        </View>
+                      </TouchableOpacity>
                     )}
                     {dateRangeFilter.active && (
-                      <View
+                      <TouchableOpacity
                         style={[
                           styles.filterBadge,
                           { backgroundColor: theme.status.success },
                         ]}
+                        onPress={clearDateFilter}
                       >
                         <Text style={styles.filterBadgeText}>
                           {dateRangeFilter.startDate && dateRangeFilter.endDate
@@ -1299,13 +1237,10 @@ export const ReceiptsListScreen: React.FC = () => {
                               )} - ${formatDate(dateRangeFilter.endDate)}`
                             : "Date Range"}
                         </Text>
-                        <TouchableOpacity
-                          onPress={clearDateFilter}
-                          style={styles.filterBadgeClose}
-                        >
+                        <View style={styles.filterBadgeClose}>
                           <Ionicons name="close" size={18} color="white" />
-                        </TouchableOpacity>
-                      </View>
+                        </View>
+                      </TouchableOpacity>
                     )}
                   </View>
                 )}
@@ -1358,6 +1293,7 @@ export const ReceiptsListScreen: React.FC = () => {
               onPress={() => {
                 Keyboard.dismiss();
                 searchInputRef.current?.blur();
+                setShowSearch(false);
               }}
             >
               <View
@@ -1365,6 +1301,7 @@ export const ReceiptsListScreen: React.FC = () => {
                   styles.compactSearchContainer,
                   { backgroundColor: theme.background.secondary },
                 ]}
+                onStartShouldSetResponder={() => true}
               >
                 {/* Search Input */}
                 <TouchableWithoutFeedback
@@ -1413,7 +1350,10 @@ export const ReceiptsListScreen: React.FC = () => {
 
                 <CollapsibleFilterSection
                   title="Date Range"
-                  defaultExpanded={false}
+                  expanded={expandedFilterSection === 'dateRange'}
+                  onToggle={(isExpanded) => {
+                    setExpandedFilterSection(isExpanded ? 'dateRange' : null);
+                  }}
                   iconColor={theme.text.primary}
                   headerBackgroundColor={theme.background.secondary}
                   contentBackgroundColor={theme.background.primary}
@@ -1532,26 +1472,38 @@ export const ReceiptsListScreen: React.FC = () => {
                 {/* Filter Sections */}
                 <CollapsibleFilterSection
                   title="Category Filters"
-                  defaultExpanded={false}
+                  expanded={expandedFilterSection === 'categoryFilters'}
+                  onToggle={(isExpanded) => {
+                    setExpandedFilterSection(isExpanded ? 'categoryFilters' : null);
+                  }}
                   iconColor={theme.text.primary}
                   headerBackgroundColor={theme.background.secondary}
                   contentBackgroundColor={theme.background.primary}
                   titleColor={theme.text.primary}
                   shadowColor={theme.text.primary}
                 >
-                  <View style={styles.categoryChips}>
-                    {quickFilters.map((filter) => (
+                  <View 
+                    style={styles.categoryScrollContainer}
+                    onStartShouldSetResponder={() => true}
+                  >
+                    <ScrollView 
+                      horizontal={false}
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={[styles.categoryChips, { paddingBottom: 10 }]}
+                      nestedScrollEnabled={true}
+                    >
+                      {quickFilters.map((filter) => (
                       <TouchableOpacity
                         key={filter}
                         style={[
                           styles.categoryChip,
                           {
                             backgroundColor:
-                              selectedFilter === filter
+                              selectedFilters.includes(filter)
                                 ? theme.gold.primary
                                 : theme.background.primary,
                             borderColor:
-                              selectedFilter === filter
+                              selectedFilters.includes(filter)
                                 ? theme.gold.primary
                                 : theme.border.primary,
                           },
@@ -1563,7 +1515,7 @@ export const ReceiptsListScreen: React.FC = () => {
                             styles.categoryChipText,
                             {
                               color:
-                                selectedFilter === filter
+                                selectedFilters.includes(filter)
                                   ? "white"
                                   : theme.text.secondary,
                             },
@@ -1572,12 +1524,13 @@ export const ReceiptsListScreen: React.FC = () => {
                           {filter}
                         </Text>
                       </TouchableOpacity>
-                    ))}
+                      ))}
+                    </ScrollView>
                   </View>
                 </CollapsibleFilterSection>
 
                 {/* Results Summary */}
-                {(searchQuery || selectedFilter || dateRangeFilter.active) && (
+                {(searchQuery || selectedFilters.length > 0 || dateRangeFilter.active) && (
                   <View
                     style={[
                       styles.resultsSummary,
@@ -1656,7 +1609,7 @@ export const ReceiptsListScreen: React.FC = () => {
           {groupByDate &&
             recentSections.length > 0 &&
             !searchQuery &&
-            !selectedFilter &&
+            selectedFilters.length === 0 &&
             !dateRangeFilter.active && (
               <View style={styles.recentReceiptsContainer}>
                 <Text
@@ -2791,6 +2744,9 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 10,
     marginVertical: 4,
+  },
+  categoryScrollContainer: {
+    maxHeight: 250, // Increased height to show more categories
   },
   categoryChip: {
     paddingHorizontal: 16,

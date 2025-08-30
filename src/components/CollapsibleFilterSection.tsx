@@ -5,6 +5,8 @@ import { Ionicons } from '@expo/vector-icons';
 interface CollapsibleFilterSectionProps {
   title: string;
   defaultExpanded?: boolean;
+  expanded?: boolean;
+  onToggle?: (expanded: boolean) => void;
   children: React.ReactNode;
   headerStyle?: object;
   contentStyle?: object;
@@ -19,6 +21,8 @@ interface CollapsibleFilterSectionProps {
 const CollapsibleFilterSection: React.FC<CollapsibleFilterSectionProps> = ({
   title,
   defaultExpanded = false,
+  expanded,
+  onToggle,
   children,
   headerStyle,
   contentStyle,
@@ -29,10 +33,19 @@ const CollapsibleFilterSection: React.FC<CollapsibleFilterSectionProps> = ({
   titleColor = '#333333',
   shadowColor = '#000',
 }) => {
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
+  const [internalExpanded, setInternalExpanded] = useState(defaultExpanded);
+  
+  // Use controlled state if provided, otherwise use internal state
+  const isExpanded = expanded !== undefined ? expanded : internalExpanded;
 
   const toggleSection = () => {
-    setIsExpanded(!isExpanded);
+    if (onToggle) {
+      // Controlled mode - notify parent
+      onToggle(!isExpanded);
+    } else {
+      // Uncontrolled mode - manage internal state
+      setInternalExpanded(!isExpanded);
+    }
   };
 
   return (

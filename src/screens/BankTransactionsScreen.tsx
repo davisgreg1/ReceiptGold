@@ -19,6 +19,8 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  TouchableWithoutFeedback,
+  Keyboard,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -61,10 +63,8 @@ export const BankTransactionsScreen: React.FC = () => {
   // Track cancelled operations
   const cancelledOperations = useRef<Set<string>>(new Set());
 
-  // Quick filter state
-  const [currentFilter, setCurrentFilter] = useState<
-    "all" | "recent" | "high" | "dining" | "shopping" | "transport"
-  >("all");
+  // Quick filter state (multi-select)
+  const [selectedQuickFilters, setSelectedQuickFilters] = useState<string[]>([]);
   const [showSearchSection, setShowSearchSection] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -83,6 +83,7 @@ export const BankTransactionsScreen: React.FC = () => {
     "start"
   );
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [expandedFilterSection, setExpandedFilterSection] = useState<string | null>(null);
 
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
@@ -101,69 +102,61 @@ export const BankTransactionsScreen: React.FC = () => {
       );
     }
 
-    // Apply quick filter
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    // Apply quick filters (multiple selection)
+    if (selectedQuickFilters.length > 0) {
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    switch (currentFilter) {
-      case "recent":
-        filtered = filtered.filter(
-          (candidate) => new Date(candidate.transaction.date) >= sevenDaysAgo
-        );
-        break;
-      case "high":
-        filtered = filtered.filter(
-          (candidate) => Math.abs(candidate.transaction.amount) >= 100
-        );
-        break;
-      case "dining":
-        filtered = filtered.filter(
-          (candidate) =>
-            candidate.transaction.category?.[0]
-              ?.toLowerCase()
-              .includes("food") ||
-            candidate.transaction.category?.[0]
-              ?.toLowerCase()
-              .includes("dining") ||
-            candidate.transaction.category?.[0]
-              ?.toLowerCase()
-              .includes("restaurant")
-        );
-        break;
-      case "shopping":
-        filtered = filtered.filter(
-          (candidate) =>
-            candidate.transaction.category?.[0]
-              ?.toLowerCase()
-              .includes("shop") ||
-            candidate.transaction.category?.[0]
-              ?.toLowerCase()
-              .includes("retail") ||
-            candidate.transaction.category?.[0]?.toLowerCase().includes("store")
-        );
-        break;
-      case "transport":
-        filtered = filtered.filter(
-          (candidate) =>
-            candidate.transaction.category?.[0]
-              ?.toLowerCase()
-              .includes("transport") ||
-            candidate.transaction.category?.[0]
-              ?.toLowerCase()
-              .includes("travel") ||
-            candidate.transaction.category?.[0]
-              ?.toLowerCase()
-              .includes("gas") ||
-            candidate.transaction.category?.[0]
-              ?.toLowerCase()
-              .includes("uber") ||
-            candidate.transaction.category?.[0]?.toLowerCase().includes("taxi")
-        );
-        break;
-      case "all":
-      default:
-        // No filtering
-        break;
+      filtered = filtered.filter((candidate) => {
+        return selectedQuickFilters.some((filterType) => {
+          switch (filterType) {
+            case "recent":
+              return new Date(candidate.transaction.date) >= sevenDaysAgo;
+            case "high":
+              return Math.abs(candidate.transaction.amount) >= 100;
+            case "dining":
+              return (
+                candidate.transaction.category?.[0]
+                  ?.toLowerCase()
+                  .includes("food") ||
+                candidate.transaction.category?.[0]
+                  ?.toLowerCase()
+                  .includes("dining") ||
+                candidate.transaction.category?.[0]
+                  ?.toLowerCase()
+                  .includes("restaurant")
+              );
+            case "shopping":
+              return (
+                candidate.transaction.category?.[0]
+                  ?.toLowerCase()
+                  .includes("shop") ||
+                candidate.transaction.category?.[0]
+                  ?.toLowerCase()
+                  .includes("retail") ||
+                candidate.transaction.category?.[0]?.toLowerCase().includes("store")
+              );
+            case "transport":
+              return (
+                candidate.transaction.category?.[0]
+                  ?.toLowerCase()
+                  .includes("transport") ||
+                candidate.transaction.category?.[0]
+                  ?.toLowerCase()
+                  .includes("travel") ||
+                candidate.transaction.category?.[0]
+                  ?.toLowerCase()
+                  .includes("gas") ||
+                candidate.transaction.category?.[0]
+                  ?.toLowerCase()
+                  .includes("uber") ||
+                candidate.transaction.category?.[0]?.toLowerCase().includes("taxi")
+              );
+            default:
+              return true;
+          }
+        });
+      });
     }
 
     // Date range filter
@@ -198,7 +191,7 @@ export const BankTransactionsScreen: React.FC = () => {
     });
 
     return filtered;
-  }, [candidates, currentFilter, searchQuery, dateRangeFilter]); // Get unique categories for filter
+  }, [candidates, selectedQuickFilters, searchQuery, dateRangeFilter]); // Get unique categories for filter
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
     candidates.forEach((candidate) => {
@@ -665,7 +658,7 @@ export const BankTransactionsScreen: React.FC = () => {
   };
 
   const clearFilters = () => {
-    setCurrentFilter("all");
+    setSelectedQuickFilters([]);
     setSearchQuery("");
     setShowSearchSection(false);
     setDateRangeFilter({
@@ -697,7 +690,7 @@ export const BankTransactionsScreen: React.FC = () => {
       endDate,
       active: true,
     });
-    setShowSearchSection(false);
+    // Don't close search section - allow multiple filter interactions
     setShowDateRangePicker(false);
   }, []);
 
@@ -715,8 +708,7 @@ export const BankTransactionsScreen: React.FC = () => {
           };
           setDateRangeFilter(newDateFilter);
 
-          // Auto-close filter section when start date is selected (since end date is auto-set)
-          setShowSearchSection(false);
+          // Don't auto-close filter section - allow multiple filter interactions
         } else {
           // End date selection
           const newDateFilter = {
@@ -726,10 +718,7 @@ export const BankTransactionsScreen: React.FC = () => {
           };
           setDateRangeFilter(newDateFilter);
 
-          // Auto-close filter section when end date is selected and start date exists
-          if (newDateFilter.startDate) {
-            setShowSearchSection(false);
-          }
+          // Don't auto-close filter section - allow multiple filter interactions
         }
       }
       setShowDatePicker(false);
@@ -747,7 +736,7 @@ export const BankTransactionsScreen: React.FC = () => {
   };
 
   const hasActiveFilters =
-    currentFilter !== "all" ||
+    selectedQuickFilters.length > 0 ||
     searchQuery.trim() !== "" ||
     dateRangeFilter.active;
 
@@ -1500,45 +1489,43 @@ export const BankTransactionsScreen: React.FC = () => {
           {/* Active Filter Badges */}
           {!showSearchSection && hasActiveFilters && (
             <View style={styles.activeFilterBadges}>
-              {currentFilter !== "all" && (
-                <View
+              {selectedQuickFilters.map((filter, index) => (
+                <TouchableOpacity
+                  key={`${filter}-${index}`}
                   style={[
                     styles.filterBadge,
                     { backgroundColor: theme.gold.primary },
                   ]}
+                  onPress={() => setSelectedQuickFilters(prev => prev.filter(f => f !== filter))}
                 >
-                  <Text style={styles.filterBadgeText}>{currentFilter}</Text>
-                  <TouchableOpacity
-                    onPress={() => setCurrentFilter("all")}
-                    style={styles.filterBadgeClose}
-                  >
+                  <Text style={styles.filterBadgeText}>{filter}</Text>
+                  <View style={styles.filterBadgeClose}>
                     <Ionicons name="close" size={18} color="white" />
-                  </TouchableOpacity>
-                </View>
-              )}
+                  </View>
+                </TouchableOpacity>
+              ))}
               {searchQuery.trim() !== "" && (
-                <View
+                <TouchableOpacity
                   style={[
                     styles.filterBadge,
                     { backgroundColor: theme.gold.rich },
                   ]}
+                  onPress={() => setSearchQuery("")}
                 >
                   <Text style={styles.filterBadgeText}>"{searchQuery}"</Text>
-                  <TouchableOpacity
-                    onPress={() => setSearchQuery("")}
-                    style={styles.filterBadgeClose}
-                  >
+                  <View style={styles.filterBadgeClose}>
                     <Ionicons name="close" size={18} color="white" />
-                  </TouchableOpacity>
-                </View>
+                  </View>
+                </TouchableOpacity>
               )}
               {dateRangeFilter.active &&
                 (dateRangeFilter.startDate || dateRangeFilter.endDate) && (
-                  <View
+                  <TouchableOpacity
                     style={[
                       styles.filterBadge,
                       { backgroundColor: theme.status.success },
                     ]}
+                    onPress={clearDateFilter}
                   >
                     <Text style={styles.filterBadgeText}>
                       {dateRangeFilter.startDate && dateRangeFilter.endDate
@@ -1549,13 +1536,10 @@ export const BankTransactionsScreen: React.FC = () => {
                         ? `From ${formatDate(dateRangeFilter.startDate)}`
                         : `Until ${formatDate(dateRangeFilter.endDate!)}`}
                     </Text>
-                    <TouchableOpacity
-                      onPress={clearDateFilter}
-                      style={styles.filterBadgeClose}
-                    >
+                    <View style={styles.filterBadgeClose}>
                       <Ionicons name="close" size={18} color="white" />
-                    </TouchableOpacity>
-                  </View>
+                    </View>
+                  </TouchableOpacity>
                 )}
             </View>
           )}
@@ -1563,9 +1547,15 @@ export const BankTransactionsScreen: React.FC = () => {
       )}
 
       {showSearchSection && (
-        <View style={styles.searchAndFiltersContainer}>
+        <TouchableWithoutFeedback
+          onPress={() => {
+            Keyboard.dismiss();
+            setShowSearchSection(false);
+          }}
+        >
+          <View style={styles.searchAndFiltersContainer}>
           {/* Search Section */}
-          <View style={styles.searchSection}>
+          <View style={styles.searchSection} onStartShouldSetResponder={() => true}>
             <View style={styles.searchInputContainer}>
               <Ionicons
                 name="search-outline"
@@ -1603,11 +1593,15 @@ export const BankTransactionsScreen: React.FC = () => {
             style={styles.filtersSection}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
+            onStartShouldSetResponder={() => true}
           >
             {/* Date Range Collapsible Section */}
             <CollapsibleFilterSection
               title="Date Range"
-              defaultExpanded={false}
+              expanded={expandedFilterSection === 'dateRange'}
+              onToggle={(isExpanded) => {
+                setExpandedFilterSection(isExpanded ? 'dateRange' : null);
+              }}
               iconColor={theme.text.primary}
               headerBackgroundColor={theme.background.secondary}
               contentBackgroundColor={theme.background.primary}
@@ -1725,7 +1719,10 @@ export const BankTransactionsScreen: React.FC = () => {
             {/* Quick Filters Collapsible Section */}
             <CollapsibleFilterSection
               title="Quick Filters"
-              defaultExpanded={false}
+              expanded={expandedFilterSection === 'quickFilters'}
+              onToggle={(isExpanded) => {
+                setExpandedFilterSection(isExpanded ? 'quickFilters' : null);
+              }}
               iconColor={theme.text.primary}
               headerBackgroundColor={theme.background.secondary}
               contentBackgroundColor={theme.background.primary}
@@ -1745,18 +1742,24 @@ export const BankTransactionsScreen: React.FC = () => {
                     key={option.key}
                     style={[
                       styles.filterChip,
-                      currentFilter === option.key && styles.filterChipActive,
+                      selectedQuickFilters.includes(option.key) && styles.filterChipActive,
                     ]}
                     onPress={() => {
-                      setCurrentFilter(option.key as any);
-                      setShowSearchSection(false);
+                      if (selectedQuickFilters.includes(option.key)) {
+                        // Remove filter if already selected
+                        setSelectedQuickFilters(prev => prev.filter(f => f !== option.key));
+                      } else {
+                        // Add filter to selection
+                        setSelectedQuickFilters(prev => [...prev, option.key]);
+                      }
+                      // Don't close search section - allow multiple filter interactions
                     }}
                   >
                     <Ionicons
                       name={option.icon as any}
                       size={16}
                       color={
-                        currentFilter === option.key
+                        selectedQuickFilters.includes(option.key)
                           ? "white"
                           : theme.text.secondary
                       }
@@ -1765,7 +1768,7 @@ export const BankTransactionsScreen: React.FC = () => {
                     <Text
                       style={[
                         styles.filterChipText,
-                        currentFilter === option.key &&
+                        selectedQuickFilters.includes(option.key) &&
                           styles.filterChipTextActive,
                       ]}
                     >
@@ -1776,7 +1779,8 @@ export const BankTransactionsScreen: React.FC = () => {
               </View>
             </CollapsibleFilterSection>
           </ScrollView>
-        </View>
+          </View>
+        </TouchableWithoutFeedback>
       )}
 
       {candidates.length === 0 ? (
@@ -1818,11 +1822,11 @@ export const BankTransactionsScreen: React.FC = () => {
           />
           <Text style={styles.emptyTitle}>No Transactions Found</Text>
           <Text style={styles.emptySubtitle}>
-            {currentFilter !== "all"
-              ? `No transactions match the "${currentFilter}" filter.`
+            {selectedQuickFilters.length > 0
+              ? `No transactions match the selected filters: ${selectedQuickFilters.join(', ')}.`
               : "Connect your bank account to see transactions here."}
           </Text>
-          {currentFilter !== "all" && (
+          {selectedQuickFilters.length > 0 && (
             <TouchableOpacity
               style={styles.connectButton}
               onPress={clearFilters}
@@ -1869,10 +1873,19 @@ export const BankTransactionsScreen: React.FC = () => {
           {hasActiveFilters && !showSearchSection && (
             <View style={styles.filterLabel}>
               <Text style={styles.filterLabelText}>
-                {searchQuery.trim()
-                  ? "Search Active"
-                  : currentFilter.charAt(0).toUpperCase() +
-                    currentFilter.slice(1)}
+                {(() => {
+                  if (searchQuery.trim()) {
+                    return "Search Active";
+                  }
+                  
+                  const totalFilters = selectedQuickFilters.length + (dateRangeFilter.active ? 1 : 0);
+                  
+                  if (totalFilters > 0) {
+                    return `${totalFilters} Filter${totalFilters > 1 ? 's' : ''} Active`;
+                  }
+                  
+                  return "All Transactions";
+                })()}
               </Text>
             </View>
           )}
