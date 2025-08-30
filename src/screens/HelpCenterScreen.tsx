@@ -29,7 +29,7 @@ const faqs: FAQ[] = [
   {
     id: '1',
     question: 'How do I scan my first receipt?',
-    answer: 'To scan a receipt:\n\n1. Tap the "+" button on the Receipts screen\n2. Choose "Camera" to take a photo or "Gallery" to select an existing image\n3. Position your receipt clearly in the frame\n4. Tap the capture button\n5. ReceiptGold will automatically extract and organize all the information\n\nTip: Ensure good lighting and that all text is clearly visible for best results.',
+    answer: 'To scan a receipt:\n\n1. Tap the gold camera button on the Receipts screen\n2. Choose "Camera" to take a photo or "Gallery" to select an existing image\n3. Position your receipt clearly in the frame\n4. Tap the capture button\n5. ReceiptGold will automatically extract and organize all the information\n\nTip: Ensure good lighting and that all text is clearly visible for best results.',
     category: 'scanning',
     icon: 'camera-outline'
   },
@@ -43,14 +43,14 @@ const faqs: FAQ[] = [
   {
     id: '3',
     question: 'How do I edit receipt information?',
-    answer: 'To edit receipt details:\n\n1. Open the receipt from your Receipts list\n2. Tap "Edit" in the top right corner\n3. Modify any field including:\n   • Vendor name\n   • Amount and tax\n   • Date and time\n   • Category\n   • Individual items\n   • Business/personal classification\n4. Tap "Save Changes" when done\n\nAll changes are automatically synced across your devices.',
+    answer: 'To edit receipt details:\n\n1. Tap on the receipt from your Receipts list\n2. Scroll down \n3. Modify any field including:\n   • Vendor name\n   • Amount and tax\n   • Date and time\n   • Category\n   • Individual items\n   • Business/personal classification\n4. Tap "Save Changes" when done\n\nAll changes are automatically synced across your devices.',
     category: 'receipts',
     icon: 'create-outline'
   },
   {
     id: '4',
     question: 'How do I categorize my receipts for taxes?',
-    answer: 'ReceiptGold automatically categorizes receipts, but you can customize them:\n\n1. Open any receipt\n2. Tap on the category field\n3. Choose from categories like:\n   • Office Supplies\n   • Travel & Transportation\n   • Meals & Entertainment\n   • Professional Services\n   • Equipment & Software\n4. Mark as "Business" or "Personal"\n5. Add custom categories in Settings\n\nPro tip: Set up custom categories that match your business needs for easier tax preparation.',
+    answer: 'ReceiptGold automatically categorizes receipts, but you can customize them:\n\n1. Open any receipt\n2. Tap on the category field\n3. Choose from categories like:\n   • Office Supplies\n   • Transportation\n   • Restaurant & Dining\n   • Professional Services\n   • Equipment & Software\n4. Mark as "Business" or "Personal"\n5. Add custom categories in Settings\n\nPro tip: Set up custom categories that match your business needs for easier tax preparation.',
     category: 'receipts',
     icon: 'folder-outline'
   },
@@ -60,6 +60,13 @@ const faqs: FAQ[] = [
     answer: 'To create tax-ready reports:\n\n1. Go to the Reports tab\n2. Select "Tax Report" (Professional feature)\n3. Choose your date range (monthly, quarterly, or yearly)\n4. Filter by:\n   • Business vs Personal expenses\n   • Specific categories\n   • Amount ranges\n5. Tap "Generate Report"\n6. Export as PDF or Excel for your accountant\n\nReports automatically calculate totals by category and include all receipt images as backup documentation.',
     category: 'reports',
     icon: 'document-text-outline'
+  },
+    {
+    id: '11',
+    question: 'What do the trend arrows in reports mean?',
+    answer: 'Trend indicators show how your spending has changed compared to the previous period:\n\n📈 **Red Trending Up**: Spending increased by more than 5%\n• This means you spent more than the previous period\n• The percentage shows how much more you spent\n• Appears in red to indicate higher spending\n\n📉 **Blue Trending Down**: Spending decreased by more than 5%\n• This means you spent less than the previous period\n• Great for tracking cost-saving efforts\n• Appears in blue to indicate savings\n\n➖ **Gray Flat Line**: Spending stayed stable\n• Change was less than 5% up or down\n• Indicates consistent spending patterns\n• Appears in gray to show stability\n\n**New Categories**: If you have spending in a new category that didn\'t exist in the previous period, it shows a red trending up arrow with 100% increase.\n\nThese trends help you quickly identify spending patterns and make informed budgeting decisions.',
+    category: 'reports',
+    icon: 'trending-up-outline'
   },
   {
     id: '6',

@@ -151,6 +151,38 @@ export const DetailedBreakdownScreen = () => {
     }, [user, selectedPeriod])
   );
 
+  // Normalize category names for consistent grouping
+  const normalizeCategory = (category: string | undefined): string => {
+    if (!category) return 'Uncategorized';
+    
+    // Clean and normalize the category string
+    const cleaned = category.toLowerCase().trim().replace(/[^\w\s]/g, '');
+    
+    // Check for "Other" variants and bank transaction categories
+    if (cleaned === 'other' || cleaned === 'others' || 
+        cleaned === 'miscellaneous' || cleaned === 'misc' ||
+        cleaned === 'general' || cleaned === 'uncategorized' ||
+        cleaned.includes('other') ||
+        cleaned.includes('generated from bank transaction') ||
+        cleaned.includes('bank transaction')) {
+      return 'other';
+    }
+    
+    // Group categories that don't have specific display names and fall back to "Other"
+    const knownCategories = [
+      'groceries', 'restaurant', 'entertainment', 'shopping', 'travel',
+      'transportation', 'utilities', 'healthcare', 'professional_services', 'office_supplies', 'equipment_software', 'other'
+    ];
+    
+    if (!knownCategories.includes(cleaned)) {
+      // If the category isn't in our known list, it will display as "Other" anyway
+      // so group it with other "Other" items
+      return 'other';
+    }
+    
+    return category.trim(); // Return original case but trimmed
+  };
+
   // Calculate category insights with trends
   const categoryInsights = useMemo((): CategoryInsight[] => {
     const categoryData: Record<string, { current: Receipt[]; previous: Receipt[] }> = {};
@@ -163,7 +195,7 @@ export const DetailedBreakdownScreen = () => {
       const receiptDate = receipt.createdAt?.toDate() || receipt.date?.toDate();
       if (!receiptDate) return;
 
-      const category = receipt.category || 'other';
+      const category = normalizeCategory(receipt.category);
       if (!categoryData[category]) {
         categoryData[category] = { current: [], previous: [] };
       }
@@ -229,7 +261,7 @@ export const DetailedBreakdownScreen = () => {
         name,
         total: receipts.reduce((sum, r) => sum + r.amount, 0),
         count: receipts.length,
-        category: receipts[0]?.category || 'other',
+        category: normalizeCategory(receipts[0]?.category),
         averageTransaction: receipts.reduce((sum, r) => sum + r.amount, 0) / receipts.length,
       }))
       .sort((a, b) => b.total - a.total)
@@ -255,7 +287,7 @@ export const DetailedBreakdownScreen = () => {
       .map(([month, receipts]) => {
         const categoryTotals: Record<string, number> = {};
         receipts.forEach(receipt => {
-          const category = receipt.category || 'other';
+          const category = normalizeCategory(receipt.category);
           categoryTotals[category] = (categoryTotals[category] || 0) + receipt.amount;
         });
 

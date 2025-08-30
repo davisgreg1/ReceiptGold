@@ -507,9 +507,11 @@ export const NotificationSettingsScreen: React.FC = () => {
             </Text>
           </View>
 
-          {permissionStatus === 'denied' && (
+          {(permissionStatus === 'denied' || permissionStatus === 'undetermined') && (
             <TouchableOpacity style={styles.requestButton} onPress={requestPermissions}>
-              <Text style={styles.requestButtonText}>Enable Notifications</Text>
+              <Text style={styles.requestButtonText}>
+                {permissionStatus === 'undetermined' ? 'Allow Notifications' : 'Enable Notifications'}
+              </Text>
             </TouchableOpacity>
           )}
 

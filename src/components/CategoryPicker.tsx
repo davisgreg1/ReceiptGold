@@ -43,6 +43,9 @@ const ALL_CATEGORIES: ReceiptCategory[] = [
   'transportation',
   'utilities',
   'healthcare',
+  'professional_services',
+  'office_supplies',
+  'equipment_software',
   'other'
 ];
 
@@ -68,6 +71,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
       transportation: '🚗',
       utilities: '⚡',
       healthcare: '🏥',
+      professional_services: '💼',
+      office_supplies: '📎',
+      equipment_software: '💻',
       other: '📄'
     };
     return icons[category];

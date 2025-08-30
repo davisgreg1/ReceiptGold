@@ -12,6 +12,9 @@ export type ReceiptCategory =
     | 'transportation'
     | 'utilities'
     | 'healthcare'
+    | 'professional_services'
+    | 'office_supplies'
+    | 'equipment_software'
     | 'other';
 
 interface MerchantCategory {
@@ -33,6 +36,9 @@ const categoryKeywords: Record<ReceiptCategory, string[]> = {
     transportation: ['gas', 'fuel', 'parking', 'taxi', 'uber', 'lyft', 'transit'],
     utilities: ['electric', 'water', 'gas', 'internet', 'phone', 'utility'],
     healthcare: ['pharmacy', 'drug', 'medical', 'health', 'clinic', 'doctor'],
+    professional_services: ['legal', 'attorney', 'lawyer', 'accounting', 'consultant', 'consulting', 'advisory', 'professional', 'service', 'audit', 'tax prep', 'bookkeeping', 'notary'],
+    office_supplies: ['office', 'supplies', 'staples', 'paper', 'printer', 'ink', 'toner', 'pens', 'pencils', 'folders', 'binders', 'desk', 'chair'],
+    equipment_software: ['equipment', 'software', 'computer', 'laptop', 'monitor', 'keyboard', 'mouse', 'hardware', 'electronics', 'tech', 'microsoft', 'adobe', 'apple', 'google', 'amazon', 'best buy', 'newegg'],
     other: []
 };
 
@@ -143,6 +149,9 @@ export class ReceiptCategoryService {
             'transportation',
             'utilities',
             'healthcare',
+            'professional_services',
+            'office_supplies',
+            'equipment_software',
             'other'
         ];
     }
@@ -157,6 +166,9 @@ export class ReceiptCategoryService {
             transportation: 'Transportation',
             utilities: 'Utilities',
             healthcare: 'Healthcare',
+            professional_services: 'Professional Services',
+            office_supplies: 'Office Supplies',
+            equipment_software: 'Equipment & Software',
             other: 'Other'
         };
         return displayNames[category] || 'Other';
