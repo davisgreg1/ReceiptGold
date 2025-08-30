@@ -64,14 +64,14 @@ const faqs: FAQ[] = [
     {
     id: '11',
     question: 'What do the trend arrows in reports mean?',
-    answer: 'Trend indicators show how your spending has changed compared to the previous period:\n\n📈 **Red Trending Up**: Spending increased by more than 5%\n• This means you spent more than the previous period\n• The percentage shows how much more you spent\n• Appears in red to indicate higher spending\n\n📉 **Blue Trending Down**: Spending decreased by more than 5%\n• This means you spent less than the previous period\n• Great for tracking cost-saving efforts\n• Appears in blue to indicate savings\n\n➖ **Gray Flat Line**: Spending stayed stable\n• Change was less than 5% up or down\n• Indicates consistent spending patterns\n• Appears in gray to show stability\n\n**New Categories**: If you have spending in a new category that didn\'t exist in the previous period, it shows a red trending up arrow with 100% increase.\n\nThese trends help you quickly identify spending patterns and make informed budgeting decisions.',
+    answer: 'Trend indicators show how your spending has changed compared to the previous period:\n\n📈 **Red Trending Up**: Spending increased by more than 5%\n• This means you spent more than the previous period\n• The percentage shows how much more you spent\n• Appears in red to indicate higher spending\n\n📉 **Green Trending Down**: Spending decreased by more than 5%\n• This means you spent less than the previous period\n• Great for tracking cost-saving efforts\n• Appears in green to indicate savings\n\n➖ **Gray Flat Line**: Spending stayed stable\n• Change was less than 5% up or down\n• Indicates consistent spending patterns\n• Appears in gray to show stability\n\n**New Categories**: If you have spending in a new category that didn\'t exist in the previous period, it shows a red trending up arrow with 100% increase.\n\nThese trends help you quickly identify spending patterns and make informed budgeting decisions.',
     category: 'reports',
     icon: 'trending-up-outline'
   },
   {
     id: '6',
     question: 'What\'s the difference between subscription tiers?',
-    answer: 'ReceiptGold offers three tiers:\n\n**Free (Basic)**\n• 10 receipts per month\n• Basic scanning and storage\n\n**Growth ($4.99/month)**\n• 100 receipts per month\n• Tax reports and exports\n• Cloud backup and sync\n\n**Professional ($9.99/month)**\n• Unlimited receipts\n• Bank transaction monitoring\n• Advanced reporting\n• Priority support\n• Team collaboration features\n\nUpgrade anytime from Settings > Subscription.',
+    answer: 'ReceiptGold offers four subscription tiers:\n\n**Free**\n• 10 receipts per month\n• Basic scanning and storage\n\n**Starter ($9.99/month)**\n• 50 receipts per month\n• LLC categories\n• Email support\n\n**Growth ($19.99/month)**\n• 150 receipts per month\n• Advanced reporting\n• Priority support\n\n**Professional ($39.99/month)**\n• Unlimited receipts\n• Multi-business management\n• Quarterly alerts\n\nUpgrade anytime from Settings > Subscription.',
     category: 'subscription',
     icon: 'card-outline'
   },

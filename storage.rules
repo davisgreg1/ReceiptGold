@@ -39,6 +39,33 @@ service firebase.storage {
             allow delete: if isOwner(userId);
         }
 
+        // USER PRIVATE: Deleted receipt images - users can only access their own files
+        match /deleted/receipts/{userId}/{allPaths=**} {
+            allow read: if isOwner(userId);
+            allow write: if isOwner(userId) && 
+                        (isValidImageType() || isValidPDFType()) &&
+                        request.resource.size < 10 * 1024 * 1024; // 10MB limit
+            allow delete: if isOwner(userId);
+        }
+
+        // USER PRIVATE: Deleted reports - users can only access their own files  
+        match /deleted/reports/{userId}/{allPaths=**} {
+            allow read: if isOwner(userId);
+            allow write: if isOwner(userId) && 
+                        isValidPDFType() &&
+                        request.resource.size < 50 * 1024 * 1024; // 50MB limit
+            allow delete: if isOwner(userId);
+        }
+
+        // USER PRIVATE: Deleted thumbnails - users can only access their own files
+        match /deleted/thumbnails/{userId}/{allPaths=**} {
+            allow read: if isOwner(userId);
+            allow write: if isOwner(userId) && 
+                        isValidImageType() &&
+                        request.resource.size < 1 * 1024 * 1024; // 1MB limit
+            allow delete: if isOwner(userId);
+        }
+
         // USER PRIVATE: Report files - users can only access their own files
         match /reports/{userId}/{allPaths=**} {
             allow read: if isOwner(userId);
