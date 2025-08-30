@@ -824,7 +824,7 @@ export default function ReportsScreen() {
             Advanced Analytics
           </Text>
           <Text style={[styles.premiumDescription, { color: theme.text.secondary }]}>
-            Unlock tax insights, business expense tracking, and detailed trends with Premium.
+            Unlock tax insights, business expense tracking, and detailed trends with Professional.
           </Text>
         </View>
       )}
