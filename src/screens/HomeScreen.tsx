@@ -261,42 +261,6 @@ export const HomeScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Debug/Test Section - Remove in production */}
-        {__DEV__ && (
-          <View style={styles.testSection}>
-            <HeadingText size="medium" color="primary">
-              Notification Tests (Dev Only)
-            </HeadingText>
-            <View style={styles.testButtons}>
-              <TouchableOpacity
-                style={[styles.testButton, { backgroundColor: theme.status.info }]}
-                onPress={testNotifications}
-              >
-                <ButtonText size="small" color="inverse">
-                  Test In-App Notifications
-                </ButtonText>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[styles.testButton, { backgroundColor: theme.status.warning }]}
-                onPress={logNotificationStatus}
-              >
-                <ButtonText size="small" color="inverse">
-                  Check FCM Status
-                </ButtonText>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[styles.testButton, { backgroundColor: theme.status.success }]}
-                onPress={testPushNotifications}
-              >
-                <ButtonText size="small" color="inverse">
-                  Test Push Notifications
-                </ButtonText>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
 
         {/* Compact Subscription Summary Card */}
         <View style={{paddingHorizontal: 20, marginBottom: 30}}>
@@ -444,23 +408,5 @@ const styles = StyleSheet.create({
   },
   stat: {
     alignItems: "center",
-  },
-  testSection: {
-    paddingHorizontal: 20,
-    marginBottom: 30,
-  },
-  testButtons: {
-    flexDirection: "row",
-    gap: 8,
-    marginTop: 16,
-    flexWrap: 'wrap',
-  },
-  testButton: {
-    flex: 1,
-    minWidth: 120,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
   },
 });
