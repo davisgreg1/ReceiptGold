@@ -43,6 +43,23 @@ const getStripeConfig = (): { secretKey: string; webhookSecret: string } => {
   return { secretKey, webhookSecret };
 };
 
+// Plaid configuration from environment variables  
+const getPlaidConfig = (): { clientId: string; secret: string; environment: string } => {
+  const clientId = process.env.PLAID_CLIENT_ID;
+  const secret = process.env.PLAID_SECRET;
+  const environment = process.env.PLAID_ENVIRONMENT || 'sandbox';
+
+  if (!clientId) {
+    throw new Error('Plaid client ID not found. Set PLAID_CLIENT_ID environment variable');
+  }
+
+  if (!secret) {
+    throw new Error('Plaid secret not found. Set PLAID_SECRET environment variable');
+  }
+
+  return { clientId, secret, environment };
+};
+
 // Lazy Stripe initialization - only initialize when needed
 let stripeInstance: Stripe | null = null;
 const getStripe = (): Stripe => {
@@ -926,15 +943,128 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
   }
 }
 
+// PLAID WEBHOOK HANDLER
+export const plaidWebhook = onRequest(
+  {
+    cors: false,
+    memory: "1GiB", 
+    timeoutSeconds: 540,
+  },
+  async (req: Request, res: Response) => {
+    console.log("🚀 Plaid webhook received");
+    console.log("Method:", req.method);
+    console.log("Content-Type:", req.headers["content-type"]);
+    console.log("Origin IP:", req.ip);
+
+    // Only allow POST requests
+    if (req.method !== "POST") {
+      console.error("❌ Invalid method:", req.method);
+      res.status(405).send("Method not allowed");
+      return;
+    }
+
+    // Basic request validation
+    if (!req.headers["content-type"]?.includes("application/json")) {
+      console.error("❌ Invalid content type:", req.headers["content-type"]);
+      res.status(400).send("Invalid content type");
+      return;
+    }
+
+    // Validate Plaid configuration
+    try {
+      const config = getPlaidConfig();
+      console.log(`✅ Plaid config loaded for ${config.environment} environment`);
+    } catch (error) {
+      console.error("❌ Plaid configuration error:", error);
+      res.status(500).send("Plaid configuration error");
+      return;
+    }
+
+    let webhookData: any;
+    try {
+      // Parse JSON payload
+      if (typeof req.body === 'string') {
+        webhookData = JSON.parse(req.body);
+      } else if (typeof req.body === 'object') {
+        webhookData = req.body;
+      } else {
+        throw new Error('Invalid request body format');
+      }
+
+      console.log(`🔄 Processing Plaid webhook: ${webhookData.webhook_type}`);
+
+      switch (webhookData.webhook_type) {
+        case "TRANSACTIONS":
+          await handlePlaidTransactions(webhookData);
+          console.log(`✅ Handled ${webhookData.webhook_type}`);
+          break;
+
+        case "ITEM":
+          await handlePlaidItem(webhookData);
+          console.log(`✅ Handled ${webhookData.webhook_type}`);
+          break;
+
+        case "AUTH":
+          await handlePlaidAuth(webhookData);
+          console.log(`✅ Handled ${webhookData.webhook_type}`);
+          break;
+
+        case "ACCOUNTS":
+          await handlePlaidAccounts(webhookData);
+          console.log(`✅ Handled ${webhookData.webhook_type}`);
+          break;
+
+        default:
+          console.log(`ℹ️ Unhandled Plaid webhook type: ${webhookData.webhook_type}`);
+      }
+
+      // Always respond with 200 to acknowledge receipt
+      res.status(200).json({
+        received: true,
+        webhookType: webhookData.webhook_type,
+        webhookCode: webhookData.webhook_code,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      console.error("❌ Error processing Plaid webhook:", error);
+
+      // Still respond with 200 to prevent Plaid retries for application errors
+      res.status(200).json({
+        received: true,
+        error: "Processing failed",
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+);
+
 // Test endpoint to verify webhook configuration
 export const testWebhookConfig = onRequest(async (req: Request, res: Response) => {
   try {
-    const config = getStripeConfig();
+    const stripeConfig = getStripeConfig();
+    let plaidConfigStatus = { configured: false, error: '' };
+    
+    try {
+      const plaidConfig = getPlaidConfig();
+      plaidConfigStatus = {
+        configured: true,
+        hasClientId: !!plaidConfig.clientId,
+        hasSecret: !!plaidConfig.secret,
+        environment: plaidConfig.environment,
+        note: "Plaid uses IP allowlisting instead of webhook secrets"
+      } as any;
+    } catch (error) {
+      plaidConfigStatus.error = (error as Error).message;
+    }
 
     res.status(200).json({
-      webhookConfigured: true,
-      hasSecretKey: !!config.secretKey,
-      hasWebhookSecret: !!config.webhookSecret,
+      stripe: {
+        webhookConfigured: true,
+        hasSecretKey: !!stripeConfig.secretKey,
+        hasWebhookSecret: !!stripeConfig.webhookSecret,
+      },
+      plaid: plaidConfigStatus,
       environment: process.env.NODE_ENV || 'unknown',
       timestamp: new Date().toISOString(),
     });
@@ -946,6 +1076,170 @@ export const testWebhookConfig = onRequest(async (req: Request, res: Response) =
     });
   }
 });
+
+// PLAID WEBHOOK HANDLERS
+async function handlePlaidTransactions(webhookData: any): Promise<void> {
+  console.log("🔄 Processing Plaid transactions webhook");
+  
+  const { item_id, new_transactions, removed_transactions } = webhookData;
+  
+  try {
+    // Find user by item_id
+    const plaidItemQuery = db.collection("plaid_items").where("item_id", "==", item_id);
+    const plaidItemSnapshot = await plaidItemQuery.get();
+    
+    if (plaidItemSnapshot.empty) {
+      console.log(`No user found for Plaid item: ${item_id}`);
+      return;
+    }
+    
+    const plaidItemDoc = plaidItemSnapshot.docs[0];
+    const userId = plaidItemDoc.data().userId;
+    
+    console.log(`Processing transactions for user: ${userId}`);
+    
+    // Process new transactions
+    if (new_transactions && new_transactions > 0) {
+      console.log(`📈 ${new_transactions} new transactions available`);
+      
+      // Store transaction update notification
+      await db.collection("transaction_updates").add({
+        userId,
+        itemId: item_id,
+        type: "new_transactions",
+        count: new_transactions,
+        processed: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      // TODO: Trigger transaction sync process
+      // This would fetch the actual transactions and analyze them for potential receipts
+    }
+    
+    // Process removed transactions  
+    if (removed_transactions && removed_transactions.length > 0) {
+      console.log(`📉 ${removed_transactions.length} transactions removed`);
+      
+      for (const transactionId of removed_transactions) {
+        // Mark any generated receipts from these transactions as invalid
+        await db.collection("receipts")
+          .where("sourceTransactionId", "==", transactionId)
+          .get()
+          .then(snapshot => {
+            const batch = db.batch();
+            snapshot.docs.forEach(doc => {
+              batch.update(doc.ref, {
+                status: "cancelled",
+                cancelReason: "source_transaction_removed",
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+              });
+            });
+            return batch.commit();
+          });
+      }
+    }
+    
+  } catch (error) {
+    console.error("Error processing Plaid transactions webhook:", error);
+    throw error;
+  }
+}
+
+async function handlePlaidItem(webhookData: any): Promise<void> {
+  console.log("🔄 Processing Plaid item webhook");
+  
+  const { item_id, webhook_code, error } = webhookData;
+  
+  try {
+    // Find the Plaid item in our database
+    const plaidItemQuery = db.collection("plaid_items").where("item_id", "==", item_id);
+    const plaidItemSnapshot = await plaidItemQuery.get();
+    
+    if (plaidItemSnapshot.empty) {
+      console.log(`No item found for: ${item_id}`);
+      return;
+    }
+    
+    const plaidItemDoc = plaidItemSnapshot.docs[0];
+    const userId = plaidItemDoc.data().userId;
+    
+    console.log(`Processing item update for user: ${userId}, code: ${webhook_code}`);
+    
+    const updateData: any = {
+      lastWebhookCode: webhook_code,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    
+    switch (webhook_code) {
+      case "PENDING_EXPIRATION":
+        updateData.status = "pending_expiration";
+        updateData.needsReauth = true;
+        break;
+        
+      case "USER_PERMISSION_REVOKED":
+        updateData.status = "permission_revoked";
+        updateData.active = false;
+        break;
+        
+      case "ERROR":
+        updateData.status = "error";
+        updateData.error = error;
+        updateData.active = false;
+        break;
+        
+      case "NEW_ACCOUNTS_AVAILABLE":
+        updateData.hasNewAccounts = true;
+        break;
+        
+      default:
+        console.log(`Unhandled item webhook code: ${webhook_code}`);
+    }
+    
+    await plaidItemDoc.ref.update(updateData);
+    
+    // Notify user if action is required
+    if (["PENDING_EXPIRATION", "USER_PERMISSION_REVOKED", "ERROR"].includes(webhook_code)) {
+      await db.collection("user_notifications").add({
+        userId,
+        type: "plaid_item_issue",
+        title: "Bank Connection Needs Attention",
+        message: getItemNotificationMessage(webhook_code),
+        itemId: item_id,
+        webhookCode: webhook_code,
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    }
+    
+  } catch (error) {
+    console.error("Error processing Plaid item webhook:", error);
+    throw error;
+  }
+}
+
+async function handlePlaidAuth(webhookData: any): Promise<void> {
+  console.log("🔄 Processing Plaid auth webhook");
+  // Handle authentication-related webhooks
+  // Implementation depends on your specific auth flow
+}
+
+async function handlePlaidAccounts(webhookData: any): Promise<void> {
+  console.log("🔄 Processing Plaid accounts webhook");
+  // Handle account-related webhooks (new accounts, account updates, etc.)
+}
+
+function getItemNotificationMessage(webhookCode: string): string {
+  switch (webhookCode) {
+    case "PENDING_EXPIRATION":
+      return "Your bank connection will expire soon. Please reconnect to continue automatic transaction monitoring.";
+    case "USER_PERMISSION_REVOKED":
+      return "Bank connection permissions were revoked. Reconnect to resume receipt generation from transactions.";
+    case "ERROR":
+      return "There was an issue with your bank connection. Please reconnect to resolve the problem.";
+    default:
+      return "Your bank connection needs attention. Please check your connection status.";
+  }
+}
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Promise<void> {
   const customerId: string = subscription.customer as string;
