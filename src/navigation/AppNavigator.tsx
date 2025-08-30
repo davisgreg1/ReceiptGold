@@ -1,5 +1,5 @@
 import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, LinkingOptions } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createStackNavigator } from "@react-navigation/stack";
 import { Text, View } from "react-native";
@@ -332,11 +332,29 @@ const SettingsStackNavigator = () => {
   );
 };
 
+// Deep linking configuration for OAuth redirects
+const linking: LinkingOptions<BottomTabParamList> = {
+  prefixes: ['receiptgold://', 'https://receiptgold.app'],
+  config: {
+    screens: {
+      HomeTab: {
+        screens: {
+          Home: '',
+          BankTransactions: 'oauth', // Handle OAuth redirects
+        },
+      },
+      ReceiptsTab: 'receipts',
+      ReportsTab: 'reports', 
+      SettingsTab: 'settings',
+    },
+  },
+};
+
 export const AppNavigator: React.FC = () => {
   const { theme } = useTheme();
 
   return (
-    <NavigationContainer>
+    <NavigationContainer linking={linking}>
       <Tab.Navigator
         screenOptions={{
           headerShown: false,

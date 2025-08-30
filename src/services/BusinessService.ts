@@ -36,6 +36,7 @@ export class BusinessService {
         type: businessData.type,
         taxId: businessData.taxId?.trim() || '',
         industry: businessData.industry?.trim() || '',
+        phone: businessData.phone?.trim() || '',
         address: businessData.address || {
           street: '',
           city: '',
@@ -96,6 +97,7 @@ export class BusinessService {
           type: data.type,
           taxId: data.taxId,
           industry: data.industry,
+          phone: data.phone,
           address: data.address,
           settings: data.settings,
           stats: {
@@ -135,6 +137,7 @@ export class BusinessService {
         type: data.type,
         taxId: data.taxId,
         industry: data.industry,
+        phone: data.phone,
         address: data.address,
         settings: data.settings,
         stats: {

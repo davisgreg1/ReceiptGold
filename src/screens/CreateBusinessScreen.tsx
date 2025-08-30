@@ -85,12 +85,27 @@ const CreateBusinessScreen: React.FC = () => {
   // Populate form with existing business data in edit mode
   useEffect(() => {
     if (isEditMode && existingBusiness) {
+      // Format phone number when loading existing data
+      const formatPhoneNumber = (phone: string) => {
+        if (!phone) return '';
+        const digits = phone.replace(/\D/g, '');
+        if (digits.length === 10) {
+          return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+        } else if (digits.length >= 6) {
+          return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`;
+        } else if (digits.length >= 3) {
+          return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
+        } else {
+          return digits;
+        }
+      };
+
       setFormData({
         name: existingBusiness.name,
         type: existingBusiness.type,
         taxId: existingBusiness.taxId || '',
         industry: existingBusiness.industry || '',
-        phone: existingBusiness.phone || '',
+        phone: formatPhoneNumber(existingBusiness.phone || ''),
         address: existingBusiness.address || {
           street: '',
           city: '',

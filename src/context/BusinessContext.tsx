@@ -78,6 +78,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         type: businessData.type,
         taxId: businessData.taxId || '',
         industry: businessData.industry || '',
+        phone: businessData.phone || '',
         address: businessData.address || {
           street: '',
           city: '',
@@ -237,6 +238,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             type: data.type,
             taxId: data.taxId,
             industry: data.industry,
+            phone: data.phone,
             address: data.address,
             settings: data.settings,
             stats: {
