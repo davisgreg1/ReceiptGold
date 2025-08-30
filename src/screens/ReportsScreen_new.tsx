@@ -69,14 +69,54 @@ export default function ReportsScreen() {
     "week" | "month" | "year"
   >("month");
 
+  // Normalize category names for consistent grouping
+  const normalizeCategory = (category: string | undefined): string => {
+    if (!category) return 'Uncategorized';
+    
+    // Clean and normalize the category string
+    const cleaned = category.toLowerCase().trim().replace(/[^\w\s]/g, '');
+    
+    // Check for "Other" variants and bank transaction categories
+    if (cleaned === 'other' || cleaned === 'others' || 
+        cleaned === 'miscellaneous' || cleaned === 'misc' ||
+        cleaned === 'general' || cleaned === 'uncategorized' ||
+        cleaned.includes('other') ||
+        cleaned.includes('generated from bank transaction') ||
+        cleaned.includes('bank transaction')) {
+      return 'other';
+    }
+    
+    // Group categories that don't have specific display names and fall back to "Other"
+    const knownCategories = [
+      'groceries', 'restaurant', 'entertainment', 'shopping', 'travel',
+      'transportation', 'utilities', 'healthcare', 'professional_services', 'office_supplies', 'equipment_software', 'other'
+    ];
+    
+    if (!knownCategories.includes(cleaned)) {
+      // If the category isn't in our known list, it will display as "Other" anyway
+      // so group it with other "Other" items
+      return 'other';
+    }
+    
+    return category.trim(); // Return original case but trimmed
+  };
+
   // Generate basic report
   const generateBasicReport = () => {
     const totalAmount = receipts.reduce(
       (sum, receipt) => sum + receipt.amount,
       0
     );
+    
+    // Debug: Log all unique categories first
+    if (__DEV__) {
+      const allCategories = [...new Set(receipts.map(r => r.category))];
+      console.log('🔍 All unique categories in receipts:', allCategories);
+    }
+    
     const categoryTotals = receipts.reduce((acc, receipt) => {
-      acc[receipt.category] = (acc[receipt.category] || 0) + receipt.amount;
+      const normalizedCategory = normalizeCategory(receipt.category);
+      acc[normalizedCategory] = (acc[normalizedCategory] || 0) + receipt.amount;
       return acc;
     }, {} as Record<string, number>);
 

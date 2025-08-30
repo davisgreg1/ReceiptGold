@@ -27,6 +27,7 @@ import {
   where,
   getDocs,
   Timestamp,
+  getDocsFromServer,
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { useAuth } from "../context/AuthContext";
@@ -71,16 +72,77 @@ export default function ReportsScreen() {
     "week" | "month" | "year"
   >("month");
 
+  // Normalize category names for consistent grouping
+  const normalizeCategory = (category: string | undefined): string => {
+    if (!category) return 'Uncategorized';
+    
+    // Clean and normalize the category string
+    const cleaned = category.toLowerCase().trim().replace(/[^\w\s]/g, '');
+    
+    // Check for "Other" variants and bank transaction categories
+    if (cleaned === 'other' || cleaned === 'others' || 
+        cleaned === 'miscellaneous' || cleaned === 'misc' ||
+        cleaned === 'general' || cleaned === 'uncategorized' ||
+        cleaned.includes('other') ||
+        cleaned.includes('generated from bank transaction') ||
+        cleaned.includes('bank transaction')) {
+      return 'other';
+    }
+    
+    // Group categories that don't have specific display names and fall back to "Other"
+    const knownCategories = [
+      'groceries', 'restaurant', 'entertainment', 'shopping', 'travel',
+      'transportation', 'utilities', 'healthcare', 'professional_services', 'office_supplies', 'equipment_software', 'other'
+    ];
+    
+    if (!knownCategories.includes(cleaned)) {
+      // If the category isn't in our known list, it will display as "Other" anyway
+      // so group it with other "Other" items
+      return 'other';
+    }
+    
+    return category.trim(); // Return original case but trimmed
+  };
+
   // Generate basic report
   const generateBasicReport = () => {
     const totalAmount = receipts.reduce(
       (sum, receipt) => sum + receipt.amount,
       0
     );
+    
+    // Debug: Log all unique categories first
+    if (__DEV__) {
+      const allCategories = [...new Set(receipts.map(r => r.category))];
+      console.log('🔍 All unique categories in receipts:', allCategories);
+      
+      // Show which categories get normalized to 'other'
+      const categoriesNormalizedToOther = allCategories.filter(cat => normalizeCategory(cat) === 'other');
+      console.log('🔍 Categories that normalize to "other":', categoriesNormalizedToOther);
+    }
+    
     const categoryTotals = receipts.reduce((acc, receipt) => {
-      acc[receipt.category] = (acc[receipt.category] || 0) + receipt.amount;
+      const normalizedCategory = normalizeCategory(receipt.category);
+      
+      // Enhanced debug logging - show ALL normalization, not just "other"
+      if (__DEV__) {
+        console.log('🔍 Category normalization:', { 
+          original: receipt.category, 
+          normalized: normalizedCategory,
+          amount: receipt.amount
+        });
+      }
+      
+      acc[normalizedCategory] = (acc[normalizedCategory] || 0) + receipt.amount;
       return acc;
     }, {} as Record<string, number>);
+    
+    // Debug: Show final category totals
+    if (__DEV__) {
+      console.log('🔍 Final category totals:', categoryTotals);
+      const otherCount = Object.keys(categoryTotals).filter(cat => cat.toLowerCase().includes('other')).length;
+      console.log('🔍 Number of categories containing "other":', otherCount);
+    }
 
     return {
       totalAmount,
@@ -145,12 +207,12 @@ export default function ReportsScreen() {
     return receipts
       .filter((receipt) => receipt.tax?.deductible === true)
       .reduce((acc, receipt) => {
-        const category = receipt.category;
-        if (!acc[category]) acc[category] = 0;
+        const normalizedCategory = normalizeCategory(receipt.category);
+        if (!acc[normalizedCategory]) acc[normalizedCategory] = 0;
         // Apply deduction percentage - default to 100% if not set
         const deductionPercentage = (receipt.tax as any)?.deductionPercentage ?? 100;
         const deductibleAmount = receipt.amount * (deductionPercentage / 100);
-        acc[category] += deductibleAmount;
+        acc[normalizedCategory] += deductibleAmount;
         return acc;
       }, {} as Record<string, number>);
   }, [receipts]);
@@ -283,14 +345,14 @@ export default function ReportsScreen() {
           where("createdAt", ">=", dateRangeFilter.startDate),
           where("createdAt", "<=", dateRangeFilter.endDate)
         );
-        querySnapshot = await getDocs(optimizedQuery);
+        querySnapshot = await getDocsFromServer(optimizedQuery);
       } catch (error: any) {
         if (error.code === 'failed-precondition' || error.message.includes('index')) {
           const basicQuery = query(
             receiptsRef,
             where("userId", "==", user.uid)
           );
-          const basicSnapshot = await getDocs(basicQuery);
+          const basicSnapshot = await getDocsFromServer(basicQuery);
           
           const docs = basicSnapshot.docs.filter(doc => {
             const data = doc.data();
@@ -337,8 +399,14 @@ export default function ReportsScreen() {
   useFocusEffect(
     useCallback(() => {
       console.log('Reports screen focused, refreshing data...');
-      refreshData();
-    }, [refreshData])
+      // Always refresh data when screen is focused, regardless of other states
+      if (user) {
+        // Add a small delay to ensure any pending receipt saves are completed
+        setTimeout(() => {
+          refreshData();
+        }, 100);
+      }
+    }, [user, refreshData])
   );
 
   const exportToCSV = async () => {
@@ -639,6 +707,7 @@ export default function ReportsScreen() {
                 ]}>
                   <View style={styles.categoryInfo}>
                     <Text style={[styles.categoryName, { color: theme.text.primary }]}>
+                      {__DEV__ && console.log('🔍 Display category:', { category, displayName: ReceiptCategoryService.getCategoryDisplayName(category as any) })}
                       {ReceiptCategoryService.getCategoryDisplayName(category as any)}
                     </Text>
                     <Text style={[styles.categoryAmount, { color: theme.gold.primary }]}>
@@ -806,6 +875,7 @@ export default function ReportsScreen() {
                   { borderColor: theme.border.primary }
                 ]}>
                   <Text style={[styles.taxCategoryName, { color: theme.text.primary }]}>
+                    {__DEV__ && console.log('🔍 Tax category display:', { category, displayName: ReceiptCategoryService.getCategoryDisplayName(category as any) })}
                     {ReceiptCategoryService.getCategoryDisplayName(category as any)}
                   </Text>
                   <Text style={[styles.taxCategoryAmount, { color: theme.gold.primary }]}>
