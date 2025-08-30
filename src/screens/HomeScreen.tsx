@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { useFocusEffect } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
@@ -61,12 +62,21 @@ export const HomeScreen: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
 
-  // Load dashboard data
+  // Load dashboard data on mount and when screen is focused
   useEffect(() => {
     if (user) {
       loadDashboardData();
     }
   }, [user]);
+
+  // Refresh data when screen comes into focus (e.g., returning from ScanReceiptScreen)
+  useFocusEffect(
+    useCallback(() => {
+      if (user) {
+        loadDashboardData();
+      }
+    }, [user])
+  );
 
   const loadDashboardData = async () => {
     if (!user) return;
