@@ -1209,23 +1209,25 @@ export const ScanReceiptScreen = () => {
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.background.primary }]}
     >
-      {/* Business Selector Overlay */}
-      <View style={[styles.businessSelectorOverlay, { backgroundColor: theme.background.secondary, borderBottomColor: theme.border.primary }]}>
-        <Text style={[styles.businessSelectorLabel, { color: theme.text.secondary }]}>
-          Business:
-        </Text>
-        <BusinessSelector
-          selectedBusinessId={selectedBusiness?.id}
-          onBusinessSelect={(businessId) => {
-            if (businessId) {
-              selectBusiness(businessId);
-            }
-          }}
-          placeholder="Select business"
-          allowUnassigned={true}
-          style={styles.businessSelectorContainer}
-        />
-      </View>
+      {/* Business Selector Overlay - Hide during scanning */}
+      {!showScanning && !isAnalyzing && !isCapturing && !showCamera && (
+        <View style={[styles.businessSelectorOverlay, { backgroundColor: theme.background.secondary, borderBottomColor: theme.border.primary }]}>
+          <Text style={[styles.businessSelectorLabel, { color: theme.text.secondary }]}>
+            Business:
+          </Text>
+          <BusinessSelector
+            selectedBusinessId={selectedBusiness?.id}
+            onBusinessSelect={(businessId) => {
+              if (businessId) {
+                selectBusiness(businessId);
+              }
+            }}
+            placeholder="Select business"
+            allowUnassigned={true}
+            style={styles.businessSelectorContainer}
+          />
+        </View>
+      )}
 
       {showCamera ? (
         (useVisionCamera && Platform.OS === 'android') ? (
