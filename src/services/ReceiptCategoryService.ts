@@ -1,6 +1,7 @@
 import { db } from '../config/firebase';
 import { collection, doc, getDoc, setDoc, getDocs, query, where } from 'firebase/firestore';
 import { ReceiptData } from './ReceiptOCRService';
+import { CustomCategoryService, CustomCategory } from './CustomCategoryService';
 
 // Define receipt categories
 export type ReceiptCategory =
@@ -139,8 +140,8 @@ export class ReceiptCategoryService {
         await this.saveMerchantCategory(merchantName, category, confidence);
     }
 
-    static async getAvailableCategories(): Promise<ReceiptCategory[]> {
-        return [
+    static async getAvailableCategories(userId?: string): Promise<ReceiptCategory[]> {
+        const baseCategories: ReceiptCategory[] = [
             'groceries',
             'restaurant', 
             'entertainment',
@@ -154,10 +155,22 @@ export class ReceiptCategoryService {
             'equipment_software',
             'other'
         ];
+
+        if (userId) {
+            try {
+                const customCategories = await CustomCategoryService.getCustomCategories(userId);
+                const customCategoryNames = customCategories.map(cat => cat.name as ReceiptCategory);
+                return [...baseCategories, ...customCategoryNames];
+            } catch (error) {
+                console.error('Error fetching custom categories:', error);
+            }
+        }
+
+        return baseCategories;
     }
 
-    static getCategoryDisplayName(category: ReceiptCategory): string {
-        const displayNames: Record<ReceiptCategory, string> = {
+    static getCategoryDisplayName(category: ReceiptCategory, customCategories?: CustomCategory[]): string {
+        const displayNames: Record<string, string> = {
             groceries: 'Groceries',
             restaurant: 'Restaurant & Dining',
             entertainment: 'Entertainment',
@@ -171,6 +184,42 @@ export class ReceiptCategoryService {
             equipment_software: 'Equipment & Software',
             other: 'Other'
         };
-        return displayNames[category] || 'Other';
+
+        // Check if it's a custom category
+        if (customCategories) {
+            const customCategory = customCategories.find(cat => cat.name === category);
+            if (customCategory) {
+                return customCategory.name;
+            }
+        }
+
+        return displayNames[category] || category || 'Other';
+    }
+
+    static getCategoryIcon(category: ReceiptCategory, customCategories?: CustomCategory[]): string {
+        const defaultIcons: Record<string, string> = {
+            groceries: '🛒',
+            restaurant: '🍽️',
+            entertainment: '🎬',
+            shopping: '🛍️',
+            travel: '✈️',
+            transportation: '🚗',
+            utilities: '⚡',
+            healthcare: '🏥',
+            professional_services: '💼',
+            office_supplies: '📎',
+            equipment_software: '💻',
+            other: '📄'
+        };
+
+        // Check if it's a custom category
+        if (customCategories) {
+            const customCategory = customCategories.find(cat => cat.name === category);
+            if (customCategory) {
+                return customCategory.icon;
+            }
+        }
+
+        return defaultIcons[category] || '📄';
     }
 }

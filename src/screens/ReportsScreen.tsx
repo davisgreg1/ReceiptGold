@@ -38,6 +38,7 @@ import * as FileSystem from "expo-file-system";
 import { format } from "date-fns";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
+import { CustomCategoryService, CustomCategory } from '../services/CustomCategoryService';
 import { formatCurrency } from '../utils/formatCurrency';
 import { useTheme } from "../theme/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
@@ -65,6 +66,7 @@ export default function ReportsScreen() {
   console.log('ReportsScreen render:', { user: !!user, subscription: !!subscription, theme: !!theme });
   
   const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,6 +91,15 @@ export default function ReportsScreen() {
       return 'other';
     }
     
+    // Check if it's a custom category - preserve custom categories as-is
+    const isCustomCategory = customCategories.some(cat => 
+      cat.name.toLowerCase().trim() === category.toLowerCase().trim()
+    );
+    
+    if (isCustomCategory) {
+      return category.trim(); // Return the custom category name as-is
+    }
+    
     // Group categories that don't have specific display names and fall back to "Other"
     const knownCategories = [
       'groceries', 'restaurant', 'entertainment', 'shopping', 'travel',
@@ -96,8 +107,7 @@ export default function ReportsScreen() {
     ];
     
     if (!knownCategories.includes(cleaned)) {
-      // If the category isn't in our known list, it will display as "Other" anyway
-      // so group it with other "Other" items
+      // If the category isn't in our known list AND it's not a custom category, group it as "other"
       return 'other';
     }
     
@@ -243,20 +253,49 @@ export default function ReportsScreen() {
     };
   }, [selectedDateRange]);
 
+  // Fetch custom categories
+  const fetchCustomCategories = async () => {
+    if (!user) return;
+    
+    try {
+      const categories = await CustomCategoryService.getCustomCategories(user.uid);
+      setCustomCategories(categories);
+      console.log('✅ Fetched custom categories:', categories.length);
+    } catch (error) {
+      console.error('❌ Error fetching custom categories:', error);
+      // Don't set error state for custom categories, just continue without them
+    }
+  };
+
   useEffect(() => {
     console.log('ReportsScreen useEffect triggered:', { user: !!user, selectedDateRange });
     
-    const fetchReceipts = async () => {
+    const fetchData = async () => {
       if (!user) {
         console.log('No user found, skipping fetch');
         setLoading(false);
         return;
       }
       
-      console.log('Starting to fetch receipts...');
+      console.log('Starting to fetch receipts and custom categories...');
       setLoading(true);
       setError(null);
 
+      try {
+        // Fetch both receipts and custom categories in parallel
+        await Promise.all([
+          fetchCustomCategories(),
+          fetchReceipts()
+        ]);
+      } catch (error) {
+        console.error("Error fetching data:", error);
+        setError("Failed to load data. Please try again.");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    const fetchReceipts = async () => {
       try {
         const receiptsRef = collection(db, "receipts");
         let querySnapshot;
@@ -320,19 +359,33 @@ export default function ReportsScreen() {
         setReceipts(fetchedReceipts);
       } catch (error) {
         console.error("Error fetching receipts:", error);
-        setError("Failed to load receipts. Please try again.");
-      } finally {
-        setLoading(false);
+        throw error; // Re-throw to be handled by fetchData
       }
     };
 
-    fetchReceipts();
+    fetchData();
   }, [user, dateRangeFilter]);
 
   const refreshData = useCallback(async () => {
     if (!user) return;
     
     setRefreshing(true);
+    try {
+      // Fetch both receipts and custom categories in parallel
+      await Promise.all([
+        fetchCustomCategories(),
+        refreshReceipts()
+      ]);
+    } catch (error) {
+      console.error("Error refreshing data:", error);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [user, dateRangeFilter]);
+
+  const refreshReceipts = useCallback(async () => {
+    if (!user) return;
+    
     try {
       const receiptsRef = collection(db, "receipts");
       let querySnapshot;
@@ -391,8 +444,7 @@ export default function ReportsScreen() {
       setReceipts(fetchedReceipts);
     } catch (error) {
       console.error("Error refreshing receipts:", error);
-    } finally {
-      setRefreshing(false);
+      throw error; // Re-throw to be handled by refreshData
     }
   }, [user, dateRangeFilter]);
 
@@ -707,8 +759,8 @@ export default function ReportsScreen() {
                 ]}>
                   <View style={styles.categoryInfo}>
                     <Text style={[styles.categoryName, { color: theme.text.primary }]}>
-                      {__DEV__ && console.log('🔍 Display category:', { category, displayName: ReceiptCategoryService.getCategoryDisplayName(category as any) })}
-                      {ReceiptCategoryService.getCategoryDisplayName(category as any)}
+                      {__DEV__ && console.log('🔍 Display category:', { category, displayName: ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories) })}
+                      {ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories)}
                     </Text>
                     <Text style={[styles.categoryAmount, { color: theme.gold.primary }]}>
                       {formatCurrency(amount)}
@@ -875,8 +927,8 @@ export default function ReportsScreen() {
                   { borderColor: theme.border.primary }
                 ]}>
                   <Text style={[styles.taxCategoryName, { color: theme.text.primary }]}>
-                    {__DEV__ && console.log('🔍 Tax category display:', { category, displayName: ReceiptCategoryService.getCategoryDisplayName(category as any) })}
-                    {ReceiptCategoryService.getCategoryDisplayName(category as any)}
+                    {__DEV__ && console.log('🔍 Tax category display:', { category, displayName: ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories) })}
+                    {ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories)}
                   </Text>
                   <Text style={[styles.taxCategoryAmount, { color: theme.gold.primary }]}>
                     {formatCurrency(amount)}

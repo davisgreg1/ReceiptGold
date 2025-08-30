@@ -39,6 +39,7 @@ import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import { useReceiptsNavigation } from "../navigation/navigationHelpers";
 import { useFocusEffect } from "@react-navigation/native";
 import { ReceiptCategoryService } from "../services/ReceiptCategoryService";
+import { CustomCategoryService, CustomCategory } from "../services/CustomCategoryService";
 import { useCustomAlert } from "../hooks/useCustomAlert";
 import { FirebaseErrorScenarios } from "../utils/firebaseErrorHandler";
 import { ReceiptsLoadingAnimation } from "../components/ReceiptsLoadingAnimation";
@@ -97,15 +98,22 @@ export const ReceiptsListScreen: React.FC = () => {
     "start"
   );
   const [tempSelectedDate, setTempSelectedDate] = useState<Date | null>(null);
+  const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
 
-  // Quick filter categories
-  const quickFilters = [
+  // Quick filter categories (will be dynamic including custom categories)
+  const staticFilters = [
     "Food",
     "Transportation",
     "Office",
     "Entertainment",
     "Healthcare",
   ];
+
+  // Combine static filters with custom categories
+  const quickFilters = useMemo(() => {
+    const customCategoryNames = customCategories.map(cat => cat.name);
+    return [...staticFilters, ...customCategoryNames];
+  }, [customCategories]);
 
   // Quick date range filters
   const quickDateFilters = [
@@ -142,19 +150,31 @@ export const ReceiptsListScreen: React.FC = () => {
           Healthcare: ["healthcare"],
         };
 
-        const targetCategories = categoryMap[category] || [];
-
-        const filtered = receipts.filter((receipt) => {
-          const receiptCategory = receipt.category as string;
-          return targetCategories.includes(receiptCategory);
-        });
+        // Check if it's a custom category
+        const isCustomCategory = customCategories.some(cat => cat.name === category);
+        
+        let filtered;
+        if (isCustomCategory) {
+          // For custom categories, filter by exact category name match
+          filtered = receipts.filter((receipt) => {
+            const receiptCategory = receipt.category as string;
+            return receiptCategory === category;
+          });
+        } else {
+          // For static categories, use the category mapping
+          const targetCategories = categoryMap[category] || [];
+          filtered = receipts.filter((receipt) => {
+            const receiptCategory = receipt.category as string;
+            return targetCategories.includes(receiptCategory);
+          });
+        }
 
         setFilteredReceipts(filtered);
         // Close search UI when a filter is applied
         setShowSearch(false);
       }
     },
-    [receipts, selectedFilter]
+    [receipts, selectedFilter, customCategories]
   );
 
   // Handle quick date filter selection
@@ -425,6 +445,20 @@ export const ReceiptsListScreen: React.FC = () => {
     [groupedReceipts]
   );
 
+  // Fetch custom categories
+  const fetchCustomCategories = useCallback(async () => {
+    if (!user?.uid) return;
+    
+    try {
+      const categories = await CustomCategoryService.getCustomCategories(user.uid);
+      setCustomCategories(categories);
+      console.log('✅ Fetched custom categories for filters:', categories.length);
+    } catch (error) {
+      console.error('❌ Error fetching custom categories for filters:', error);
+      setCustomCategories([]);
+    }
+  }, [user?.uid]);
+
   const fetchReceipts = useCallback(async () => {
     if (!user?.uid) {
       setLoading(false);
@@ -601,6 +635,7 @@ export const ReceiptsListScreen: React.FC = () => {
     useCallback(() => {
       console.log("Screen focused, fetching receipts...");
       fetchReceipts();
+      fetchCustomCategories();
 
       // Validate filters when returning to screen
       // If we have filter badges but no filtered results, clear the filters
@@ -622,7 +657,7 @@ export const ReceiptsListScreen: React.FC = () => {
           });
         }
       }, 500); // Small delay to ensure receipts are loaded
-    }, [fetchReceipts]) // Only depend on fetchReceipts to avoid re-running on filter changes
+    }, [fetchReceipts, fetchCustomCategories]) // Only depend on fetch functions to avoid re-running on filter changes
   );
 
   // Comprehensive filter function that applies all filters
@@ -654,21 +689,32 @@ export const ReceiptsListScreen: React.FC = () => {
 
     // Apply category filter
     if (selectedFilter) {
-      // Map filter names to actual categories
-      const categoryMap: Record<string, string[]> = {
-        Food: ["restaurant", "groceries"],
-        Transportation: ["transportation", "travel"],
-        Office: ["other"], // Office supplies might be categorized as "other"
-        Entertainment: ["entertainment"],
-        Healthcare: ["healthcare"],
-      };
+      // Check if it's a custom category
+      const isCustomCategory = customCategories.some(cat => cat.name === selectedFilter);
+      
+      if (isCustomCategory) {
+        // For custom categories, filter by exact category name match
+        filtered = filtered.filter((receipt) => {
+          const receiptCategory = receipt.category as string;
+          return receiptCategory === selectedFilter;
+        });
+      } else {
+        // For static categories, use the category mapping
+        const categoryMap: Record<string, string[]> = {
+          Food: ["restaurant", "groceries"],
+          Transportation: ["transportation", "travel"],
+          Office: ["other"], // Office supplies might be categorized as "other"
+          Entertainment: ["entertainment"],
+          Healthcare: ["healthcare"],
+        };
 
-      const targetCategories = categoryMap[selectedFilter] || [];
+        const targetCategories = categoryMap[selectedFilter] || [];
 
-      filtered = filtered.filter((receipt) => {
-        const receiptCategory = receipt.category as string;
-        return targetCategories.includes(receiptCategory);
-      });
+        filtered = filtered.filter((receipt) => {
+          const receiptCategory = receipt.category as string;
+          return targetCategories.includes(receiptCategory);
+        });
+      }
     }
 
     // Apply date range filter
@@ -697,7 +743,7 @@ export const ReceiptsListScreen: React.FC = () => {
     }
 
     setFilteredReceipts(filtered);
-  }, [receipts, searchQuery, selectedFilter, dateRangeFilter]);
+  }, [receipts, searchQuery, selectedFilter, dateRangeFilter, customCategories]);
 
   // Filter receipts based on search query
   const filterReceipts = useCallback(
@@ -751,8 +797,11 @@ export const ReceiptsListScreen: React.FC = () => {
   // Pull to refresh handler
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchReceipts();
-  }, [fetchReceipts]);
+    await Promise.all([
+      fetchReceipts(),
+      fetchCustomCategories()
+    ]);
+  }, [fetchReceipts, fetchCustomCategories]);
 
   // Reset search when receipts update
   React.useEffect(() => {

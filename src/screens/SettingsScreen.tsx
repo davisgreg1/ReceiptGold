@@ -58,6 +58,7 @@ import { useInAppNotifications } from '../components/InAppNotificationProvider';
 import { NotificationService } from '../services/ExpoNotificationService';
 import { useNotifications } from '../hooks/useNotifications';
 import { useTabNavigation, navigationHelpers } from "../navigation/navigationHelpers";
+import { CustomCategoryService, CustomCategory } from '../services/CustomCategoryService';
 
 interface SettingsSectionProps {
   title: string;
@@ -229,11 +230,12 @@ export const SettingsScreen: React.FC = () => {
     fetchUserData();
   }, [user]);
 
-  // Fetch bank connections on focus - this ensures it refreshes when navigating from Bank Sync
+  // Fetch bank connections and custom categories on focus
   useFocusEffect(
     React.useCallback(() => {
       if (user) {
         refreshBankConnections();
+        loadCustomCategories();
       }
     }, [user])
   );
@@ -258,6 +260,14 @@ export const SettingsScreen: React.FC = () => {
   // Services
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
+
+  // Custom categories state
+  const [customCategories, setCustomCategories] = React.useState<CustomCategory[]>([]);
+  const [loadingCustomCategories, setLoadingCustomCategories] = React.useState(false);
+  const [showCreateCategoryDialog, setShowCreateCategoryDialog] = React.useState(false);
+  const [newCategoryName, setNewCategoryName] = React.useState("");
+  const [newCategoryIcon, setNewCategoryIcon] = React.useState("📁");
+  const [isCreatingCategory, setIsCreatingCategory] = React.useState(false);
 
   const handleNameChange = async () => {
     if (!user || !firstName.trim()) return;
@@ -495,6 +505,92 @@ export const SettingsScreen: React.FC = () => {
     } finally {
       setLoadingBankConnections(false);
     }
+  };
+
+  // Load custom categories
+  const loadCustomCategories = async () => {
+    if (!user) return;
+
+    try {
+      setLoadingCustomCategories(true);
+      const categories = await CustomCategoryService.getCustomCategories(user.uid);
+      setCustomCategories(categories);
+    } catch (error) {
+      console.error("Error loading custom categories:", error);
+      setCustomCategories([]);
+    } finally {
+      setLoadingCustomCategories(false);
+    }
+  };
+
+  // Create custom category
+  const handleCreateCustomCategory = async () => {
+    if (!user) return;
+
+    const validation = CustomCategoryService.validateCategoryName(newCategoryName);
+    if (!validation.isValid) {
+      showError("Invalid Category Name", validation.error!);
+      return;
+    }
+
+    setIsCreatingCategory(true);
+    try {
+      const newCategory = await CustomCategoryService.createCustomCategory(
+        user.uid,
+        newCategoryName.trim(),
+        newCategoryIcon
+      );
+
+      if (newCategory) {
+        // Update local state
+        setCustomCategories(prev => [...prev, newCategory]);
+        setShowCreateCategoryDialog(false);
+        setNewCategoryName("");
+        setNewCategoryIcon("📁");
+        showSuccess("Success", `"${newCategory.name}" category created successfully`);
+      } else {
+        showError("Error", "Failed to create custom category. Please try again.");
+      }
+    } catch (error) {
+      console.error("Error creating custom category:", error);
+      showError("Error", "Failed to create custom category. Please try again.");
+    } finally {
+      setIsCreatingCategory(false);
+    }
+  };
+
+  // Delete custom category
+  const handleDeleteCustomCategory = async (category: CustomCategory) => {
+    const performDelete = async () => {
+      if (!user) return;
+
+      try {
+        hideAlert();
+        const success = await CustomCategoryService.deleteCustomCategory(user.uid, category.id);
+        
+        if (success) {
+          // Update local state
+          setCustomCategories(prev => prev.filter(cat => cat.id !== category.id));
+          showSuccess("Success", `"${category.name}" category deleted successfully`);
+        } else {
+          showError("Error", "Failed to delete custom category. Please try again.");
+        }
+      } catch (error) {
+        console.error("Error deleting custom category:", error);
+        showError("Error", "Failed to delete custom category. Please try again.");
+      }
+    };
+
+    showWarning(
+      "Delete Custom Category",
+      `Are you sure you want to delete the "${category.name}" category? This action cannot be undone.`,
+      {
+        primaryButtonText: "Delete",
+        secondaryButtonText: "Cancel",
+        onPrimaryPress: performDelete,
+        onSecondaryPress: hideAlert,
+      }
+    );
   };
 
   // Plaid connection functions
@@ -1114,6 +1210,148 @@ export const SettingsScreen: React.FC = () => {
           />
         </SettingsSection>
 
+        {/* Custom Categories Section */}
+        <SettingsSection title="Custom Categories">
+          {loadingCustomCategories ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator color={theme.gold.primary} />
+              <Text
+                style={[styles.loadingText, { color: theme.text.secondary }]}
+              >
+                Loading custom categories...
+              </Text>
+            </View>
+          ) : customCategories.length > 0 ? (
+            <>
+              {customCategories.map((category) => (
+                <View
+                  key={category.id}
+                  style={[
+                    styles.customCategoryRow,
+                    {
+                      backgroundColor: theme.background.tertiary,
+                      borderColor: theme.border.primary,
+                    },
+                  ]}
+                >
+                  <View style={styles.customCategoryInfo}>
+                    <Text style={styles.customCategoryIcon}>{category.icon}</Text>
+                    <View style={styles.customCategoryDetails}>
+                      <Text
+                        style={[
+                          styles.customCategoryName,
+                          { color: theme.text.primary },
+                        ]}
+                      >
+                        {category.name}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.customCategoryDate,
+                          { color: theme.text.tertiary },
+                        ]}
+                      >
+                        Created {new Date(category.createdAt).toLocaleDateString()}
+                        {category.lastUsed && 
+                          ` • Last used ${new Date(category.lastUsed).toLocaleDateString()}`
+                        }
+                      </Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity
+                    style={[
+                      styles.deleteCategoryButton,
+                      { borderColor: theme.status.error },
+                    ]}
+                    onPress={() => handleDeleteCustomCategory(category)}
+                  >
+                    <Ionicons 
+                      name="trash-outline" 
+                      size={18} 
+                      color={theme.status.error} 
+                    />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              
+              {/* Create New Category Button */}
+              <View
+                style={[
+                  styles.addCategoryContainer,
+                  { borderTopColor: theme.border.primary },
+                ]}
+              >
+                <TouchableOpacity
+                  style={[
+                    styles.addCategoryButton,
+                    {
+                      backgroundColor: theme.background.secondary,
+                      borderColor: theme.gold.primary,
+                    },
+                  ]}
+                  onPress={() => setShowCreateCategoryDialog(true)}
+                >
+                  <Ionicons name="add" size={20} color={theme.gold.primary} />
+                  <Text
+                    style={[
+                      styles.addCategoryButtonText,
+                      { color: theme.gold.primary },
+                    ]}
+                  >
+                    Create New Category
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              <Text
+                style={[
+                  styles.customCategoryFooter,
+                  { color: theme.text.tertiary, marginTop: 12 }
+                ]}
+              >
+                Create custom categories to organize your receipts exactly how you want.
+              </Text>
+            </>
+          ) : (
+            <View style={styles.noCustomCategoriesContainer}>
+              <Ionicons
+                name="folder-outline"
+                size={48}
+                color={theme.text.tertiary}
+              />
+              <Text
+                style={[
+                  styles.noCustomCategoriesTitle,
+                  { color: theme.text.primary },
+                ]}
+              >
+                No Custom Categories Yet
+              </Text>
+              <Text
+                style={[
+                  styles.noCustomCategoriesDescription,
+                  { color: theme.text.secondary },
+                ]}
+              >
+                Create custom categories to better organize your receipts exactly how you want.
+              </Text>
+
+              <TouchableOpacity
+                style={[
+                  styles.createFirstCategoryButton,
+                  { backgroundColor: theme.gold.primary },
+                ]}
+                onPress={() => setShowCreateCategoryDialog(true)}
+              >
+                <Ionicons name="add" size={20} color="white" />
+                <Text style={styles.createFirstCategoryButtonText}>
+                  Create Your First Category
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </SettingsSection>
+
         {/* Subscription Section */}
         <SettingsSection title="Subscription">
           <SettingsRow
@@ -1643,6 +1881,115 @@ export const SettingsScreen: React.FC = () => {
           </View>
         </View>
       )}
+
+      {/* Create Custom Category Dialog */}
+      {showCreateCategoryDialog && (
+        <View
+          style={[
+            styles.modalOverlay,
+            { backgroundColor: theme.background.overlay },
+          ]}
+        >
+          <View
+            style={[
+              styles.dialog,
+              { backgroundColor: theme.background.secondary },
+            ]}
+          >
+            <Text style={[styles.dialogTitle, { color: theme.text.primary }]}>
+              Create Custom Category
+            </Text>
+            
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: theme.text.primary }]}>
+                Category Name
+              </Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    color: theme.text.primary,
+                    backgroundColor: theme.background.tertiary,
+                    borderColor: theme.border.primary,
+                  },
+                ]}
+                placeholder="Enter category name"
+                placeholderTextColor={theme.text.tertiary}
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+                autoCapitalize="words"
+                maxLength={30}
+              />
+            </View>
+
+            <View style={styles.inputGroup}>
+              <Text style={[styles.inputLabel, { color: theme.text.primary }]}>
+                Icon
+              </Text>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false} 
+                style={styles.iconPicker}
+              >
+                {CustomCategoryService.getDefaultIcons().map((icon, index) => (
+                  <TouchableOpacity
+                    key={index}
+                    style={[
+                      styles.iconOption,
+                      { 
+                        borderColor: newCategoryIcon === icon ? theme.gold.primary : theme.border.primary,
+                        backgroundColor: newCategoryIcon === icon ? theme.gold.background : "transparent"
+                      },
+                    ]}
+                    onPress={() => setNewCategoryIcon(icon)}
+                  >
+                    <Text style={styles.iconText}>{icon}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            <View style={styles.dialogButtons}>
+              <TouchableOpacity
+                style={[
+                  styles.dialogButton,
+                  { borderColor: theme.border.primary },
+                ]}
+                onPress={() => {
+                  setShowCreateCategoryDialog(false);
+                  setNewCategoryName("");
+                  setNewCategoryIcon("📁");
+                }}
+              >
+                <Text
+                  style={[
+                    styles.dialogButtonText,
+                    { color: theme.text.primary },
+                  ]}
+                >
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.dialogButton,
+                  { backgroundColor: theme.gold.primary },
+                ]}
+                onPress={handleCreateCustomCategory}
+                disabled={isCreatingCategory || !newCategoryName.trim()}
+              >
+                {isCreatingCategory ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={[styles.dialogButtonText, { color: "white" }]}>
+                    Create
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </SafeAreaView>
   );
 };
@@ -2076,5 +2423,119 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     justifyContent: "center",
+  },
+  // Custom Categories Styles
+  customCategoryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 16,
+    borderRadius: 12,
+    marginHorizontal: 16,
+    marginVertical: 4,
+    borderWidth: 1,
+  },
+  customCategoryInfo: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  customCategoryIcon: {
+    fontSize: 24,
+    marginRight: 16,
+  },
+  customCategoryDetails: {
+    flex: 1,
+  },
+  customCategoryName: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  customCategoryDate: {
+    fontSize: 12,
+  },
+  deleteCategoryButton: {
+    padding: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  customCategoryFooter: {
+    fontSize: 12,
+    lineHeight: 16,
+    paddingHorizontal: 16,
+    fontStyle: "italic",
+  },
+  noCustomCategoriesContainer: {
+    alignItems: "center",
+    padding: 32,
+  },
+  noCustomCategoriesTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  noCustomCategoriesDescription: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 24,
+  },
+  createFirstCategoryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  createFirstCategoryButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
+    marginLeft: 6,
+  },
+  addCategoryContainer: {
+    paddingTop: 16,
+    borderTopWidth: 1,
+    marginTop: 8,
+  },
+  addCategoryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  addCategoryButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+    marginLeft: 6,
+  },
+  inputGroup: {
+    marginBottom: 16,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  iconPicker: {
+    maxHeight: 60,
+  },
+  iconOption: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+  },
+  iconText: {
+    fontSize: 20,
   },
 });
