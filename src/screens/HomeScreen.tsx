@@ -16,6 +16,7 @@ import { useAuth } from "../context/AuthContext";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useHomeNavigation, useTabNavigation, navigationHelpers } from "../navigation/navigationHelpers";
 import { BrandText, HeadingText, BodyText, ButtonText } from '../components/Typography';
+import { Signature } from '../components/Signature';
 import { db } from '../config/firebase';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { ReceiptCategoryService, ReceiptCategory } from '../services/ReceiptCategoryService';
@@ -617,6 +618,9 @@ export const HomeScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Signature */}
+        <Signature variant="default" />
       </ScrollView>
     </SafeAreaView>
   );

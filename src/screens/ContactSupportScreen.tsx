@@ -16,6 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../context/AuthContext';
 import { Logo } from '../components/Logo';
+import { Signature } from '../components/Signature';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 
 interface ContactSupportScreenProps {
@@ -40,7 +41,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
   const supportCategories = [
     { id: 'billing', title: 'Billing & Subscription', icon: 'card-outline' },
     { id: 'technical', title: 'Technical Issues', icon: 'bug-outline' },
-    { id: 'feature', title: 'Feature Request', icon: 'lightbulb-outline' },
+    { id: 'feature', title: 'Feature Request', icon: 'bulb-outline' },
     { id: 'general', title: 'General Support', icon: 'help-circle-outline' },
   ] as const;
 
@@ -334,6 +335,9 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
               Response time: Within 24 hours • Available: Mon-Fri, 9 AM - 6 PM EST
             </Text>
           </View>
+
+          {/* Signature */}
+          <Signature variant="compact" />
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
