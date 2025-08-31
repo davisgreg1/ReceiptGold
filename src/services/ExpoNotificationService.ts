@@ -175,6 +175,16 @@ export class NotificationService {
     
     if (data?.type) {
       switch (data.type) {
+        case 'plaid_connection_issue':
+          // Navigate to connection management or directly trigger reconnection
+          console.log('Navigate to bank connection management:', {
+            institutionName: data.institutionName,
+            connectionType: data.connectionType,
+            itemId: data.itemId,
+            action: data.action
+          });
+          this.handleBankConnectionAction(data);
+          break;
         case 'receipt_processed':
           // Navigate to receipts list or specific receipt
           console.log('Navigate to receipt:', data.receiptId);
@@ -194,21 +204,161 @@ export class NotificationService {
   }
 
   /**
-   * Send push token to your server
+   * Handle bank connection notification actions
    */
-  private async sendTokenToServer(token: string): Promise<void> {
+  private handleBankConnectionAction(data: any): void {
+    // Store the notification data for the app to handle navigation
+    // This allows the app to navigate to the correct screen when it becomes active
     try {
-      console.log('📤 Sending token to server:', token);
-      
-      // TODO: Implement API call to your server
-      // Example API call:
-      // await fetch('/api/expo-push-tokens', {
-      //   method: 'POST',
-      //   headers: { 'Content-Type': 'application/json' },
-      //   body: JSON.stringify({ token, userId: currentUserId })
-      // });
+      // Use AsyncStorage to store navigation intent
+      import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+        const navigationData = {
+          screen: 'ConnectionManagement',
+          params: {
+            highlightItem: data.itemId,
+            institutionName: data.institutionName,
+            actionRequired: data.action === 'reconnect_bank',
+            notificationType: data.connectionType,
+            fromNotification: true,
+            timestamp: Date.now()
+          }
+        };
+
+        // Store navigation intent in AsyncStorage
+        AsyncStorage.setItem('navigationIntent', JSON.stringify(navigationData));
+        
+        console.log('🔗 Bank connection navigation intent stored:', navigationData);
+      }).catch(error => {
+        console.error('Error storing navigation intent:', error);
+      });
     } catch (error) {
-      console.error('Error sending token to server:', error);
+      console.error('Error handling bank connection action:', error);
+    }
+  }
+
+  /**
+   * Send push token to Firestore for the current user
+   * Preserves existing notification preferences
+   */
+  public async saveTokenToFirestore(userId: string): Promise<void> {
+    try {
+      const token = await this.getExpoPushToken();
+      if (!token || !userId) {
+        console.log('❌ No token or user ID available');
+        return;
+      }
+
+      // Import Firestore
+      const { db } = await import('../config/firebase');
+      const { doc, getDoc, updateDoc, setDoc, serverTimestamp } = await import('firebase/firestore');
+
+      const userRef = doc(db, 'users', userId);
+      
+      // Get existing user data to preserve notification settings
+      const userDoc = await getDoc(userRef);
+      const existingData = userDoc.exists() ? userDoc.data() : {};
+      
+      // Default notification settings (only used if user has no existing settings)
+      const defaultNotificationSettings = {
+        notificationsEnabled: true, // Master toggle
+        push: true, // Enable push notifications by default
+        bankConnections: true, // Enable bank connection notifications
+        receipts: true, // Enable receipt notifications
+        security: true, // Enable security alerts (always important)
+        frequency: 'all', // all, important, minimal
+        quietHours: {
+          enabled: false,
+          startTime: '22:00',
+          endTime: '07:00'
+        }
+      };
+
+      // Preserve existing notification settings or use defaults
+      const notificationSettings = existingData.notificationSettings || defaultNotificationSettings;
+
+      const updateData = {
+        expoPushToken: token,
+        pushTokenUpdatedAt: serverTimestamp(),
+        // Only set notification settings if they don't exist
+        ...(existingData.notificationSettings ? {} : { notificationSettings })
+      };
+
+      if (userDoc.exists()) {
+        await updateDoc(userRef, updateData);
+      } else {
+        await setDoc(userRef, {
+          ...updateData,
+          notificationSettings, // New users get default settings
+          createdAt: serverTimestamp()
+        });
+      }
+
+      console.log('✅ Expo push token saved to Firestore for user:', userId);
+      console.log('📋 Notification settings preserved/initialized');
+    } catch (error) {
+      console.error('❌ Error saving push token to Firestore:', error);
+    }
+  }
+
+  /**
+   * Remove push token from Firestore (e.g., on logout)
+   */
+  public async removeTokenFromFirestore(userId: string): Promise<void> {
+    try {
+      if (!userId) return;
+
+      // Import Firestore
+      const { db } = await import('../config/firebase');
+      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
+
+      // Remove expo push token from user document
+      const userRef = doc(db, 'users', userId);
+      await updateDoc(userRef, {
+        expoPushToken: null,
+        pushTokenRemovedAt: serverTimestamp(),
+      });
+
+      console.log('✅ Expo push token removed from Firestore for user:', userId);
+    } catch (error) {
+      console.error('❌ Error removing push token from Firestore:', error);
+    }
+  }
+
+  /**
+   * Check if user allows specific notification type
+   * This can be used by other services to verify permissions before sending
+   */
+  public async checkNotificationPermission(
+    userId: string, 
+    notificationType: 'bankConnections' | 'receipts' | 'security' | 'subscriptionUpdates' | 'tipsFeatures'
+  ): Promise<boolean> {
+    try {
+      const { db } = await import('../config/firebase');
+      const { doc, getDoc } = await import('firebase/firestore');
+
+      const userRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userRef);
+      
+      if (!userDoc.exists()) {
+        return false; // No user data, no permissions
+      }
+
+      const userData = userDoc.data();
+      const settings = userData.notificationSettings;
+
+      // Check global toggle
+      if (!settings?.notificationsEnabled) return false;
+      
+      // Check push toggle
+      if (!settings?.push) return false;
+      
+      // Check specific type
+      if (!settings?.[notificationType]) return false;
+
+      return true;
+    } catch (error) {
+      console.error('Error checking notification permission:', error);
+      return false; // Fail safe - don't send if can't verify
     }
   }
 
