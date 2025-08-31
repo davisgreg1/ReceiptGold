@@ -1643,6 +1643,127 @@ export const createPlaidUpdateToken = onCall(
   }
 );
 
+// Create Plaid Link Token with proper redirect URI/Android package name handling
+export const createPlaidLinkToken = onCall(
+  { region: 'us-central1' },
+  async (request: CallableRequest<{ 
+    user_id: string; 
+    platform?: 'ios' | 'android';
+    auth_token?: string;
+  }>) => {
+    console.log('🔍 createPlaidLinkToken called');
+    console.log('Request auth:', request.auth ? 'present' : 'missing');
+    console.log('Request data:', request.data);
+    console.log('Request rawRequest auth header:', request.rawRequest?.headers?.authorization ? 'Has auth header' : 'No auth header');
+    console.log('Manual auth token provided:', request.data.auth_token ? 'yes' : 'no');
+    
+    let userId: string;
+    
+    if (request.auth) {
+      // Standard Firebase auth context is available
+      console.log('✅ Using standard Firebase auth context');
+      userId = request.auth.uid;
+    } else if (request.data.auth_token) {
+      // Manual token verification for React Native
+      console.log('🔑 Manually verifying auth token');
+      try {
+        const decodedToken = await admin.auth().verifyIdToken(request.data.auth_token);
+        userId = decodedToken.uid;
+        console.log('✅ Manual token verification successful for user:', userId);
+      } catch (error) {
+        console.error('❌ Manual token verification failed:', error);
+        throw new HttpsError('unauthenticated', 'Invalid authentication token');
+      }
+    } else {
+      console.error('❌ No authentication method available');
+      throw new HttpsError('unauthenticated', 'User must be authenticated');
+    }
+    
+    console.log('✅ Authentication verified for user:', userId);
+
+    try {
+      const { user_id, platform } = request.data;
+
+      if (!user_id) {
+        throw new HttpsError('invalid-argument', 'User ID is required');
+      }
+
+      // Verify the user_id matches the authenticated user
+      if (user_id !== userId) {
+        throw new HttpsError('permission-denied', 'User ID must match authenticated user');
+      }
+
+      // Get Plaid configuration
+      const config = getPlaidConfig();
+
+      // Prepare the request body
+      const requestBody: any = {
+        client_id: config.clientId,
+        secret: config.secret,
+        client_name: 'ReceiptGold',
+        country_codes: ['US'],
+        language: 'en',
+        user: {
+          client_user_id: userId,
+        },
+        products: ['transactions'],
+        webhook: 'https://us-central1-receiptgold.cloudfunctions.net/plaidWebhook',
+      };
+
+      // Add platform-specific configuration
+      if (platform === 'android') {
+        requestBody.android_package_name = 'com.receiptgold.app';
+        console.log('🤖 Android: Using package name for OAuth redirect');
+      } else {
+        // Default to iOS or when platform is not specified
+        requestBody.redirect_uri = 'receiptgold://oauth';
+        console.log('🍎 iOS: Using redirect URI for OAuth');
+      }
+
+      console.log(`🔗 Creating link token for user ${userId} on ${platform || 'iOS'} platform`);
+
+      // Create link token via Plaid API - use environment-specific endpoint
+      const plaidEndpoint = config.environment === 'production' 
+        ? 'https://production.plaid.com/link/token/create'
+        : 'https://sandbox.plaid.com/link/token/create';
+      
+      console.log(`🌍 Using Plaid environment: ${config.environment} (${plaidEndpoint})`);
+      
+      const linkTokenResponse = await fetch(plaidEndpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!linkTokenResponse.ok) {
+        const errorData = await linkTokenResponse.json();
+        console.error('Plaid Link token creation failed:', errorData);
+        throw new HttpsError('internal', `Failed to create link token: ${errorData.error_message || 'Unknown error'}`);
+      }
+
+      const linkTokenData = await linkTokenResponse.json();
+      
+      console.log(`✅ Created link token for user ${userId}`);
+
+      return {
+        link_token: linkTokenData.link_token,
+        expiration: linkTokenData.expiration,
+      };
+
+    } catch (error) {
+      console.error('Error creating Plaid link token:', error);
+      
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      
+      throw new HttpsError('internal', `Failed to create link token: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+);
+
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Promise<void> {
   const customerId: string = subscription.customer as string;
   const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;

@@ -85,47 +85,35 @@ export class PlaidService {
   }
 
   /**
-   * Create a link token from your backend server
-   * This should be called from your backend with Plaid API
+   * Create a link token from local server
    */
   public async createLinkToken(userId: string): Promise<string> {
+    console.log("🚀 Starting link token creation for user:", userId);
     try {
-      console.log('Creating link token for user:', userId);
-      
-      // Prepare the request body with Android package name for OAuth
-      const requestBody: any = {
-        user_id: userId,
-      };
-
-      // For Android, pass the package name instead of redirect URI
-      if (Platform.OS === 'android') {
-        requestBody.android_package_name = process.env.EXPO_PUBLIC_PLAID_ANDROID_PACKAGE_NAME;
-        console.log('🤖 Android: Using package name for OAuth');
-      } else {
-        // For iOS, still use redirect URI
-        requestBody.redirect_uri = process.env.EXPO_PUBLIC_PLAID_IOS_REDIRECT_URI;
-        console.log("🚀 ~ PlaidService ~ createLinkToken ~ process.env.EXPO_PUBLIC_PLAID_IOS_REDIRECT_URI:", process.env.EXPO_PUBLIC_PLAID_IOS_REDIRECT_URI)
-        console.log('🍎 iOS: Using redirect URI for OAuth');
-      }
-      
       const response = await fetch(`${API_BASE_URL}/api/plaid/create-link-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestBody),
+        body: JSON.stringify({ 
+          user_id: userId
+        }),
       });
-
+      
       const data = await response.json();
       
       if (!response.ok) {
         throw new Error(data.error || 'Failed to create link token');
       }
       
+      if (!data.link_token) {
+        throw new Error('No link token returned from server');
+      }
+      
       this.linkToken = data.link_token;
-      console.log('✅ Link token created successfully');
+      console.log('✅ Link token created successfully via local server');
       return data.link_token;
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error creating link token:', error);
       throw error;
     }
@@ -203,7 +191,19 @@ export class PlaidService {
 
       try {
         console.log('🔗 Creating Plaid Link...');
-        create({ token: linkToken });
+        
+        // Create with proper redirect URI configuration based on platform
+        const createConfig: any = { token: linkToken };
+        
+        if (Platform.OS === 'android') {
+          createConfig.android_package_name = 'com.receiptgold.app';
+          console.log('🤖 Android: Using package name for OAuth redirect');
+        } else {
+          createConfig.redirect_uri = 'receiptgold://oauth';
+          console.log('🍎 iOS: Using redirect URI for OAuth redirect');
+        }
+        
+        create(createConfig);
         
         console.log('🔗 Opening Plaid Link...');
         const openProps = {

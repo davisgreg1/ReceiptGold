@@ -141,4 +141,5 @@ serviceAccountKey.json
 !eas.json
 !tsconfig.json
 !google-services.json
+GoogleService-Info.plist
 .env*

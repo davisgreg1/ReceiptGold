@@ -42,7 +42,7 @@ const { getReactNativePersistence } = firebaseAuth as any;
 const db = getFirestore(app);
 
 // Initialize Firebase services
-const functions = getFunctions(app);
+const functions = getFunctions(app, 'us-central1'); // Specify region
 // connectFunctionsEmulator(functions, "localhost", 5001); // Connect to local emulator
  
 // Initialize Auth with error handling for already-initialized case
