@@ -191,23 +191,6 @@ Respond in JSON format:
     };
   }
 
-  /**
-   * Get common tax deductible categories with their typical deduction percentages
-   */
-  getTaxDeductibleCategories(): Record<string, { percentage: number; description: string }> {
-    return {
-      'office_supplies': { percentage: 100, description: 'Office supplies and equipment' },
-      'software': { percentage: 100, description: 'Business software and subscriptions' },
-      'professional_services': { percentage: 100, description: 'Legal, accounting, consulting' },
-      'travel': { percentage: 100, description: 'Business travel expenses' },
-      'transportation': { percentage: 100, description: 'Business transportation' },
-      'business_meals': { percentage: 50, description: 'Business meals and entertainment' },
-      'equipment': { percentage: 100, description: 'Business equipment and tools' },
-      'marketing': { percentage: 100, description: 'Marketing and advertising' },
-      'training': { percentage: 100, description: 'Professional training and education' },
-      'insurance': { percentage: 100, description: 'Business insurance' },
-    };
-  }
 }
 
 export const taxDeductibleService = new TaxDeductibleService();

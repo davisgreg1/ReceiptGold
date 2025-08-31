@@ -112,19 +112,6 @@ class StripeService {
     }
   }
 
-  // Initialize payment sheet for subscription
-  async initializePaymentSheet(priceId: string, customerId: string) {
-    try {
-      const sessionId = await this.createCheckoutSession(priceId, customerId);
-      
-      // Note: For React Native, you might want to use a different approach
-      // This is more suitable for web. For mobile, consider using PaymentSheet.createPaymentMethod
-      return sessionId;
-    } catch (error) {
-      console.error('Error initializing payment sheet:', error);
-      throw error;
-    }
-  }
 
   // Get subscription tier by ID
   getSubscriptionTier(tierId: string): SubscriptionTier | undefined {

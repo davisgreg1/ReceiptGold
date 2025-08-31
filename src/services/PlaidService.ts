@@ -119,37 +119,6 @@ export class PlaidService {
     }
   }
   
-  /**
-   * Create a sandbox link token using a workaround
-   */
-  private async createSandboxLinkToken(userId: string): Promise<string> {
-    try {
-      // For real Plaid testing, we need to use their sandbox environment
-      // This requires a backend, but for testing we can use a proxy service
-      
-      // Option 1: Use a CORS proxy (not recommended for production)
-      const proxyUrl = 'https://cors-anywhere.herokuapp.com/';
-      const plaidUrl = 'https://production.plaid.com/link/token/create';
-      
-      // Option 2: Use Plaid's test credentials directly
-      // NOTE: This exposes your credentials - only for development!
-      
-      console.log('Using Plaid sandbox environment...');
-      
-      // For testing, we'll generate a mock link token that would work with Plaid Link
-      // In a real app, your backend would make this call
-      
-      const mockLinkToken = 'link-sandbox-' + Math.random().toString(36).substring(2, 15);
-      
-      // Wait a bit to simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      return mockLinkToken;
-    } catch (error) {
-      console.error('Error creating sandbox link token:', error);
-      throw error;
-    }
-  }
 
   /**
    * Open Plaid Link to connect bank account
@@ -165,29 +134,6 @@ export class PlaidService {
         return;
       }
       
-      // Configuration for create() - only needs token and optional settings
-      const linkTokenConfiguration = {
-        token: linkToken,
-        noLoadingState: false,
-      };
-
-      // Configuration for open() - includes callbacks
-      const linkOpenConfiguration = {
-        onSuccess: (success: LinkSuccess) => {
-          console.log('✅ Plaid Link Success:', success);
-          this.exchangePublicToken(success.publicToken)
-            .then(resolve)
-            .catch(reject);
-        },
-        onExit: (exit: LinkExit) => {
-          console.log('⚠️ Plaid Link Exit:', exit);
-          if (exit.error) {
-            reject(new Error(exit.error.errorMessage || 'Plaid Link error'));
-          } else {
-            reject(new Error('User cancelled Plaid Link'));
-          }
-        },
-      };
 
       try {
         console.log('🔗 Creating Plaid Link...');

@@ -3,7 +3,7 @@ import ReceiptServiceFactory, { ReceiptService } from './ReceiptServiceFactory';
 import { GeneratedReceipt } from './HTMLReceiptService'; // Using HTMLReceiptService as the common interface
 import { PDFReceiptService, GeneratedReceiptPDF } from './PDFReceiptService';
 import { NotificationService } from './ExpoNotificationService';
-import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -62,54 +62,6 @@ export class BankReceiptService {
       BankReceiptService.instance = new BankReceiptService();
     }
     return BankReceiptService.instance;
-  }
-
-  /**
-   * Connect a new bank account for a professional user
-   */
-  public async connectBankAccount(userId: string): Promise<BankConnection> {
-    try {
-      console.log('🔍 Connecting new bank account for user:', userId);
-
-      // Create link token
-      const linkToken = await this.plaidService.createLinkToken(userId);
-
-      // Open Plaid Link
-      const accessToken = await this.plaidService.openPlaidLink(linkToken);
-
-      // Get account information
-      const accounts = await this.plaidService.getAccounts(accessToken);
-
-      // Create bank connection record
-      const bankConnection: BankConnection = {
-        id: `bank_${userId}_${Date.now()}`,
-        userId,
-        accessToken,
-        institutionName: 'Connected Bank', // This would come from Plaid institution info
-        accounts: accounts.map(acc => ({
-          accountId: acc.account_id,
-          name: acc.name,
-          type: acc.type,
-          subtype: acc.subtype,
-          mask: acc.mask,
-        })),
-        connectedAt: new Date(),
-        lastSyncAt: new Date(),
-        isActive: true,
-      };
-
-      // Save to Firebase
-      await addDoc(collection(db, 'bankConnections'), bankConnection);
-
-      // Save to local storage for quick access
-      await this.saveBankConnectionLocally(bankConnection);
-
-      console.log('✅ Bank account connected successfully');
-      return bankConnection;
-    } catch (error) {
-      console.error('❌ Error connecting bank account:', error);
-      throw error;
-    }
   }
 
   /**
@@ -302,82 +254,6 @@ export class BankReceiptService {
     }
   }
 
-  /**
-   * Save generated receipt as a regular receipt in the system
-   */
-  public async saveGeneratedReceiptAsReceipt(
-    userId: string,
-    generatedReceipt: GeneratedReceipt,
-    candidateId: string
-  ): Promise<string> {
-    try {
-      // Create receipt document for Firebase
-      const receiptDoc = {
-        userId,
-        imageUrl: generatedReceipt.receiptImageUrl,
-        businessName: generatedReceipt.receiptData.businessName || 'Unknown Business', // Ensure we have a business name
-        vendor: generatedReceipt.receiptData.businessName || 'Unknown Business', // Map businessName to vendor for edit screen compatibility
-        amount: Number(generatedReceipt.receiptData.total) || 0, // Ensure amount is a number
-        date: generatedReceipt.receiptData.date,
-        description: '', // Description not available in this receipt type, will be populated from items
-        category: 'Generated from Bank Transaction',
-        items: generatedReceipt.receiptData.items,
-        tax: {
-          deductible: true, // Bank receipts are typically business expenses, so default to deductible
-          deductionPercentage: 0, // Start with 0, let user set the actual deduction percentage
-          category: 'business_expense',
-          taxYear: new Date().getFullYear(),
-          amount: generatedReceipt.receiptData.tax || 0, // Store the actual tax amount from receipt
-        },
-        metadata: {
-          source: 'bank_transaction',
-          originalTransactionId: generatedReceipt.receiptData.transactionId,
-          generatedAt: new Date(),
-        },
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      // Add to receipts collection
-      console.log('🔍 Adding receipt to receipts collection for userId:', userId);
-      console.log('🔍 Receipt document structure:', {
-        userId: receiptDoc.userId,
-        businessName: receiptDoc.businessName,
-        amount: receiptDoc.amount,
-        amountType: typeof receiptDoc.amount
-      });
-      const receiptRef = await addDoc(collection(db, 'receipts'), receiptDoc);
-      console.log('✅ Receipt added to receipts collection with ID:', receiptRef.id);
-
-      // Update candidate status - need to verify ownership first
-      console.log('🔍 Updating candidate status for candidateId:', candidateId);
-      const candidateRef = doc(db, 'transactionCandidates', candidateId);
-      const candidateSnap = await getDoc(candidateRef);
-
-      if (!candidateSnap.exists()) {
-        console.error('❌ Candidate document not found:', candidateId);
-        throw new Error('Transaction candidate not found');
-      }
-
-      const candidateData = candidateSnap.data();
-      if (candidateData?.userId !== userId) {
-        console.error('❌ User ID mismatch - candidate belongs to different user');
-        throw new Error('Permission denied: candidate belongs to different user');
-      }
-
-      await updateDoc(candidateRef, {
-        status: 'approved',
-        receiptId: receiptRef.id,
-      });
-      console.log('✅ Candidate status updated to approved');
-
-      console.log('✅ Generated receipt saved as regular receipt');
-      return receiptRef.id;
-    } catch (error) {
-      console.error('❌ Error saving generated receipt:', error);
-      throw error;
-    }
-  }
 
   /**
    * Save generated PDF receipt as a regular receipt in the system
@@ -599,18 +475,6 @@ export class BankReceiptService {
     }
   }
 
-  /**
-   * Get last sync time
-   */
-  private async getLastSyncTime(userId: string): Promise<Date> {
-    try {
-      const stored = await AsyncStorage.getItem(`${BankReceiptService.LAST_SYNC_KEY}_${userId}`);
-      return stored ? new Date(stored) : new Date(Date.now() - BankReceiptService.TRANSACTION_LOOKBACK_PERIOD); // 12 months ago default
-    } catch (error) {
-      console.error('Error getting last sync time:', error);
-      return new Date(Date.now() - BankReceiptService.TRANSACTION_LOOKBACK_PERIOD);
-    }
-  }
 
   /**
    * Update last sync time
@@ -682,8 +546,8 @@ export class BankReceiptService {
       // Clear from local storage
       await this.removeBankConnectionLocally(userId, connectionId);
 
-      // Clear transaction data from the specific disconnected accounts
-      await this.clearTransactionCacheForAccounts(userId, accountIds);
+      // Clear transaction cache
+      await this.clearTransactionCache(userId);
 
       console.log('✅ Bank account disconnected successfully');
     } catch (error) {
@@ -722,18 +586,6 @@ export class BankReceiptService {
     }
   }
 
-  /**
-   * Clear all stored bank connections for a user (useful for testing)
-   */
-  public async clearBankConnections(userId: string): Promise<void> {
-    try {
-      const key = `${BankReceiptService.BANK_CONNECTIONS_KEY}_${userId}`;
-      await AsyncStorage.removeItem(key);
-      console.log('🗑️ Cleared all bank connections for user:', userId);
-    } catch (error) {
-      console.error('Error clearing bank connections:', error);
-    }
-  }
 
   /**
    * Cache transaction candidates locally
@@ -822,77 +674,6 @@ export class BankReceiptService {
     }
   }
 
-  /**
-   * Clear transaction data (cache and Firestore) for specific account IDs
-   */
-  public async clearTransactionCacheForAccounts(userId: string, accountIds: string[]): Promise<void> {
-    try {
-      console.log('🗑️ Clearing transactions for account IDs:', accountIds);
-
-      // 1. Clean up Firestore transaction candidates for these accounts
-      const candidatesQuery = query(
-        collection(db, 'transactionCandidates'),
-        where('userId', '==', userId)
-      );
-      const candidatesSnapshot = await getDocs(candidatesQuery);
-      
-      const deletePromises: Promise<void>[] = [];
-      const candidateIds: string[] = [];
-      
-      let totalCandidates = candidatesSnapshot.docs.length;
-      let matchedCandidates = 0;
-      
-      candidatesSnapshot.docs.forEach(doc => {
-        const data = doc.data() as TransactionCandidate;
-        const transactionAccountId = data.transaction?.account_id;
-        
-        if (transactionAccountId && accountIds.includes(transactionAccountId)) {
-          console.log('🗑️ Deleting Firestore candidate for account:', transactionAccountId, 'transaction:', data.transaction?.name);
-          candidateIds.push(doc.id);
-          deletePromises.push(deleteDoc(doc.ref));
-          matchedCandidates++;
-        }
-      });
-
-      // Wait for all Firestore deletions to complete
-      await Promise.all(deletePromises);
-      console.log(`✅ Deleted ${deletePromises.length} of ${totalCandidates} transaction candidates from Firestore (matched ${matchedCandidates})`);
-
-      // 2. Clean up associated generated receipts to avoid permission errors
-      if (candidateIds.length > 0) {
-        try {
-          const generatedReceiptsQuery = query(
-            collection(db, 'generatedReceipts'),
-            where('userId', '==', userId)
-          );
-          const receiptsSnapshot = await getDocs(generatedReceiptsQuery);
-          
-          const receiptDeletePromises: Promise<void>[] = [];
-          receiptsSnapshot.docs.forEach(doc => {
-            const data = doc.data();
-            if (data.candidateId && candidateIds.includes(data.candidateId)) {
-              console.log('🗑️ Deleting generated receipt for candidate:', data.candidateId);
-              receiptDeletePromises.push(deleteDoc(doc.ref));
-            }
-          });
-          
-          await Promise.all(receiptDeletePromises);
-          console.log(`✅ Deleted ${receiptDeletePromises.length} generated receipts from Firestore`);
-        } catch (receiptError) {
-          console.warn('⚠️ Could not clean up generated receipts:', receiptError);
-        }
-      }
-
-      // 3. Clear ALL AsyncStorage cache to ensure no orphaned data remains
-      console.log('🗑️ Clearing ALL transaction cache to prevent orphaned data...');
-      await this.clearTransactionCache(userId);
-
-      console.log('✅ Successfully cleaned up transactions for disconnected accounts');
-    } catch (error) {
-      console.error('❌ Error clearing transaction cache for accounts:', error);
-      throw error;
-    }
-  }
 
   /**
    * Dismiss/reject a transaction candidate

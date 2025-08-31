@@ -486,46 +486,10 @@ Set categoryConfidence based on how certain you are about the category classific
     }
 };
 
-export const captureAndAnalyzeReceipt = async (source: ImageSource = 'camera'): Promise<ReceiptData | null> => {
-    try {
-        const imageUri = await pickImage(source);
-        if (!imageUri) {
-            return null;
-        }
-
-        // Analyze the captured receipt
-        return await analyzeReceipt(imageUri);
-    } catch (error) {
-        console.error(`Error ${source === 'camera' ? 'capturing' : 'selecting'} and analyzing receipt:`, error);
-        throw error;
-    }
-};
 
 // For backward compatibility, export an object that mimics the class interface
 export const receiptOCRService = {
     pickImage,
     analyzeReceipt,
-    captureAndAnalyzeReceipt,
 };
 
-// Main function for testing (similar to the official example)
-export const testReceiptAnalysis = async (imageUri?: string): Promise<ReceiptData | void> => {
-    try {
-        let uri = imageUri;
-        if (!uri) {
-            const picked = await pickImage();
-            uri = picked === null ? undefined : picked;
-            if (!uri) {
-                console.log("No image selected");
-                return;
-            }
-        }
-
-        const receiptData = await analyzeReceipt(uri);
-        console.log("Extracted receipt data:", receiptData);
-        return receiptData;
-    } catch (error) {
-        console.error("Test failed:", error);
-        throw error;
-    }
-};
