@@ -82,6 +82,20 @@ export interface Receipt {
       amount: number;
       quantity: number;
     }[];
+    splitTender?: {
+      isSplitTender: boolean;
+      confidence: number;
+      payments: {
+        method: 'cash' | 'credit' | 'debit' | 'gift_card' | 'check' | 'other';
+        amount: number;
+        last4?: string;
+        approvalCode?: string;
+        cardType?: string;
+      }[];
+      changeGiven?: number;
+      totalVerified: boolean;
+      detectedPatterns: string[];
+    };
   };
   tax: {
     deductible: boolean;
