@@ -788,6 +788,14 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     return amount > 0 ? amount.toString() : '';
   };
 
+  // Calculate remaining amount for automatic population
+  const getRemainingAmount = () => {
+    const receiptTotal = parseFloat(formData.amount) || 0;
+    const totalPayments = formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0);
+    const remaining = receiptTotal - totalPayments;
+    return Math.max(0, remaining);
+  };
+
   // Handle payment method selection
   const handlePaymentMethodSelect = (paymentIndex: number, method: SplitTenderPayment['method']) => {
     const newPayments = [...formData.splitTender.payments];
@@ -1183,16 +1191,32 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           <View style={styles.fieldGroup}>
             <TouchableOpacity
               style={styles.checkboxRow}
-              onPress={() => setFormData(prev => ({
-                ...prev,
-                splitTender: { 
-                  ...prev.splitTender, 
-                  isSplitTender: !prev.splitTender.isSplitTender,
-                  payments: !prev.splitTender.isSplitTender && prev.splitTender.payments.length === 0 
-                    ? [{ method: 'cash', amount: 0 }, { method: 'credit', amount: 0 }]
-                    : prev.splitTender.payments
+              onPress={() => setFormData(prev => {
+                const isEnablingSplitTender = !prev.splitTender.isSplitTender;
+                if (isEnablingSplitTender && prev.splitTender.payments.length === 0) {
+                  const receiptTotal = parseFloat(prev.amount) || 0;
+                  const halfAmount = Math.round((receiptTotal / 2) * 100) / 100; // Round to 2 decimal places
+                  const remainder = receiptTotal - halfAmount;
+                  return {
+                    ...prev,
+                    splitTender: { 
+                      ...prev.splitTender, 
+                      isSplitTender: true,
+                      payments: [
+                        { method: 'cash', amount: halfAmount }, 
+                        { method: 'credit', amount: remainder }
+                      ]
+                    }
+                  };
                 }
-              }))}
+                return {
+                  ...prev,
+                  splitTender: { 
+                    ...prev.splitTender, 
+                    isSplitTender: isEnablingSplitTender
+                  }
+                };
+              })}
             >
               <View style={[styles.checkbox, {
                 backgroundColor: formData.splitTender.isSplitTender ? theme.gold.primary : theme.background.primary,
@@ -1296,6 +1320,20 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                             const amount = text === '' ? 0 : parseFloat(text) || 0;
                             const newPayments = [...formData.splitTender.payments];
                             newPayments[index] = { ...payment, amount };
+                            
+                            // Auto-adjust the last payment to match remaining amount if there are multiple payments
+                            if (newPayments.length > 1) {
+                              const receiptTotal = parseFloat(formData.amount) || 0;
+                              const lastIndex = newPayments.length - 1;
+                              
+                              // If this isn't the last payment, calculate remainder for the last payment
+                              if (index !== lastIndex) {
+                                const totalExceptLast = newPayments.slice(0, -1).reduce((sum, p) => sum + p.amount, 0);
+                                const remainder = Math.max(0, receiptTotal - totalExceptLast);
+                                newPayments[lastIndex] = { ...newPayments[lastIndex], amount: remainder };
+                              }
+                            }
+                            
                             setFormData(prev => ({
                               ...prev,
                               splitTender: { ...prev.splitTender, payments: newPayments }
@@ -1361,11 +1399,12 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                   backgroundColor: theme.gold.background,
                 }]}
                 onPress={() => {
+                  const remainingAmount = getRemainingAmount();
                   setFormData(prev => ({
                     ...prev,
                     splitTender: {
                       ...prev.splitTender,
-                      payments: [...prev.splitTender.payments, { method: 'cash', amount: 0 }]
+                      payments: [...prev.splitTender.payments, { method: 'cash', amount: remainingAmount }]
                     }
                   }));
                 }}
