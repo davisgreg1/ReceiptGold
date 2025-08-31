@@ -22,6 +22,14 @@ export interface GeneratedReceiptPDF {
     paymentMethod: string;
     transactionId: string;
     fallback?: boolean; // Optional flag for fallback receipts
+    splitTender?: {
+      isSplitTender: boolean;
+      payments: Array<{
+        method: 'cash' | 'credit' | 'debit' | 'gift_card' | 'check' | 'other';
+        amount: number;
+        last4?: string;
+      }>;
+    };
   };
 }
 
@@ -344,10 +352,26 @@ export class PDFReceiptService {
                         <span>TOTAL:</span>
                         <span>$${receiptData.total.toFixed(2)}</span>
                     </div>
-                    <div class="total-line" style="margin-top: 10px;">
-                        <span>PAYMENT METHOD:</span>
-                        <span>${receiptData.paymentMethod}</span>
-                    </div>
+                    
+                    ${receiptData.splitTender?.isSplitTender ? `
+                        <div style="border-top: 1px dashed #666; padding-top: 10px; margin-top: 10px;">
+                            <div class="total-line" style="font-weight: bold; margin-bottom: 8px;">
+                                <span>PAYMENT METHODS:</span>
+                                <span></span>
+                            </div>
+                            ${receiptData.splitTender.payments.map(payment => `
+                                <div class="total-line" style="font-size: 10px; margin-bottom: 3px;">
+                                    <span>${payment.method.replace('_', ' ').toUpperCase()}${payment.last4 ? ` ****${payment.last4}` : ''}:</span>
+                                    <span>$${payment.amount.toFixed(2)}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `
+                        <div class="total-line" style="margin-top: 10px;">
+                            <span>PAYMENT METHOD:</span>
+                            <span>${receiptData.paymentMethod}</span>
+                        </div>
+                    `}
                 </div>
             </div>
 
@@ -537,6 +561,14 @@ Summary:
 Subtotal: $${receiptData.subtotal.toFixed(2)}
 Tax: $${receiptData.tax.toFixed(2)}
 TOTAL: $${receiptData.total.toFixed(2)}
+
+${receiptData.splitTender?.isSplitTender ? `
+Payment Methods:
+----------------
+${receiptData.splitTender.payments.map(payment => 
+  `${payment.method.replace('_', ' ').toUpperCase()}${payment.last4 ? ` ****${payment.last4}` : ''}: $${payment.amount.toFixed(2)}`
+).join('\n')}
+` : `Payment Method: ${receiptData.paymentMethod || 'N/A'}`}
 
 Transaction ID: ${receiptData.transactionId || 'N/A'}
 Receipt ID: ${receiptData.receiptId || 'N/A'}

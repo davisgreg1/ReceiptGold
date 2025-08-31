@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -30,7 +30,7 @@ import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import BusinessSelector from '../components/BusinessSelector';
 import { Receipt } from '../services/firebaseService';
-import { SplitTenderInfo, SplitTenderPayment } from '../types/receipt';
+import { SplitTenderPayment } from '../types/receipt';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -342,7 +342,6 @@ const styles = StyleSheet.create({
 export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, navigation }) => {
   const initialReceipt = route.params.receipt;
   const [receipt, setReceipt] = useState(initialReceipt);
-  const [isLoadingReceipt, setIsLoadingReceipt] = useState(false);
   const { theme } = useTheme();
   const { user } = useAuth();
   const { selectedBusiness } = useBusiness();
@@ -540,7 +539,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   const isSplitTenderValid = useMemo(() => {
     if (!formData.splitTender.isSplitTender) return true;
     
-    const totalPayments = formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0);
+    const totalPayments = formData.splitTender.payments.reduce((sum: number, p: SplitTenderPayment) => sum + p.amount, 0);
     const receiptTotal = parseFloat(formData.amount) || 0;
     const tolerance = 0.01; // Allow for small rounding differences
     
@@ -643,7 +642,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           ...(formData.splitTender.isSplitTender && {
             splitTender: {
               ...formData.splitTender,
-              totalVerified: Math.abs(formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0) - parseFloat(formData.amount)) <= 0.01,
+              totalVerified: Math.abs(formData.splitTender.payments.reduce((sum: number, p: SplitTenderPayment) => sum + p.amount, 0) - parseFloat(formData.amount)) <= 0.01,
               confidence: 1.0, // User-edited data is always high confidence
             }
           }),
@@ -791,7 +790,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   // Calculate remaining amount for automatic population
   const getRemainingAmount = () => {
     const receiptTotal = parseFloat(formData.amount) || 0;
-    const totalPayments = formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0);
+    const totalPayments = formData.splitTender.payments.reduce((sum: number, p: SplitTenderPayment) => sum + p.amount, 0);
     const remaining = receiptTotal - totalPayments;
     return Math.max(0, remaining);
   };
@@ -1065,125 +1064,6 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           </View>
         </View>
 
-        {/* Items Section */}
-        <View style={[styles.card, { backgroundColor: theme.background.elevated }]}>
-          <Text style={[styles.cardTitle, { color: theme.text.primary }]}>Items</Text>
-          {formData.items.map((item: FormItem, index: number) => (
-            <View
-              key={index}
-              style={[styles.itemCard, { 
-                backgroundColor: theme.background.secondary,
-                borderColor: theme.border.secondary,
-              }]}
-            >
-              <View style={styles.itemHeader}>
-                <Text style={[styles.itemTitle, { color: theme.text.primary }]}>
-                  Item {index + 1}
-                </Text>
-                <TouchableOpacity 
-                  onPress={() => handleRemoveItem(index)}
-                  style={[styles.removeButton, { backgroundColor: theme.status.error + '20' }]}
-                >
-                  <Text style={[styles.removeButtonText, { color: theme.status.error }]}>Remove</Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.itemField}>
-                <View style={styles.fieldLabelContainer}>
-                  <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Description</Text>
-                  <Text style={[styles.characterCount, { color: theme.text.secondary, fontSize: 10 }]}>
-                    {item.description.length}/50
-                  </Text>
-                </View>
-                <TextInput
-                  style={[styles.itemInput, { 
-                    backgroundColor: theme.background.primary,
-                    color: theme.text.primary,
-                    borderColor: theme.border.secondary,
-                  }]}
-                  value={item.description}
-                  onChangeText={(text) => {
-                    if (text.length <= 50) {
-                      handleUpdateItem(index, 'description', text)
-                    }
-                  }}
-                  placeholder="Item description"
-                  placeholderTextColor={theme.text.secondary}
-                  maxLength={50}
-                />
-              </View>
-
-              <View style={styles.itemField}>
-                <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Quantity</Text>
-                <TextInput
-                  style={[styles.itemInput, { 
-                    backgroundColor: theme.background.primary,
-                    color: theme.text.primary,
-                    borderColor: theme.border.secondary,
-                  }]}
-                  value={item.quantity?.toString()}
-                  onChangeText={(text) => handleUpdateItem(index, 'quantity', text)}
-                  keyboardType="number-pad"
-                  placeholder="1"
-                  placeholderTextColor={theme.text.secondary}
-                />
-              </View>
-
-              <View style={styles.itemField}>
-                <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Price</Text>
-                <TextInput
-                  style={[styles.itemInput, { 
-                    backgroundColor: theme.background.primary,
-                    color: theme.text.primary,
-                    borderColor: theme.border.secondary,
-                  }]}
-                  value={item.price?.toString()}
-                  onChangeText={(text) => handleUpdateItem(index, 'price', text)}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={theme.text.secondary}
-                />
-              </View>
-
-              <View style={styles.itemField}>
-                <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Tax</Text>
-                <TextInput
-                  style={[styles.itemInput, { 
-                    backgroundColor: theme.background.primary,
-                    color: theme.text.primary,
-                    borderColor: theme.border.secondary,
-                  }]}
-                  value={item.tax?.toString()}
-                  onChangeText={(text) => handleUpdateItem(index, 'tax', text)}
-                  keyboardType="decimal-pad"
-                  placeholder="0.00"
-                  placeholderTextColor={theme.text.secondary}
-                />
-              </View>
-
-              <View style={[styles.itemTotal, { borderTopColor: theme.border.secondary }]}>
-                <Text style={[styles.itemTotalLabel, { color: theme.text.secondary }]}>
-                  Item Total
-                </Text>
-                <Text style={[styles.itemTotalValue, { color: theme.gold.primary }]}>
-                  {formatCurrency(item.quantity * item.price)}
-                </Text>
-              </View>
-            </View>
-          ))}
-
-          <TouchableOpacity
-            style={[styles.addButton, { 
-              borderColor: theme.gold.primary,
-              backgroundColor: theme.gold.background,
-            }]}
-            onPress={handleAddItem}
-          >
-            <Ionicons name="add-circle-outline" size={20} color={theme.gold.primary} style={{ marginRight: 8 }} />
-            <Text style={[styles.addButtonText, { color: theme.gold.primary }]}>Add Item</Text>
-          </TouchableOpacity>
-        </View>
-
         {/* Split Tender Section */}
         <View style={[styles.card, { backgroundColor: theme.background.elevated }]}>
           <Text style={[styles.cardTitle, { color: theme.text.primary }]}>Payment Methods</Text>
@@ -1328,7 +1208,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                               
                               // If this isn't the last payment, calculate remainder for the last payment
                               if (index !== lastIndex) {
-                                const totalExceptLast = newPayments.slice(0, -1).reduce((sum, p) => sum + p.amount, 0);
+                                const totalExceptLast = newPayments.slice(0, -1).reduce((sum: number, p: SplitTenderPayment) => sum + p.amount, 0);
                                 const remainder = Math.max(0, receiptTotal - totalExceptLast);
                                 newPayments[lastIndex] = { ...newPayments[lastIndex], amount: remainder };
                               }
@@ -1432,7 +1312,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                       Total Payments:
                     </Text>
                     <Text style={[styles.itemTotalValue, { color: theme.gold.primary }]}>
-                      {formatCurrency(formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0))}
+                      {formatCurrency(formData.splitTender.payments.reduce((sum: number, p: SplitTenderPayment) => sum + p.amount, 0))}
                     </Text>
                   </View>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
@@ -1441,7 +1321,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                       {formatCurrency(parseFloat(formData.amount) || 0)}
                     </Text>
                   </View>
-                  {Math.abs(formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0) - parseFloat(formData.amount)) > 0.01 && (
+                  {Math.abs(formData.splitTender.payments.reduce((sum: number, p: SplitTenderPayment) => sum + p.amount, 0) - parseFloat(formData.amount)) > 0.01 && (
                     <Text style={[{ color: theme.status.error, fontSize: 12, marginTop: 8, textAlign: 'center' }]}>
                       ⚠️ Payment amounts don't match receipt total
                     </Text>
@@ -1450,6 +1330,125 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
               </View>
             </>
           )}
+        </View>
+
+        {/* Items Section */}
+        <View style={[styles.card, { backgroundColor: theme.background.elevated }]}>
+          <Text style={[styles.cardTitle, { color: theme.text.primary }]}>Items</Text>
+          {formData.items.map((item: FormItem, index: number) => (
+            <View
+              key={index}
+              style={[styles.itemCard, { 
+                backgroundColor: theme.background.secondary,
+                borderColor: theme.border.secondary,
+              }]}
+            >
+              <View style={styles.itemHeader}>
+                <Text style={[styles.itemTitle, { color: theme.text.primary }]}>
+                  Item {index + 1}
+                </Text>
+                <TouchableOpacity 
+                  onPress={() => handleRemoveItem(index)}
+                  style={[styles.removeButton, { backgroundColor: theme.status.error + '20' }]}
+                >
+                  <Text style={[styles.removeButtonText, { color: theme.status.error }]}>Remove</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.itemField}>
+                <View style={styles.fieldLabelContainer}>
+                  <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Description</Text>
+                  <Text style={[styles.characterCount, { color: theme.text.secondary, fontSize: 10 }]}>
+                    {item.description.length}/50
+                  </Text>
+                </View>
+                <TextInput
+                  style={[styles.itemInput, { 
+                    backgroundColor: theme.background.primary,
+                    color: theme.text.primary,
+                    borderColor: theme.border.secondary,
+                  }]}
+                  value={item.description}
+                  onChangeText={(text) => {
+                    if (text.length <= 50) {
+                      handleUpdateItem(index, 'description', text)
+                    }
+                  }}
+                  placeholder="Item description"
+                  placeholderTextColor={theme.text.secondary}
+                  maxLength={50}
+                />
+              </View>
+
+              <View style={styles.itemField}>
+                <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Quantity</Text>
+                <TextInput
+                  style={[styles.itemInput, { 
+                    backgroundColor: theme.background.primary,
+                    color: theme.text.primary,
+                    borderColor: theme.border.secondary,
+                  }]}
+                  value={item.quantity?.toString()}
+                  onChangeText={(text) => handleUpdateItem(index, 'quantity', text)}
+                  keyboardType="number-pad"
+                  placeholder="1"
+                  placeholderTextColor={theme.text.secondary}
+                />
+              </View>
+
+              <View style={styles.itemField}>
+                <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Price</Text>
+                <TextInput
+                  style={[styles.itemInput, { 
+                    backgroundColor: theme.background.primary,
+                    color: theme.text.primary,
+                    borderColor: theme.border.secondary,
+                  }]}
+                  value={item.price?.toString()}
+                  onChangeText={(text) => handleUpdateItem(index, 'price', text)}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor={theme.text.secondary}
+                />
+              </View>
+
+              <View style={styles.itemField}>
+                <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Tax</Text>
+                <TextInput
+                  style={[styles.itemInput, { 
+                    backgroundColor: theme.background.primary,
+                    color: theme.text.primary,
+                    borderColor: theme.border.secondary,
+                  }]}
+                  value={item.tax?.toString()}
+                  onChangeText={(text) => handleUpdateItem(index, 'tax', text)}
+                  keyboardType="decimal-pad"
+                  placeholder="0.00"
+                  placeholderTextColor={theme.text.secondary}
+                />
+              </View>
+
+              <View style={[styles.itemTotal, { borderTopColor: theme.border.secondary }]}>
+                <Text style={[styles.itemTotalLabel, { color: theme.text.secondary }]}>
+                  Item Total
+                </Text>
+                <Text style={[styles.itemTotalValue, { color: theme.gold.primary }]}>
+                  {formatCurrency(item.quantity * item.price)}
+                </Text>
+              </View>
+            </View>
+          ))}
+
+          <TouchableOpacity
+            style={[styles.addButton, { 
+              borderColor: theme.gold.primary,
+              backgroundColor: theme.gold.background,
+            }]}
+            onPress={handleAddItem}
+          >
+            <Ionicons name="add-circle-outline" size={20} color={theme.gold.primary} style={{ marginRight: 8 }} />
+            <Text style={[styles.addButtonText, { color: theme.gold.primary }]}>Add Item</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
 

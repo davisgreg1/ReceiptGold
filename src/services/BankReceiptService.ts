@@ -384,6 +384,14 @@ export class BankReceiptService {
         paymentMethod: receiptData.receiptData?.paymentMethod || 'Card Payment',
         transactionId: receiptData.metadata?.originalTransactionId || receiptId,
         receiptId: receiptId,
+        splitTender: receiptData.extractedData?.splitTender?.isSplitTender ? {
+          isSplitTender: true,
+          payments: receiptData.extractedData.splitTender.payments.map((payment: any) => ({
+            method: payment.method,
+            amount: Number(payment.amount) || 0,
+            last4: payment.last4
+          }))
+        } : undefined,
       };
 
       // Regenerate PDF with fresh receipt data
