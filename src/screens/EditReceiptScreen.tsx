@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -9,6 +9,8 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -28,6 +30,7 @@ import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
 import BusinessSelector from '../components/BusinessSelector';
 import { Receipt } from '../services/firebaseService';
+import { SplitTenderInfo, SplitTenderPayment } from '../types/receipt';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 
@@ -272,6 +275,46 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   
+  // Payment Method Dropdown
+  dropdownOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownContainer: {
+    width: '80%',
+    maxHeight: '60%',
+    borderRadius: 16,
+    padding: 8,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginVertical: 2,
+  },
+  dropdownItemIcon: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 16,
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    fontWeight: '500',
+    flex: 1,
+  },
+  dropdownItemSelected: {
+    opacity: 0.7,
+  },
+  
   // Save Button
   saveButtonContainer: {
     padding: 16,
@@ -307,6 +350,19 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   const bankReceiptService = BankReceiptService.getInstance();
   const [loading, setLoading] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showPaymentMethodDropdown, setShowPaymentMethodDropdown] = useState(false);
+  const [selectedPaymentIndex, setSelectedPaymentIndex] = useState<number | null>(null);
+  const [paymentAmountInputs, setPaymentAmountInputs] = useState<{[key: number]: string}>({});
+
+  // Payment method options with display info
+  const paymentMethodOptions = [
+    { value: 'cash', label: 'Cash', icon: '💵', color: '#4CAF50' },
+    { value: 'credit', label: 'Credit Card', icon: '💳', color: '#2196F3' },
+    { value: 'debit', label: 'Debit Card', icon: '💳', color: '#FF9800' },
+    { value: 'gift_card', label: 'Gift Card', icon: '🎁', color: '#9C27B0' },
+    { value: 'check', label: 'Check', icon: '📝', color: '#795548' },
+    { value: 'other', label: 'Other', icon: '💰', color: '#607D8B' },
+  ] as const;
 
   // Helper function to safely parse dates
   const safeParseDate = (dateValue: any): Date => {
@@ -354,6 +410,13 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       amount: (receipt.tax as any)?.amount ?? 0,
     },
     taxAmountDisplay: ((receipt.tax as any)?.amount ?? 0).toFixed(2),
+    splitTender: receipt.extractedData?.splitTender || {
+      isSplitTender: false,
+      confidence: 1.0,
+      payments: [],
+      totalVerified: false,
+      detectedPatterns: []
+    },
   });
 
   console.log('Initial receipt data:', {
@@ -366,6 +429,8 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     businessIdType: typeof receipt.businessId,
     fullTaxObject: receipt.tax,
     taxAmount: (receipt.tax as any)?.amount,
+    extractedData: receipt.extractedData,
+    splitTender: receipt.extractedData?.splitTender,
   });
 
   console.log('Initial formData:', {
@@ -407,6 +472,13 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       currency: receipt.currency || 'USD',
       businessId: receipt.businessId ?? null,
       taxAmountDisplay: ((receipt.tax as any)?.amount ?? 0).toFixed(2),
+      splitTender: receipt.extractedData?.splitTender || {
+        isSplitTender: false,
+        confidence: 1.0,
+        payments: [],
+        totalVerified: false,
+        detectedPatterns: []
+      },
     }));
   }, [receipt, selectedBusiness?.id]);
 
@@ -439,11 +511,19 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 currency: refreshedReceipt.currency || 'USD',
                 businessId: refreshedReceipt.businessId ?? null,
                 taxAmountDisplay: ((refreshedReceipt.tax as any)?.amount ?? 0).toFixed(2),
+                splitTender: refreshedReceipt.extractedData?.splitTender || {
+                  isSplitTender: false,
+                  confidence: 1.0,
+                  payments: [],
+                  totalVerified: false,
+                  detectedPatterns: []
+                },
               }));
               
               console.log('Receipt refreshed:', {
                 vendor: refreshedReceipt.vendor,
                 businessId: refreshedReceipt.businessId,
+                splitTender: refreshedReceipt.extractedData?.splitTender,
               });
             }
           } catch (error) {
@@ -455,6 +535,17 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       fetchLatestReceipt();
     }, [route.params?.receipt?.receiptId])
   );
+
+  // Check if split-tender amounts are valid
+  const isSplitTenderValid = useMemo(() => {
+    if (!formData.splitTender.isSplitTender) return true;
+    
+    const totalPayments = formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0);
+    const receiptTotal = parseFloat(formData.amount) || 0;
+    const tolerance = 0.01; // Allow for small rounding differences
+    
+    return Math.abs(totalPayments - receiptTotal) <= tolerance;
+  }, [formData.splitTender, formData.amount]);
 
   // Track if there are unsaved changes
   const hasUnsavedChanges = useMemo(() => {
@@ -523,9 +614,16 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         return;
       }
 
+      // Validate split-tender amounts
+      if (!isSplitTenderValid) {
+        showError('Error', 'Split-tender payment amounts must equal the receipt total');
+        return;
+      }
+
       // Create updated receipt data
       const updatedReceiptBase = {
         vendor: formData.vendor,
+        businessName: formData.vendor, // Ensure businessName matches vendor for consistency
         amount: parseFloat(formData.amount),
         date: formData.date,
         description: formData.description,
@@ -542,6 +640,13 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
             tax: item.tax || 0
           })),
           confidence: receipt.extractedData?.confidence || 1,
+          ...(formData.splitTender.isSplitTender && {
+            splitTender: {
+              ...formData.splitTender,
+              totalVerified: Math.abs(formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0) - parseFloat(formData.amount)) <= 0.01,
+              confidence: 1.0, // User-edited data is always high confidence
+            }
+          }),
         },
         tax: {
           deductible: formData.tax.deductible,
@@ -559,17 +664,22 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         businessId: formData.businessId || undefined
       };
 
-      console.log('Saving receipt with data:', {
+      console.log('💾 Saving receipt with data:', {
+        receiptId: receipt.receiptId,
+        originalVendor: receipt.vendor,
         formDataVendor: formData.vendor,
-        formDataAmount: formData.amount,
-        formDataBusinessId: formData.businessId,
         updatedReceiptVendor: updatedReceipt.vendor,
-        updatedReceiptBusinessId: updatedReceipt.businessId,
-        receiptId: receipt.receiptId
+        hasVendorChanged: formData.vendor !== receipt.vendor,
+        fullUpdateObject: updatedReceipt
       });
 
       // Update the receipt with only the changed fields
+      console.log('🔥 About to update receipt in Firestore:', {
+        receiptId: receipt.receiptId,
+        updateData: updatedReceipt
+      });
       await receiptService.updateReceipt(receipt.receiptId, updatedReceipt);
+      console.log('✅ Receipt updated in Firestore successfully');
       
       // Update local receipt state with the saved changes
       setReceipt(prevReceipt => {
@@ -579,9 +689,10 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           updatedAt: new Date()
         };
         
-        console.log('Receipt state updated:', {
+        console.log('🔄 Receipt state updated:', {
           oldVendor: prevReceipt.vendor,
           newVendor: newReceipt.vendor,
+          vendorChanged: prevReceipt.vendor !== newReceipt.vendor,
           oldBusinessId: prevReceipt.businessId,
           newBusinessId: newReceipt.businessId
         });
@@ -610,6 +721,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           primaryButtonText: 'OK',
           onPrimaryPress: () => {
             hideAlert();
+            // Simply go back - the useFocusEffect in ReceiptsListScreen will handle the refresh
             navigation.goBack();
           },
         }
@@ -659,6 +771,33 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         return item;
       })
     }));
+  };
+
+  // Get payment method display info
+  const getPaymentMethodInfo = (method: SplitTenderPayment['method']) => {
+    return paymentMethodOptions.find(option => option.value === method) || paymentMethodOptions[5]; // fallback to 'other'
+  };
+
+  // Get display value for payment amount input
+  const getPaymentAmountDisplayValue = (paymentIndex: number, amount: number) => {
+    // If user is currently editing this field, use the input value
+    if (paymentAmountInputs[paymentIndex] !== undefined) {
+      return paymentAmountInputs[paymentIndex];
+    }
+    // Otherwise, show the formatted amount or empty string for 0
+    return amount > 0 ? amount.toString() : '';
+  };
+
+  // Handle payment method selection
+  const handlePaymentMethodSelect = (paymentIndex: number, method: SplitTenderPayment['method']) => {
+    const newPayments = [...formData.splitTender.payments];
+    newPayments[paymentIndex] = { ...newPayments[paymentIndex], method };
+    setFormData(prev => ({
+      ...prev,
+      splitTender: { ...prev.splitTender, payments: newPayments }
+    }));
+    setShowPaymentMethodDropdown(false);
+    setSelectedPaymentIndex(null);
   };
 
   return (
@@ -1036,28 +1175,329 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
             <Text style={[styles.addButtonText, { color: theme.gold.primary }]}>Add Item</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Split Tender Section */}
+        <View style={[styles.card, { backgroundColor: theme.background.elevated }]}>
+          <Text style={[styles.cardTitle, { color: theme.text.primary }]}>Payment Methods</Text>
+          
+          <View style={styles.fieldGroup}>
+            <TouchableOpacity
+              style={styles.checkboxRow}
+              onPress={() => setFormData(prev => ({
+                ...prev,
+                splitTender: { 
+                  ...prev.splitTender, 
+                  isSplitTender: !prev.splitTender.isSplitTender,
+                  payments: !prev.splitTender.isSplitTender && prev.splitTender.payments.length === 0 
+                    ? [{ method: 'cash', amount: 0 }, { method: 'credit', amount: 0 }]
+                    : prev.splitTender.payments
+                }
+              }))}
+            >
+              <View style={[styles.checkbox, {
+                backgroundColor: formData.splitTender.isSplitTender ? theme.gold.primary : theme.background.primary,
+                borderColor: formData.splitTender.isSplitTender ? theme.gold.primary : theme.border.primary,
+              }]}>
+                {formData.splitTender.isSplitTender && (
+                  <Ionicons name="checkmark" size={16} color="white" />
+                )}
+              </View>
+              <Text style={[styles.checkboxText, { color: theme.text.primary }]}>Split Tender Payment</Text>
+            </TouchableOpacity>
+            
+            {formData.splitTender.isSplitTender && (
+              <Text style={[styles.fieldLabel, { color: theme.text.secondary, fontSize: 12, marginTop: 8 }]}>
+                This receipt was paid using multiple payment methods
+              </Text>
+            )}
+          </View>
+
+          {formData.splitTender.isSplitTender && (
+            <>
+              {formData.splitTender.payments.map((payment: SplitTenderPayment, index: number) => (
+                <View
+                  key={index}
+                  style={[styles.itemCard, { 
+                    backgroundColor: theme.background.secondary,
+                    borderColor: theme.border.secondary,
+                  }]}
+                >
+                  <View style={styles.itemHeader}>
+                    <Text style={[styles.itemTitle, { color: theme.text.primary }]}>
+                      Payment {index + 1}
+                    </Text>
+                    {formData.splitTender.payments.length > 1 && (
+                      <TouchableOpacity 
+                        onPress={() => {
+                          const newPayments = formData.splitTender.payments.filter((_, i) => i !== index);
+                          setFormData(prev => ({
+                            ...prev,
+                            splitTender: { ...prev.splitTender, payments: newPayments }
+                          }));
+                        }}
+                        style={[styles.removeButton, { backgroundColor: theme.status.error + '20' }]}
+                      >
+                        <Text style={[styles.removeButtonText, { color: theme.status.error }]}>Remove</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  <View style={styles.itemField}>
+                    <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Payment Method</Text>
+                    <TouchableOpacity
+                      style={[styles.inputContainer, { 
+                        backgroundColor: theme.background.primary,
+                        borderColor: theme.border.secondary,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }]}
+                      onPress={() => {
+                        setSelectedPaymentIndex(index);
+                        setShowPaymentMethodDropdown(true);
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                        <Text style={{ fontSize: 18, marginRight: 12 }}>
+                          {getPaymentMethodInfo(payment.method).icon}
+                        </Text>
+                        <Text style={[styles.input, { color: theme.text.primary, flex: 1 }]}>
+                          {getPaymentMethodInfo(payment.method).label}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-down" size={18} color={theme.text.secondary} />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.itemField}>
+                    <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Amount</Text>
+                    <View style={[styles.inputContainer, { 
+                      backgroundColor: theme.background.primary,
+                      borderColor: theme.border.secondary,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }]}>
+                      <Text style={[{ color: theme.text.secondary, fontSize: 16, fontWeight: '500', marginRight: 8 }]}>$</Text>
+                      <TextInput
+                        style={[styles.input, { 
+                          color: theme.text.primary,
+                          flex: 1,
+                        }]}
+                        value={getPaymentAmountDisplayValue(index, payment.amount)}
+                        onChangeText={(text) => {
+                          // Store the raw input text for display
+                          setPaymentAmountInputs(prev => ({
+                            ...prev,
+                            [index]: text
+                          }));
+
+                          // Allow empty string or valid decimal numbers
+                          if (text === '' || /^\d*\.?\d*$/.test(text)) {
+                            const amount = text === '' ? 0 : parseFloat(text) || 0;
+                            const newPayments = [...formData.splitTender.payments];
+                            newPayments[index] = { ...payment, amount };
+                            setFormData(prev => ({
+                              ...prev,
+                              splitTender: { ...prev.splitTender, payments: newPayments }
+                            }));
+                          }
+                        }}
+                        onBlur={() => {
+                          // Clear the input tracking when user finishes editing
+                          setPaymentAmountInputs(prev => {
+                            const newInputs = { ...prev };
+                            delete newInputs[index];
+                            return newInputs;
+                          });
+                        }}
+                        keyboardType="decimal-pad"
+                        placeholder="0.00"
+                        placeholderTextColor={theme.text.secondary}
+                      />
+                    </View>
+                  </View>
+
+                  {(payment.method === 'credit' || payment.method === 'debit') && (
+                    <View style={styles.itemField}>
+                      <Text style={[styles.itemLabel, { color: theme.text.secondary }]}>Last 4 Digits</Text>
+                      <View style={[styles.inputContainer, { 
+                        backgroundColor: theme.background.primary,
+                        borderColor: theme.border.secondary,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }]}>
+                        <Text style={[{ color: theme.text.secondary, fontSize: 16, fontWeight: '500', marginRight: 8 }]}>****</Text>
+                        <TextInput
+                          style={[styles.input, { 
+                            color: theme.text.primary,
+                            flex: 1,
+                            letterSpacing: 2,
+                          }]}
+                          value={payment.last4 || ''}
+                          onChangeText={(text) => {
+                            if (text.length <= 4 && /^\d*$/.test(text)) {
+                              const newPayments = [...formData.splitTender.payments];
+                              newPayments[index] = { ...payment, last4: text };
+                              setFormData(prev => ({
+                                ...prev,
+                                splitTender: { ...prev.splitTender, payments: newPayments }
+                              }));
+                            }
+                          }}
+                          keyboardType="number-pad"
+                          placeholder="1234"
+                          placeholderTextColor={theme.text.secondary}
+                          maxLength={4}
+                        />
+                      </View>
+                    </View>
+                  )}
+                </View>
+              ))}
+
+              <TouchableOpacity
+                style={[styles.addButton, { 
+                  borderColor: theme.gold.primary,
+                  backgroundColor: theme.gold.background,
+                }]}
+                onPress={() => {
+                  setFormData(prev => ({
+                    ...prev,
+                    splitTender: {
+                      ...prev.splitTender,
+                      payments: [...prev.splitTender.payments, { method: 'cash', amount: 0 }]
+                    }
+                  }));
+                }}
+              >
+                <Ionicons name="add-circle-outline" size={20} color={theme.gold.primary} style={{ marginRight: 8 }} />
+                <Text style={[styles.addButtonText, { color: theme.gold.primary }]}>Add Payment Method</Text>
+              </TouchableOpacity>
+
+              {/* Payment Summary */}
+              <View style={[styles.taxContainer, { backgroundColor: theme.background.secondary, marginTop: 16 }]}>
+                <View style={styles.fieldGroup}>
+                  <Text style={[styles.fieldLabel, { color: theme.text.primary }]}>Payment Summary</Text>
+                  {formData.splitTender.payments.map((payment, index) => (
+                    <View key={index} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 }}>
+                      <Text style={[{ color: theme.text.secondary }]}>
+                        {payment.method.replace('_', ' ').toUpperCase()}{payment.last4 ? ` ****${payment.last4}` : ''}:
+                      </Text>
+                      <Text style={[{ color: theme.text.primary, fontWeight: '600' }]}>
+                        {formatCurrency(payment.amount)}
+                      </Text>
+                    </View>
+                  ))}
+                  <View style={[styles.itemTotal, { borderTopColor: theme.border.secondary, marginTop: 8, paddingTop: 8 }]}>
+                    <Text style={[styles.itemTotalLabel, { color: theme.text.secondary }]}>
+                      Total Payments:
+                    </Text>
+                    <Text style={[styles.itemTotalValue, { color: theme.gold.primary }]}>
+                      {formatCurrency(formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0))}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                    <Text style={[{ color: theme.text.secondary }]}>Receipt Total:</Text>
+                    <Text style={[{ color: theme.text.primary, fontWeight: '600' }]}>
+                      {formatCurrency(parseFloat(formData.amount) || 0)}
+                    </Text>
+                  </View>
+                  {Math.abs(formData.splitTender.payments.reduce((sum, p) => sum + p.amount, 0) - parseFloat(formData.amount)) > 0.01 && (
+                    <Text style={[{ color: theme.status.error, fontSize: 12, marginTop: 8, textAlign: 'center' }]}>
+                      ⚠️ Payment amounts don't match receipt total
+                    </Text>
+                  )}
+                </View>
+              </View>
+            </>
+          )}
+        </View>
       </ScrollView>
 
       {/* Save Button */}
       <View style={styles.saveButtonContainer}>
         <TouchableOpacity
           style={[styles.saveButton, { 
-            backgroundColor: theme.gold.primary,
-            opacity: loading ? 0.7 : 1,
+            backgroundColor: (!isSplitTenderValid || loading) ? theme.text.secondary : theme.gold.primary,
+            opacity: (!isSplitTenderValid || loading) ? 0.5 : 1,
           }]}
           onPress={handleSave}
-          disabled={loading}
+          disabled={loading || !isSplitTenderValid}
         >
           {loading ? (
             <ActivityIndicator color="white" size="small" />
           ) : (
             <>
-              <Ionicons name="checkmark-circle" size={18} color="white" style={{ marginRight: 6 }} />
-              <Text style={styles.saveButtonText}>Save Changes</Text>
+              <Ionicons 
+                name={!isSplitTenderValid ? "alert-circle" : "checkmark-circle"} 
+                size={18} 
+                color="white" 
+                style={{ marginRight: 6 }} 
+              />
+              <Text style={styles.saveButtonText}>
+                {!isSplitTenderValid ? "Payment Amounts Don't Match" : "Save Changes"}
+              </Text>
             </>
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Payment Method Dropdown Modal */}
+      <Modal
+        visible={showPaymentMethodDropdown}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setShowPaymentMethodDropdown(false);
+          setSelectedPaymentIndex(null);
+        }}
+      >
+        <TouchableOpacity 
+          style={styles.dropdownOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setShowPaymentMethodDropdown(false);
+            setSelectedPaymentIndex(null);
+          }}
+        >
+          <View style={[styles.dropdownContainer, { backgroundColor: theme.background.elevated }]}>
+            <FlatList
+              data={paymentMethodOptions}
+              keyExtractor={(item) => item.value}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item }) => {
+                const isSelected = selectedPaymentIndex !== null && 
+                  formData.splitTender.payments[selectedPaymentIndex]?.method === item.value;
+                
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.dropdownItem,
+                      { backgroundColor: theme.background.secondary },
+                      isSelected && styles.dropdownItemSelected,
+                    ]}
+                    onPress={() => {
+                      if (selectedPaymentIndex !== null) {
+                        handlePaymentMethodSelect(selectedPaymentIndex, item.value);
+                      }
+                    }}
+                  >
+                    <Text style={{ fontSize: 20, marginRight: 16 }}>
+                      {item.icon}
+                    </Text>
+                    <Text style={[styles.dropdownItemText, { color: theme.text.primary }]}>
+                      {item.label}
+                    </Text>
+                    {isSelected && (
+                      <Ionicons name="checkmark" size={20} color={theme.gold.primary} />
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 };

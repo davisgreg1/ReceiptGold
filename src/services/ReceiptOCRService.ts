@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { ReceiptCategoryService } from './ReceiptCategoryService';
+import { SplitTenderInfo, SplitTenderPayment } from '../types/receipt';
 import * as FileSystem from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
 
@@ -28,6 +29,7 @@ export interface ReceiptData {
     paymentMethod?: string;
     category?: ReceiptCategory;
     categoryConfidence?: number;
+    splitTender?: SplitTenderInfo;
 }
 
 interface OpenAIReceiptResponse {
@@ -49,6 +51,7 @@ interface OpenAIReceiptResponse {
     paymentMethod?: string | null;
     category?: string | null;
     categoryConfidence?: number | null;
+    rawText?: string | null;
 }
 
 const logDebug = (message: string, data?: any): void => {
@@ -147,6 +150,144 @@ const parseDate = (dateString: string): Date | undefined => {
         console.error(`Error parsing date: ${dateString}`, error);
         return undefined;
     }
+};
+
+// Split-tender detection function
+const detectSplitTender = (ocrText: string, receiptTotal?: number): SplitTenderInfo => {
+    const detectedPatterns: string[] = [];
+    const payments: SplitTenderPayment[] = [];
+    
+    // Common payment method patterns
+    const paymentPatterns = [
+        // Cash patterns
+        { 
+            pattern: /(?:CASH|CASH\s*TENDER|CASH\s*PAID)[:\s]*\$?([0-9]+\.?[0-9]*)/gi,
+            method: 'cash' as const,
+            name: 'cash'
+        },
+        // Credit card patterns  
+        {
+            pattern: /(?:CREDIT|VISA|MASTERCARD|MASTER|AMEX|AMERICAN\s*EXPRESS|DISCOVER)[:\s]*(?:XXXX\s*)?(\d{4})?[:\s]*\$?([0-9]+\.?[0-9]*)/gi,
+            method: 'credit' as const,
+            name: 'credit'
+        },
+        // Debit card patterns
+        {
+            pattern: /(?:DEBIT|DEBIT\s*CARD)[:\s]*(?:XXXX\s*)?(\d{4})?[:\s]*\$?([0-9]+\.?[0-9]*)/gi,
+            method: 'debit' as const,
+            name: 'debit'
+        },
+        // Gift card patterns
+        {
+            pattern: /(?:GIFT\s*CARD|GIFTCARD)[:\s]*(?:XXXX\s*)?(\d{4})?[:\s]*\$?([0-9]+\.?[0-9]*)/gi,
+            method: 'gift_card' as const,
+            name: 'gift_card'
+        },
+        // Check patterns
+        {
+            pattern: /(?:CHECK|CHEQUE)[:\s]*(?:#?\d+)?[:\s]*\$?([0-9]+\.?[0-9]*)/gi,
+            method: 'check' as const,
+            name: 'check'
+        },
+        // Generic card patterns (fallback)
+        {
+            pattern: /(?:CARD\s*XXXX\s*(\d{4}))[:\s]*\$?([0-9]+\.?[0-9]*)/gi,
+            method: 'other' as const,
+            name: 'card'
+        }
+    ];
+
+    // Look for split tender indicators
+    const splitTenderIndicators = [
+        /SPLIT\s*TENDER/gi,
+        /MULTIPLE\s*PAYMENTS/gi,
+        /PARTIAL\s*PAYMENT/gi,
+        /(?:CASH|CARD|CREDIT|DEBIT).*(?:CASH|CARD|CREDIT|DEBIT)/gi
+    ];
+
+    let foundSplitIndicator = false;
+    for (const indicator of splitTenderIndicators) {
+        if (indicator.test(ocrText)) {
+            foundSplitIndicator = true;
+            detectedPatterns.push(indicator.source);
+            break;
+        }
+    }
+
+    // Extract payment methods and amounts
+    for (const paymentPattern of paymentPatterns) {
+        const matches = [...ocrText.matchAll(paymentPattern.pattern)];
+        
+        for (const match of matches) {
+            let amount: number;
+            let last4: string | undefined;
+            
+            if (paymentPattern.method === 'credit' || paymentPattern.method === 'debit') {
+                // For card payments, check if we have last4 digits
+                if (match[1] && match[2]) {
+                    last4 = match[1];
+                    amount = parseFloat(match[2]);
+                } else {
+                    amount = parseFloat(match[1]);
+                }
+            } else {
+                amount = parseFloat(match[1] || match[2]);
+            }
+            
+            if (!isNaN(amount) && amount > 0) {
+                payments.push({
+                    method: paymentPattern.method,
+                    amount: amount,
+                    last4: last4,
+                });
+                detectedPatterns.push(`${paymentPattern.name}:$${amount}`);
+            }
+        }
+    }
+
+    // Look for change given (subtract from cash payment)
+    const changePattern = /(?:CHANGE|CHANGE\s*DUE|CHANGE\s*GIVEN)[:\s]*\$?([0-9]+\.?[0-9]*)/gi;
+    let changeGiven: number | undefined;
+    const changeMatch = changePattern.exec(ocrText);
+    if (changeMatch) {
+        changeGiven = parseFloat(changeMatch[1]);
+        detectedPatterns.push(`change:$${changeGiven}`);
+        
+        // Adjust cash payment if change was given
+        const cashPayment = payments.find(p => p.method === 'cash');
+        if (cashPayment && changeGiven) {
+            cashPayment.amount += changeGiven; // Cash tendered = payment + change
+        }
+    }
+
+    // Determine if this is a split tender transaction
+    const isSplitTender = payments.length > 1 || foundSplitIndicator;
+    
+    // Calculate confidence
+    let confidence = 0;
+    if (foundSplitIndicator) confidence += 0.4;
+    if (payments.length > 1) confidence += 0.4;
+    if (payments.length > 0) confidence += 0.2;
+    
+    // Verify total if available
+    let totalVerified = false;
+    if (receiptTotal && payments.length > 0) {
+        const paymentsSum = payments.reduce((sum, p) => sum + p.amount, 0);
+        const tolerance = 0.01; // Allow for small rounding differences
+        totalVerified = Math.abs(paymentsSum - receiptTotal) <= tolerance;
+        
+        if (totalVerified) confidence += 0.2;
+        detectedPatterns.push(`total_verified:${totalVerified}`);
+    }
+
+    return {
+        isSplitTender,
+        confidence: Math.min(confidence, 1.0),
+        payments,
+        changeGiven,
+        totalVerified,
+        detectedPatterns
+    };
 };
 
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -307,7 +448,8 @@ export const analyzeReceipt = async (
   ] or null,
   "paymentMethod": "string or null",
   "category": "string or null",
-  "categoryConfidence": number (0.0 to 1.0) or null
+  "categoryConfidence": number (0.0 to 1.0) or null,
+  "rawText": "string - the raw OCR text extracted from the receipt"
 }
 
 Guidelines:
@@ -321,6 +463,7 @@ Guidelines:
 - For times, use HH:MM 24-hour format
 - If information is not clearly visible or present, use null
 - Items array should only include line items with prices, not totals or taxes
+- Include the complete raw text of the receipt in the rawText field for payment analysis
 
 CATEGORY CLASSIFICATION:
 Based on the merchant name, items purchased, and context, classify the receipt into one of these categories:
@@ -457,6 +600,25 @@ Set categoryConfidence based on how certain you are about the category classific
         receiptData.categoryConfidence = finalCategoryConfidence;
 
         console.log(`Final receipt categorization: '${finalCategory}' (confidence: ${Math.round(finalCategoryConfidence * 100)}%)`);
+
+        // Analyze split-tender payments if we have raw text
+        if (parsedData.rawText) {
+            console.log("Analyzing receipt for split-tender payments...");
+            const splitTenderInfo = detectSplitTender(parsedData.rawText, receiptData.total);
+            
+            if (splitTenderInfo.isSplitTender) {
+                receiptData.splitTender = splitTenderInfo;
+                console.log(`Split-tender detected with ${Math.round(splitTenderInfo.confidence * 100)}% confidence:`, {
+                    payments: splitTenderInfo.payments.length,
+                    totalVerified: splitTenderInfo.totalVerified,
+                    patterns: splitTenderInfo.detectedPatterns
+                });
+            } else {
+                console.log("No split-tender payment detected");
+            }
+        } else {
+            console.log("No raw text available for split-tender analysis");
+        }
 
         logDebug("Extracted receipt data:", receiptData);
 
