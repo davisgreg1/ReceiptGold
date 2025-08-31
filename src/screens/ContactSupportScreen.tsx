@@ -23,7 +23,7 @@ interface ContactSupportScreenProps {
   navigation: any;
 }
 
-type SupportCategory = 'billing' | 'technical' | 'feature' | 'general';
+type SupportCategory = 'billing' | 'technical' | 'general';
 
 export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
   navigation,
@@ -41,7 +41,6 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
   const supportCategories = [
     { id: 'billing', title: 'Billing & Subscription', icon: 'card-outline' },
     { id: 'technical', title: 'Technical Issues', icon: 'bug-outline' },
-    { id: 'feature', title: 'Feature Request', icon: 'bulb-outline' },
     { id: 'general', title: 'General Support', icon: 'help-circle-outline' },
   ] as const;
 
@@ -91,19 +90,20 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         <ScrollView
           ref={scrollViewRef}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          automaticallyAdjustKeyboardInsets={true}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+          contentInsetAdjustmentBehavior="automatic"
         >
           {/* Header */}
           <View style={styles.header}>
             <View style={[styles.logoContainer, { backgroundColor: theme.gold.background }]}>
-              <Logo size={60} />
+              <Ionicons name="headset-outline" size={80} color={theme.gold.primary} />
             </View>
             <Text style={[styles.title, { color: theme.text.primary }]}>
               Contact Support
@@ -151,7 +151,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
                   Call Us
                 </Text>
                 <Text style={[styles.quickContactSubtext, { color: theme.text.tertiary }]}>
-                  +1 (555) RECEIPT
+                  +1 (470) 527-8470
                 </Text>
               </TouchableOpacity>
             </View>
@@ -231,10 +231,10 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
                 onFocus={() => {
                   setTimeout(() => {
                     scrollViewRef.current?.scrollTo({
-                      y: 400,
+                      y: 480,
                       animated: true,
                     });
-                  }, 100);
+                  }, 150);
                 }}
               />
             </View>
@@ -264,10 +264,10 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
                 onFocus={() => {
                   setTimeout(() => {
                     scrollViewRef.current?.scrollTo({
-                      y: 500,
+                      y: 640,
                       animated: true,
                     });
-                  }, 100);
+                  }, 150);
                 }}
               />
               <Text style={[styles.charCount, { color: theme.text.tertiary }]}>
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 24,
     paddingTop: 32,
-    paddingBottom: 100,
+    paddingBottom: 120,
     flexGrow: 1,
   },
   header: {
@@ -396,12 +396,13 @@ const styles = StyleSheet.create({
   },
   quickContactButton: {
     flex: 1,
-    padding: 20,
+    padding: 16,
     borderRadius: 16,
     borderWidth: 1,
     alignItems: 'center',
     minHeight: 120,
     justifyContent: 'center',
+    minWidth: 160,
   },
   quickContactIcon: {
     width: 48,

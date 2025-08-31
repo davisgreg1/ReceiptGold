@@ -298,7 +298,7 @@ export const PrivacyPolicyScreen: React.FC<PrivacyPolicyScreenProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <View style={[styles.logoContainer, { backgroundColor: theme.gold.background }]}>
-            <Logo size={50} />
+            <Ionicons name="shield-checkmark-outline" size={80} color={theme.gold.primary} />
           </View>
           <Text style={[styles.title, { color: theme.text.primary }]}>
             Privacy Policy
@@ -456,9 +456,9 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   logoContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 18,
+    width: 80,
+    height: 80,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -503,6 +503,7 @@ const styles = StyleSheet.create({
   quickNavChip: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 16,

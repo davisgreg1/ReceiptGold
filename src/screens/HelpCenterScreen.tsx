@@ -168,7 +168,7 @@ export const HelpCenterScreen: React.FC<HelpCenterScreenProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <View style={[styles.logoContainer, { backgroundColor: theme.gold.background }]}>
-            <Logo size={50} />
+            <Ionicons name="help-circle-outline" size={80} color={theme.gold.primary} />
           </View>
           <Text style={[styles.title, { color: theme.text.primary }]}>
             Help Center
@@ -393,13 +393,6 @@ export const HelpCenterScreen: React.FC<HelpCenterScreenProps> = ({
             </View>
             <View style={styles.supportActions}>
               <TouchableOpacity
-                style={[styles.supportButton, { backgroundColor: theme.status.info }]}
-                onPress={handleFeatureRequest}
-              >
-                <Ionicons name="add-circle-outline" size={16} color="white" />
-                <Text style={styles.supportButtonText}>Suggest Feature</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 style={[styles.supportButton, { 
                   backgroundColor: 'transparent',
                   borderColor: theme.status.info,
@@ -447,9 +440,9 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   logoContainer: {
-    width: 70,
-    height: 70,
-    borderRadius: 18,
+    width: 80,
+    height: 80,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
