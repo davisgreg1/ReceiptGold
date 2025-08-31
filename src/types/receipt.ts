@@ -21,6 +21,7 @@ export interface Receipt {
     confidence: number;
     date: string;
     items: Array<ReceiptItem>;
+    splitTender?: SplitTenderInfo;
   };
   tax: {
     category: string;
@@ -39,4 +40,21 @@ export interface ReceiptItem {
   amount: number;
   tax: number;
   vendor?: string;
+}
+
+export interface SplitTenderPayment {
+  method: 'cash' | 'credit' | 'debit' | 'gift_card' | 'check' | 'other';
+  amount: number;
+  last4?: string;
+  approvalCode?: string;
+  cardType?: string;
+}
+
+export interface SplitTenderInfo {
+  isSplitTender: boolean;
+  confidence: number;
+  payments: SplitTenderPayment[];
+  changeGiven?: number;
+  totalVerified: boolean;
+  detectedPatterns: string[];
 }

@@ -8,6 +8,24 @@ import Stripe from "stripe";
 import { onCall, HttpsError, CallableRequest, onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
 
+// Split-tender interfaces
+interface SplitTenderPayment {
+  method: 'cash' | 'credit' | 'debit' | 'gift_card' | 'check' | 'other';
+  amount: number;
+  last4?: string;
+  approvalCode?: string;
+  cardType?: string;
+}
+
+interface SplitTenderInfo {
+  isSplitTender: boolean;
+  confidence: number;
+  payments: SplitTenderPayment[];
+  changeGiven?: number;
+  totalVerified: boolean;
+  detectedPatterns: string[];
+}
+
 // Interface to handle Firebase Functions v2 rawBody
 interface RequestWithRawBody extends Request {
   rawBody: Buffer;
@@ -224,6 +242,7 @@ interface ReceiptData {
       amount: number;
       quantity: number;
     }>;
+    splitTender?: SplitTenderInfo;
   };
   tax: {
     deductible: boolean;
@@ -233,6 +252,7 @@ interface ReceiptData {
   };
   status: 'uploaded' | 'processing' | 'processed' | 'error' | 'deleted';
   processingErrors: string[];
+  splitTender?: SplitTenderInfo;
   createdAt: admin.firestore.FieldValue;
   updatedAt: admin.firestore.FieldValue;
 }
@@ -567,6 +587,7 @@ async function processReceiptOCR(
           quantity: 1,
         },
       ],
+      splitTender: receiptData.splitTender || null, // Include split-tender data if available
     };
 
     await receiptRef.update({
@@ -1566,7 +1587,7 @@ async function handlePlaidLiabilities(webhookData: any): Promise<void> {
   console.log("🔄 Processing Plaid liabilities webhook");
   
   try {
-    const { item_id, webhook_code, webhook_type } = webhookData;
+    const { item_id, webhook_code } = webhookData;
     
     if (!item_id) {
       console.error("❌ No item_id in liabilities webhook data");

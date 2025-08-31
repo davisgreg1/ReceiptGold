@@ -493,6 +493,7 @@ export const ReceiptsListScreen: React.FC = () => {
       }
 
       // Convert the docs to receipt data
+      console.log('📦 Fetched', receiptDocs.length, 'receipts from Firestore');
       const receiptData = receiptDocs.map((doc) => {
         const data = doc.data();
         // Normalize Firestore Timestamp to JS Date
@@ -600,6 +601,8 @@ export const ReceiptsListScreen: React.FC = () => {
       });
 
       // Update all states
+      console.log('🔄 Setting receipts state with', receiptData.length, 'receipts');
+      console.log('🏪 Vendor names in fetched receipts:', receiptData.map(r => `${r.receiptId}: "${r.vendor}"`));
       setReceipts(receiptData);
       // Don't reset filteredReceipts here - let applyAllFilters handle it
       setActiveReceiptCount(receiptData.length);
@@ -617,7 +620,7 @@ export const ReceiptsListScreen: React.FC = () => {
   // Focus effect to fetch receipts when screen is focused
   useFocusEffect(
     useCallback(() => {
-      console.log("Screen focused, fetching receipts...");
+      console.log("📱 ReceiptsListScreen focused, fetching receipts...");
       fetchReceipts();
       fetchCustomCategories();
     }, [fetchReceipts, fetchCustomCategories])

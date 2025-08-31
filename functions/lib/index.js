@@ -392,6 +392,7 @@ async function processReceiptOCR(receiptRef, receiptData) {
                     quantity: 1,
                 },
             ],
+            splitTender: receiptData.splitTender || null, // Include split-tender data if available
         };
         await receiptRef.update({
             status: "processed",
@@ -779,6 +780,10 @@ exports.plaidWebhook = (0, https_1.onRequest)({
                 break;
             case "ACCOUNTS":
                 await handlePlaidAccounts(webhookData);
+                console.log(`✅ Handled ${webhookData.webhook_type}`);
+                break;
+            case "LIABILITIES":
+                await handlePlaidLiabilities(webhookData);
                 console.log(`✅ Handled ${webhookData.webhook_type}`);
                 break;
             default:
@@ -1220,6 +1225,55 @@ async function handlePlaidAuth(webhookData) {
 async function handlePlaidAccounts(webhookData) {
     console.log("🔄 Processing Plaid accounts webhook");
     // Handle account-related webhooks (new accounts, account updates, etc.)
+}
+async function handlePlaidLiabilities(webhookData) {
+    console.log("🔄 Processing Plaid liabilities webhook");
+    try {
+        const { item_id, webhook_code } = webhookData;
+        if (!item_id) {
+            console.error("❌ No item_id in liabilities webhook data");
+            return;
+        }
+        console.log(`📊 Liabilities webhook - Code: ${webhook_code}, Item: ${item_id}`);
+        // Find the user's Plaid item
+        const itemsRef = db.collection('plaidItems');
+        const itemQuery = await itemsRef.where('itemId', '==', item_id).get();
+        if (itemQuery.empty) {
+            console.error(`❌ No Plaid item found for item_id: ${item_id}`);
+            return;
+        }
+        const itemDoc = itemQuery.docs[0];
+        const itemData = itemDoc.data();
+        const userId = itemData.userId;
+        if (!userId) {
+            console.error(`❌ No userId found for item: ${item_id}`);
+            return;
+        }
+        // Update the item's last updated timestamp
+        await itemDoc.ref.update({
+            lastWebhookReceived: admin.firestore.FieldValue.serverTimestamp(),
+            lastLiabilitiesUpdate: admin.firestore.FieldValue.serverTimestamp()
+        });
+        // Handle different liability webhook codes
+        switch (webhook_code) {
+            case 'DEFAULT_UPDATE':
+                console.log(`💳 Default liability update for item: ${item_id}`);
+                // This indicates that liability data has been updated and should be refetched
+                // You might want to trigger a refresh of liability data here
+                break;
+            case 'LIABILITY_UPDATE':
+                console.log(`💳 Liability data updated for item: ${item_id}`);
+                // Handle specific liability updates
+                break;
+            default:
+                console.log(`ℹ️ Unhandled liabilities webhook code: ${webhook_code}`);
+        }
+        console.log(`✅ Successfully processed liabilities webhook for item: ${item_id}`);
+    }
+    catch (error) {
+        console.error("❌ Error processing Plaid liabilities webhook:", error);
+        throw error;
+    }
 }
 // Plaid Update Mode Link Token Creation
 exports.createPlaidUpdateToken = (0, https_1.onCall)(async (request) => {
