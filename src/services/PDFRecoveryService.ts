@@ -131,25 +131,6 @@ export class PDFRecoveryService {
     }
   }
 
-  /**
-   * Batch check and recover multiple PDFs
-   */
-  async batchRecoverPDFs(receipts: Array<{ receiptId: string; pdfPath?: string }>, userId: string): Promise<void> {
-    console.log('🔄 Starting batch PDF recovery check...');
-    
-    const recoveryPromises = receipts.map(async (receipt) => {
-      if (!receipt.pdfPath) return;
-      
-      const exists = await this.checkPDFExists(receipt.pdfPath);
-      if (!exists) {
-        console.log(`🔄 PDF missing for receipt ${receipt.receiptId}, attempting recovery...`);
-        await this.recoverMissingPDF(receipt.receiptId, userId);
-      }
-    });
-
-    await Promise.allSettled(recoveryPromises);
-    console.log('✅ Batch PDF recovery check completed');
-  }
 
   /**
    * Get user-friendly error message for missing PDF

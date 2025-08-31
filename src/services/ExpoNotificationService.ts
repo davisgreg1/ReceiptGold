@@ -300,67 +300,7 @@ export class NotificationService {
     }
   }
 
-  /**
-   * Remove push token from Firestore (e.g., on logout)
-   */
-  public async removeTokenFromFirestore(userId: string): Promise<void> {
-    try {
-      if (!userId) return;
 
-      // Import Firestore
-      const { db } = await import('../config/firebase');
-      const { doc, updateDoc, serverTimestamp } = await import('firebase/firestore');
-
-      // Remove expo push token from user document
-      const userRef = doc(db, 'users', userId);
-      await updateDoc(userRef, {
-        expoPushToken: null,
-        pushTokenRemovedAt: serverTimestamp(),
-      });
-
-      console.log('✅ Expo push token removed from Firestore for user:', userId);
-    } catch (error) {
-      console.error('❌ Error removing push token from Firestore:', error);
-    }
-  }
-
-  /**
-   * Check if user allows specific notification type
-   * This can be used by other services to verify permissions before sending
-   */
-  public async checkNotificationPermission(
-    userId: string, 
-    notificationType: 'bankConnections' | 'receipts' | 'security' | 'subscriptionUpdates' | 'tipsFeatures'
-  ): Promise<boolean> {
-    try {
-      const { db } = await import('../config/firebase');
-      const { doc, getDoc } = await import('firebase/firestore');
-
-      const userRef = doc(db, 'users', userId);
-      const userDoc = await getDoc(userRef);
-      
-      if (!userDoc.exists()) {
-        return false; // No user data, no permissions
-      }
-
-      const userData = userDoc.data();
-      const settings = userData.notificationSettings;
-
-      // Check global toggle
-      if (!settings?.notificationsEnabled) return false;
-      
-      // Check push toggle
-      if (!settings?.push) return false;
-      
-      // Check specific type
-      if (!settings?.[notificationType]) return false;
-
-      return true;
-    } catch (error) {
-      console.error('Error checking notification permission:', error);
-      return false; // Fail safe - don't send if can't verify
-    }
-  }
 
   /**
    * Schedule a local notification (for testing) - respects user settings
@@ -571,17 +511,6 @@ export class NotificationService {
     }
   }
 
-  /**
-   * Cancel all notifications
-   */
-  public async cancelAllNotifications(): Promise<void> {
-    try {
-      await Notifications.cancelAllScheduledNotificationsAsync();
-      console.log('✅ All notifications cancelled');
-    } catch (error) {
-      console.error('Error cancelling notifications:', error);
-    }
-  }
 
   /**
    * Get notification permission status
