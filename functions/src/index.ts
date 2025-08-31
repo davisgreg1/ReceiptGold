@@ -1152,7 +1152,7 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
   
   try {
     // Find the Plaid item in our database
-    const plaidItemQuery = db.collection("plaid_items").where("item_id", "==", item_id);
+    const plaidItemQuery = db.collection("plaid_items").where("itemId", "==", item_id);
     const plaidItemSnapshot = await plaidItemQuery.get();
     
     if (plaidItemSnapshot.empty) {
@@ -1161,7 +1161,9 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
     }
     
     const plaidItemDoc = plaidItemSnapshot.docs[0];
-    const userId = plaidItemDoc.data().userId;
+    const itemData = plaidItemDoc.data();
+    const userId = itemData.userId;
+    const institutionName = itemData.institutionName || "your bank";
     
     console.log(`Processing item update for user: ${userId}, code: ${webhook_code}`);
     
@@ -1170,50 +1172,377 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     
+    let notificationType: string | null = null;
+    
     switch (webhook_code) {
       case "PENDING_EXPIRATION":
         updateData.status = "pending_expiration";
         updateData.needsReauth = true;
+        notificationType = "pending_expiration";
+        break;
+        
+      case "PENDING_DISCONNECT":
+        updateData.status = "pending_disconnect";
+        updateData.needsReauth = true;
+        notificationType = "pending_expiration";
         break;
         
       case "USER_PERMISSION_REVOKED":
         updateData.status = "permission_revoked";
         updateData.active = false;
+        updateData.needsReauth = true;
+        notificationType = "permission_revoked";
         break;
         
       case "ERROR":
         updateData.status = "error";
-        updateData.error = error;
+        updateData.error = {
+          errorType: error?.error_type || "ITEM_ERROR",
+          errorCode: error?.error_code || "UNKNOWN",
+          displayMessage: error?.display_message || "Connection error occurred",
+          suggestedAction: "REAUTH"
+        };
         updateData.active = false;
+        updateData.needsReauth = true;
+        notificationType = "reauth_required";
         break;
         
       case "NEW_ACCOUNTS_AVAILABLE":
         updateData.hasNewAccounts = true;
+        notificationType = "new_accounts_available";
+        break;
+        
+      case "LOGIN_REPAIRED":
+        // Self-healing notification - item was fixed automatically
+        updateData.status = "connected";
+        updateData.active = true;
+        updateData.needsReauth = false;
+        updateData.error = null;
+        notificationType = "login_repaired";
         break;
         
       default:
         console.log(`Unhandled item webhook code: ${webhook_code}`);
     }
     
+    // Update the item
     await plaidItemDoc.ref.update(updateData);
+    console.log(`✅ Updated item ${item_id} with status: ${updateData.status}`);
     
-    // Notify user if action is required
-    if (["PENDING_EXPIRATION", "USER_PERMISSION_REVOKED", "ERROR"].includes(webhook_code)) {
-      await db.collection("user_notifications").add({
+    // Create connection notification
+    if (notificationType) {
+      await createConnectionNotification(
         userId,
-        type: "plaid_item_issue",
-        title: "Bank Connection Needs Attention",
-        message: getItemNotificationMessage(webhook_code),
-        itemId: item_id,
-        webhookCode: webhook_code,
-        read: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+        item_id,
+        institutionName,
+        notificationType,
+        webhook_code
+      );
+      console.log(`✅ Created ${notificationType} notification for user ${userId}`);
+    }
+    
+    // For self-healing, dismiss any existing reauth notifications
+    if (webhook_code === "LOGIN_REPAIRED") {
+      await dismissOldNotifications(userId, item_id, ["reauth_required", "pending_expiration"]);
     }
     
   } catch (error) {
     console.error("Error processing Plaid item webhook:", error);
     throw error;
+  }
+}
+
+// Helper function to create connection notifications
+async function createConnectionNotification(
+  userId: string,
+  itemId: string,
+  institutionName: string,
+  type: string,
+  webhookCode: string
+): Promise<void> {
+  const notificationContent = getNotificationContent(type, institutionName, webhookCode);
+  
+  // Save notification to Firestore
+  await db.collection("connection_notifications").add({
+    userId,
+    itemId,
+    institutionName,
+    type,
+    ...notificationContent,
+    dismissed: false,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    expiresAt: type === "login_repaired" ? 
+      admin.firestore.Timestamp.fromDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)) : 
+      null,
+  });
+
+  // Send push notification if action is required
+  if (notificationContent.actionRequired) {
+    await sendPlaidConnectionPushNotification(
+      userId,
+      institutionName,
+      type,
+      notificationContent.title,
+      notificationContent.message,
+      itemId
+    );
+  }
+}
+
+// Helper function to dismiss old notifications
+async function dismissOldNotifications(
+  userId: string,
+  itemId: string,
+  typesToDismiss: string[]
+): Promise<void> {
+  const notificationsQuery = db.collection("connection_notifications")
+    .where("userId", "==", userId)
+    .where("itemId", "==", itemId)
+    .where("dismissed", "==", false);
+    
+  const snapshot = await notificationsQuery.get();
+  const batch = db.batch();
+  let batchOperations = 0;
+  
+  snapshot.docs.forEach(doc => {
+    if (typesToDismiss.includes(doc.data().type)) {
+      batch.update(doc.ref, {
+        dismissed: true,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      batchOperations++;
+    }
+  });
+  
+  if (batchOperations > 0) {
+    await batch.commit();
+    console.log(`✅ Dismissed ${batchOperations} old notifications`);
+  }
+}
+
+// Send push notification for Plaid connection issues
+async function sendPlaidConnectionPushNotification(
+  userId: string,
+  institutionName: string,
+  type: string,
+  title: string,
+  message: string,
+  itemId: string
+): Promise<void> {
+  try {
+    // Get user's expo push token from Firestore
+    const userDoc = await db.collection("users").doc(userId).get();
+    const userData = userDoc.data();
+    
+    if (!userData?.expoPushToken) {
+      console.log(`No push token found for user ${userId}`);
+      return;
+    }
+
+    // Check user's notification preferences - multiple levels of checking
+    const notificationSettings = userData.notificationSettings || userData.settings?.notifications;
+    
+    // Check if notifications are globally disabled
+    if (notificationSettings && notificationSettings.notificationsEnabled === false) {
+      console.log(`📵 User ${userId} has disabled all notifications globally`);
+      return;
+    }
+    
+    // Check if push notifications are disabled
+    if (notificationSettings && notificationSettings.push === false) {
+      console.log(`📵 User ${userId} has disabled push notifications`);
+      return;
+    }
+    
+    // Check if bank connection notifications are specifically disabled
+    if (notificationSettings && notificationSettings.bankConnections === false) {
+      console.log(`📵 User ${userId} has disabled bank connection notifications`);
+      return;
+    }
+    
+    // Check if security alerts are disabled (for high priority items only)
+    if (type === 'reauth_required' || type === 'permission_revoked') {
+      if (notificationSettings && notificationSettings.security === false) {
+        console.log(`📵 User ${userId} has disabled security notifications`);
+        return;
+      }
+    }
+    
+    // Check notification frequency setting
+    if (notificationSettings && notificationSettings.frequency) {
+      // If user wants minimal notifications, only send high priority ones
+      if (notificationSettings.frequency === 'minimal' && 
+          type !== 'reauth_required' && type !== 'permission_revoked') {
+        console.log(`📵 User ${userId} in minimal mode, skipping ${type} notification`);
+        return;
+      }
+      
+      // If user wants only important notifications, skip optional ones
+      if (notificationSettings.frequency === 'important' && 
+          type === 'new_accounts_available') {
+        console.log(`📵 User ${userId} in important mode, skipping ${type} notification`);
+        return;
+      }
+    }
+    
+    // Check quiet hours (only for non-critical notifications)
+    if (notificationSettings && notificationSettings.quietHours?.enabled && 
+        type !== 'reauth_required' && type !== 'permission_revoked') {
+      const now = new Date();
+      const currentTime = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
+      const { startTime, endTime } = notificationSettings.quietHours;
+      
+      let inQuietHours = false;
+      if (startTime && endTime) {
+        if (startTime > endTime) {
+          // Overnight quiet hours (e.g., 22:00 to 07:00)
+          inQuietHours = currentTime >= startTime || currentTime <= endTime;
+        } else {
+          // Same day quiet hours (e.g., 13:00 to 14:00)
+          inQuietHours = currentTime >= startTime && currentTime <= endTime;
+        }
+      }
+
+      if (inQuietHours) {
+        console.log(`🔇 User ${userId} in quiet hours (${startTime}-${endTime}), skipping ${type} notification`);
+        return;
+      }
+    }
+
+    // Prepare notification payload
+    const notificationPayload = {
+      to: userData.expoPushToken,
+      title: title,
+      body: message,
+      data: {
+        type: 'plaid_connection_issue',
+        connectionType: type,
+        institutionName: institutionName,
+        itemId: itemId,
+        userId: userId,
+        priority: type === 'reauth_required' || type === 'permission_revoked' ? 'high' : 'medium',
+        action: 'reconnect_bank'
+      },
+      sound: 'default',
+      priority: type === 'reauth_required' || type === 'permission_revoked' ? 'high' : 'normal',
+      channelId: 'bank_connections'
+    };
+
+    // Send notification via Expo Push API
+    const response = await fetch('https://exp.host/--/api/v2/push/send', {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Accept-encoding': 'gzip, deflate',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(notificationPayload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('Failed to send push notification:', errorData);
+      return;
+    }
+
+    const result = await response.json();
+    console.log(`✅ Push notification sent to user ${userId}:`, result);
+
+    // Log notification sent to Firestore for tracking
+    await db.collection("notification_logs").add({
+      userId,
+      type: 'push_notification',
+      notificationType: 'plaid_connection_issue',
+      title,
+      institutionName,
+      itemId,
+      expoPushToken: userData.expoPushToken.substring(0, 20) + '...', // Log partial token for privacy
+      status: 'sent',
+      response: result,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+  } catch (error) {
+    console.error('Error sending push notification:', error);
+    
+    // Log failed notification
+    try {
+      await db.collection("notification_logs").add({
+        userId,
+        type: 'push_notification',
+        notificationType: 'plaid_connection_issue',
+        title,
+        institutionName,
+        itemId,
+        status: 'failed',
+        error: error instanceof Error ? error.message : 'Unknown error',
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    } catch (logError) {
+      console.error('Failed to log notification error:', logError);
+    }
+  }
+}
+
+// Enhanced notification content helper
+function getNotificationContent(
+  type: string,
+  institutionName: string,
+  webhookCode: string
+): {
+  title: string;
+  message: string;
+  actionRequired: boolean;
+  priority: 'high' | 'medium' | 'low';
+} {
+  switch (type) {
+    case "reauth_required":
+      return {
+        title: "🔴 Bank Connection Issue",
+        message: `${institutionName} connection stopped working. Tap to reconnect and restore receipt tracking.`,
+        actionRequired: true,
+        priority: "high"
+      };
+      
+    case "pending_expiration":
+      return {
+        title: "⚠️ Connection Expiring Soon",
+        message: `${institutionName} connection expires in 7 days. Reconnect now to avoid interruption.`,
+        actionRequired: true,
+        priority: "medium"
+      };
+      
+    case "permission_revoked":
+      return {
+        title: "🚫 Bank Permissions Revoked",
+        message: `${institutionName} access was revoked. Reconnect to restore automatic receipt tracking.`,
+        actionRequired: true,
+        priority: "high"
+      };
+      
+    case "login_repaired":
+      return {
+        title: "✅ Connection Restored",
+        message: `Great news! Your ${institutionName} connection is working again. No action needed.`,
+        actionRequired: false,
+        priority: "low"
+      };
+      
+    case "new_accounts_available":
+      return {
+        title: "🆕 New Accounts Found",
+        message: `${institutionName} has new accounts available. Connect them to track more receipts.`,
+        actionRequired: false,
+        priority: "medium"
+      };
+      
+    default:
+      return {
+        title: "🏦 Bank Connection Update",
+        message: `${institutionName} connection needs attention. Check the app for details.`,
+        actionRequired: true,
+        priority: "medium"
+      };
   }
 }
 
@@ -1228,18 +1557,91 @@ async function handlePlaidAccounts(webhookData: any): Promise<void> {
   // Handle account-related webhooks (new accounts, account updates, etc.)
 }
 
-function getItemNotificationMessage(webhookCode: string): string {
-  switch (webhookCode) {
-    case "PENDING_EXPIRATION":
-      return "Your bank connection will expire soon. Please reconnect to continue automatic transaction monitoring.";
-    case "USER_PERMISSION_REVOKED":
-      return "Bank connection permissions were revoked. Reconnect to resume receipt generation from transactions.";
-    case "ERROR":
-      return "There was an issue with your bank connection. Please reconnect to resolve the problem.";
-    default:
-      return "Your bank connection needs attention. Please check your connection status.";
+// Plaid Update Mode Link Token Creation
+export const createPlaidUpdateToken = onCall(
+  async (request: CallableRequest<{ itemId: string; accessToken?: string }>) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'User must be authenticated');
+    }
+
+    try {
+      const { itemId, accessToken } = request.data;
+      const userId = request.auth.uid;
+
+      if (!itemId) {
+        throw new HttpsError('invalid-argument', 'Item ID is required');
+      }
+
+      // Verify the item belongs to the user
+      const itemQuery = db.collection('plaid_items')
+        .where('itemId', '==', itemId)
+        .where('userId', '==', userId);
+      
+      const itemSnapshot = await itemQuery.get();
+      
+      if (itemSnapshot.empty) {
+        throw new HttpsError('not-found', 'Item not found or access denied');
+      }
+
+      const itemData = itemSnapshot.docs[0].data();
+      const itemAccessToken = accessToken || itemData.accessToken;
+
+      if (!itemAccessToken) {
+        throw new HttpsError('failed-precondition', 'No access token available for item');
+      }
+
+      // Get Plaid configuration
+      const config = getPlaidConfig();
+
+      // Create update mode link token
+      const linkTokenResponse = await fetch('https://production.plaid.com/link/token/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          client_id: config.clientId,
+          secret: config.secret,
+          client_name: 'ReceiptGold',
+          country_codes: ['US'],
+          language: 'en',
+          user: {
+            client_user_id: userId,
+          },
+          access_token: itemAccessToken, // This makes it update mode
+          update: {
+            account_selection_enabled: true,
+          },
+          webhook: 'https://us-central1-receiptgold.cloudfunctions.net/plaidWebhook',
+        }),
+      });
+
+      if (!linkTokenResponse.ok) {
+        const errorData = await linkTokenResponse.json();
+        console.error('Plaid Link token creation failed:', errorData);
+        throw new HttpsError('internal', `Failed to create update link token: ${errorData.error_message || 'Unknown error'}`);
+      }
+
+      const linkTokenData = await linkTokenResponse.json();
+      
+      console.log(`✅ Created update mode link token for user ${userId}, item ${itemId}`);
+
+      return {
+        link_token: linkTokenData.link_token,
+        expiration: linkTokenData.expiration,
+      };
+
+    } catch (error) {
+      console.error('Error creating Plaid update link token:', error);
+      
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      
+      throw new HttpsError('internal', `Failed to create update link token: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
-}
+);
 
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Promise<void> {
   const customerId: string = subscription.customer as string;
