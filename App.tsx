@@ -15,12 +15,17 @@ import { InAppNotificationProvider } from './src/components/InAppNotificationPro
 import { NotificationSettingsProvider } from './src/context/NotificationSettingsContext';
 import { useNotificationSettings } from './src/context/NotificationSettingsContext';
 import { NotificationService } from './src/services/ExpoNotificationService';
+import { useUserNotificationMonitor } from './src/services/UserNotificationMonitor';
 import { useReceiptSync } from './src/services/ReceiptSyncService';
 
 const AppContent: React.FC = () => {
   const [splashFinished, setSplashFinished] = useState(false);
   const { themeMode } = useTheme();
   const { user, loading: authLoading } = useAuth();
+  
+  // Monitor user notifications for local display
+  console.log('🔗 App.tsx: Setting up notification monitoring for user:', user?.uid);
+  useUserNotificationMonitor(user?.uid || null);
 
   // Initialize notification service when user is authenticated
   useEffect(() => {

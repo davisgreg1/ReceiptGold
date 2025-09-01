@@ -220,6 +220,20 @@ service cloud.firestore {
             allow read, write: if false;
         }
 
+        // User notifications - users can read/write their own notifications
+        match /user_notifications/{notificationId} {
+            allow read, write: if isAuthenticated() && 
+            (request.auth.uid == resource.data.userId || 
+             request.auth.uid == request.resource.data.userId);
+        }
+
+        // Connection notifications - read-only for users, write via Cloud Functions
+        match /connection_notifications/{notificationId} {
+            allow read: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+            allow write: if false; // Only Cloud Functions can write
+        }
+
         // Audit logs (optional - for compliance)
         match /audit_logs/{logId} {
             // Users can read their own audit logs

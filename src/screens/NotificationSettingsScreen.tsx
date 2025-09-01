@@ -18,6 +18,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useNotificationSettings } from '../context/NotificationSettingsContext';
 import { BankReceiptService } from '../services/BankReceiptService';
 import { useAuth } from '../hooks/useAuth';
+import { NotificationService } from '../services/ExpoNotificationService';
 
 // Helper functions for time handling
 const timeStringToDate = (timeString: string): Date => {
@@ -109,6 +110,66 @@ export const NotificationSettingsScreen: React.FC = () => {
   const copyTokenToClipboard = () => {
     if (fcmToken) {
       Alert.alert('Push Token', fcmToken, [{ text: 'OK' }]);
+    }
+  };
+
+  const regenerateToken = async () => {
+    try {
+      console.log('🔄 Regenerating push token...');
+      const notificationService = NotificationService.getInstance();
+      await notificationService.clearToken(); // Clear cached token
+      const newToken = await notificationService.getDevicePushToken();
+      console.log('🆕 New token:', newToken);
+      
+      if (user && newToken) {
+        await notificationService.saveTokenToFirestore(user.uid);
+        Alert.alert('Token Regenerated', `New token: ${newToken}`, [{ text: 'OK' }]);
+        // Reload notification data to show new token
+        await loadNotificationData();
+      }
+    } catch (error) {
+      console.error('❌ Error regenerating token:', error);
+      Alert.alert('Error', 'Failed to regenerate token');
+    }
+  };
+
+  const testLocalNotificationTrigger = async () => {
+    try {
+      if (!user) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      console.log('🧪 Testing local notification trigger...');
+      
+      // Import Firestore functions
+      const { db } = await import('../config/firebase');
+      const { collection, addDoc, serverTimestamp } = await import('firebase/firestore');
+
+      // Create a test document in user_notifications (same as Cloud Function would do)
+      const testNotification = {
+        userId: user.uid,
+        title: '🧪 Test Local Notification',
+        body: 'This tests the local notification monitoring system!',
+        data: {
+          type: 'test',
+          priority: 'medium',
+          createdAt: new Date().toISOString()
+        },
+        createdAt: serverTimestamp(),
+        read: false,
+        source: 'manual_test'
+      };
+
+      const docRef = await addDoc(collection(db, 'user_notifications'), testNotification);
+      
+      console.log('✅ Test notification document created with ID:', docRef.id);
+      console.log('✅ Document data:', testNotification);
+      Alert.alert('Test Triggered', `Local notification trigger created with ID: ${docRef.id}. Check console logs!`);
+      
+    } catch (error) {
+      console.error('❌ Error testing local notification:', error);
+      Alert.alert('Error', 'Failed to test local notification');
     }
   };
 
@@ -643,24 +704,45 @@ export const NotificationSettingsScreen: React.FC = () => {
             <View style={styles.tokenSection}>
               <TouchableOpacity onPress={copyTokenToClipboard}>
                 <Text style={styles.tokenText} numberOfLines={2}>
-                  {fcmToken.startsWith('ExpoToken[MOCK') 
-                    ? 'Push Token: Mock (Development)' 
-                    : `Push Token: ${fcmToken.substring(0, 50)}...`}
+                  {fcmToken.startsWith('ExpoToken[') 
+                    ? `Legacy Expo Token: ${fcmToken.substring(0, 30)}...` 
+                    : `Native ${Platform.OS === 'ios' ? 'APNs' : 'FCM'} Token: ${fcmToken.substring(0, 30)}...`}
                 </Text>
-                {fcmToken.startsWith('ExpoToken[MOCK') && (
-                  <Text style={[styles.tokenText, { marginTop: 8, color: theme.status.warning }]}>
-                    ℹ️ For production push notifications, configure Expo project ID
-                  </Text>
-                )}
+                <Text style={[styles.tokenText, { marginTop: 8, color: theme.status.success }]}>
+                  ✅ Using {fcmToken.startsWith('ExpoToken[') ? 'Expo Legacy' : 'Direct FCM/APNs'} delivery
+                </Text>
               </TouchableOpacity>
             </View>
           )}
 
           {__DEV__ && (
             <View style={styles.webhookTestSection}>
-              <Text style={styles.webhookTestTitle}>Webhook Tests</Text>
+              <Text style={styles.webhookTestTitle}>Debug Tools</Text>
               <Text style={styles.webhookTestDescription}>
-                Test Plaid webhook notifications (Dev Only)
+                Development and testing tools
+              </Text>
+              
+              <TouchableOpacity 
+                style={[styles.requestButton, { backgroundColor: theme.status.warning, marginBottom: 8 }]}
+                onPress={regenerateToken}
+              >
+                <Text style={[styles.requestButtonText, { color: '#FFFFFF' }]}>
+                  🔄 Regenerate Push Token
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.requestButton, { backgroundColor: theme.status.success, marginBottom: 16 }]}
+                onPress={testLocalNotificationTrigger}
+              >
+                <Text style={[styles.requestButtonText, { color: '#FFFFFF' }]}>
+                  🧪 Test Local Notification
+                </Text>
+              </TouchableOpacity>
+              
+              <Text style={[styles.webhookTestTitle, { marginBottom: 4 }]}>Webhook Tests</Text>
+              <Text style={[styles.webhookTestDescription, { marginBottom: 12 }]}>
+                Test Plaid webhook notifications
               </Text>
               {console.log('🧪 Webhook test section rendering in dev mode')}
               
