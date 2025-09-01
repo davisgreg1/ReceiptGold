@@ -550,23 +550,46 @@ export class BankReceiptService {
       console.log('🔄 Syncing bank connections to Firestore...');
       
       // Create a sanitized version without sensitive data for Firestore
-      const sanitizedConnections = connections.map(conn => ({
-        id: conn.id,
-        userId: conn.userId,
-        institutionId: conn.institutionId,
-        institutionName: conn.institutionName,
-        accounts: conn.accounts.map(acc => ({
-          accountId: acc.accountId,
-          name: acc.name,
-          type: acc.type,
-          subtype: acc.subtype,
-          // Don't store account numbers or sensitive data
-        })),
-        isActive: conn.isActive,
-        connectedAt: conn.connectedAt,
-        lastSyncAt: conn.lastSyncAt,
-        // Don't store access tokens in Firestore
-      }));
+      const sanitizedConnections = connections.map(conn => {
+        // Filter out undefined values - Firestore doesn't accept them
+        const sanitized: any = {
+          id: conn.id,
+          userId: conn.userId,
+          institutionName: conn.institutionName,
+          accounts: conn.accounts.map(acc => {
+            const account: any = {
+              accountId: acc.accountId,
+              name: acc.name,
+              type: acc.type,
+            };
+            
+            // Only add optional fields if they have values
+            if (acc.subtype !== undefined) {
+              account.subtype = acc.subtype;
+            }
+            if (acc.mask !== undefined) {
+              account.mask = acc.mask;
+            }
+            
+            return account;
+          }),
+          isActive: conn.isActive,
+          // Don't store access tokens in Firestore
+        };
+
+        // Only add optional fields if they have values
+        if (conn.institutionId !== undefined) {
+          sanitized.institutionId = conn.institutionId;
+        }
+        if (conn.connectedAt !== undefined) {
+          sanitized.connectedAt = conn.connectedAt;
+        }
+        if (conn.lastSyncAt !== undefined) {
+          sanitized.lastSyncAt = conn.lastSyncAt;
+        }
+
+        return sanitized;
+      });
 
       const bankConnectionRef = doc(db, 'bankConnections', userId);
       await setDoc(bankConnectionRef, {

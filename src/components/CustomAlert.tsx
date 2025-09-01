@@ -383,14 +383,14 @@ export const CustomAlert: React.FC<CustomAlertProps> = ({
                 { 
                   backgroundColor: config.iconColor,
                   ...(secondaryButtonText 
-                    ? { flex: 1, marginLeft: 12 } 
+                    ? { flex: 1, marginLeft: 12, minWidth: 100 } 
                     : { minWidth: 120 }
                   ),
                 }
               ]}
               onPress={handlePrimaryPress}
             >
-              <Text style={styles.primaryButtonText}>
+              <Text style={styles.primaryButtonText} numberOfLines={1}>
                 {primaryButtonText}
               </Text>
             </TouchableOpacity>
@@ -503,6 +503,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     letterSpacing: 0.5,
+    textAlign: 'center',
   },
   secondaryButtonText: {
     fontSize: 16,
