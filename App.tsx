@@ -22,6 +22,25 @@ const AppContent: React.FC = () => {
   const { themeMode } = useTheme();
   const { user, loading: authLoading } = useAuth();
 
+  // Initialize notification service when user is authenticated
+  useEffect(() => {
+    const initializeNotifications = async () => {
+      if (user) {
+        try {
+          console.log('🔔 Initializing notifications for user:', user.uid);
+          const notificationService = NotificationService.getInstance();
+          await notificationService.initialize();
+          await notificationService.saveTokenToFirestore(user.uid);
+          console.log('✅ Notifications initialized successfully');
+        } catch (error) {
+          console.error('❌ Failed to initialize notifications:', error);
+        }
+      }
+    };
+
+    initializeNotifications();
+  }, [user]);
+
   // Show splash screen until both splash animation is done AND auth is initialized
   const showSplash = !splashFinished || authLoading;
 

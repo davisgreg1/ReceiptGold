@@ -1065,6 +1065,48 @@ export const plaidWebhook = onRequest(
   }
 );
 
+// Function to initialize user notification settings
+export const initializeNotificationSettings = onRequest(async (req: Request, res: Response) => {
+  try {
+    const userId = req.query.userId as string;
+    
+    if (!userId) {
+      res.status(400).json({ error: 'userId parameter required' });
+      return;
+    }
+
+    const userRef = db.collection('users').doc(userId);
+    
+    // Set default notification settings
+    await userRef.update({
+      notificationSettings: {
+        notificationsEnabled: true,
+        bankConnections: true,
+        push: true,
+        receipts: true,
+        security: true,
+        frequency: 'all',
+        quietHours: {
+          enabled: false,
+          startTime: '22:00',
+          endTime: '07:00'
+        }
+      }
+    });
+
+    console.log(`✅ Initialized notification settings for user ${userId}`);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Notification settings initialized',
+      userId
+    });
+  } catch (error) {
+    console.error('Error initializing notification settings:', error);
+    res.status(500).json({ error: 'Failed to initialize settings' });
+  }
+});
+
 // Test endpoint to verify webhook configuration
 export const testWebhookConfig = onRequest(async (req: Request, res: Response) => {
   try {
@@ -1103,6 +1145,80 @@ export const testWebhookConfig = onRequest(async (req: Request, res: Response) =
   }
 });
 
+// NOTIFICATION HANDLERS
+export const onConnectionNotificationCreate = functionsV1.firestore
+  .document("connection_notifications/{notificationId}")
+  .onCreate(async (snap, context) => {
+    const notification = snap.data();
+    if (!notification) return;
+
+    const { userId, title, message, type, priority } = notification;
+
+    console.log(`📬 New connection notification for user ${userId}: ${title}`);
+
+    try {
+      // Get user's push token from Firestore
+      const userDoc = await db.collection("users").doc(userId).get();
+      const userData = userDoc.data();
+
+      if (!userData?.expoPushToken) {
+        console.log(`❌ No push token found for user ${userId}`);
+        return;
+      }
+
+      // Check if user has notifications enabled
+      const notificationSettings = userData.notificationSettings;
+      if (!notificationSettings?.notificationsEnabled || !notificationSettings?.bankConnections) {
+        console.log(`📵 User ${userId} has disabled bank connection notifications`);
+        return;
+      }
+
+      // Prepare Expo push notification payload
+      const pushMessage = {
+        to: userData.expoPushToken,
+        sound: 'default',
+        title,
+        body: message,
+        data: {
+          type,
+          priority: priority || 'medium',
+          userId,
+          notificationId: context.params.notificationId,
+          createdAt: new Date().toISOString()
+        },
+        priority: priority === 'high' ? 'high' : 'normal',
+      };
+
+      // Send push notification via Expo
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Accept-encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(pushMessage),
+      });
+
+      const result = await response.json();
+      
+      if (response.ok) {
+        console.log(`✅ Push notification sent successfully to user ${userId}`);
+        
+        // Update the notification document to mark as sent
+        await db.collection("connection_notifications").doc(context.params.notificationId).update({
+          pushSent: true,
+          pushSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        console.error(`❌ Failed to send push notification:`, result);
+      }
+
+    } catch (error) {
+      console.error('Error sending push notification:', error);
+    }
+  });
+
 // PLAID WEBHOOK HANDLERS
 async function handlePlaidTransactions(webhookData: any): Promise<void> {
   console.log("🔄 Processing Plaid transactions webhook");
@@ -1110,12 +1226,13 @@ async function handlePlaidTransactions(webhookData: any): Promise<void> {
   const { item_id, new_transactions, removed_transactions } = webhookData;
   
   try {
-    // Find user by item_id
-    const plaidItemQuery = db.collection("plaid_items").where("item_id", "==", item_id);
+    // Find user by item_id (note: field name is itemId in our database)
+    const plaidItemQuery = db.collection("plaid_items").where("itemId", "==", item_id);
     const plaidItemSnapshot = await plaidItemQuery.get();
     
     if (plaidItemSnapshot.empty) {
-      console.log(`No user found for Plaid item: ${item_id}`);
+      console.log(`❌ No plaid_items entry found for item_id: ${item_id}`);
+      console.log(`ℹ️  This item may not have been synced to Firestore yet. Use syncBankConnectionToPlaidItems to sync existing connections.`);
       return;
     }
     
@@ -1123,20 +1240,46 @@ async function handlePlaidTransactions(webhookData: any): Promise<void> {
     const userId = plaidItemDoc.data().userId;
     
     console.log(`Processing transactions for user: ${userId}`);
+    await processTransactionsForUser(userId, item_id, new_transactions, removed_transactions);
     
+  } catch (error) {
+    console.error("Error processing Plaid transactions webhook:", error);
+    throw error;
+  }
+}
+
+// Helper function to process transactions for a user
+async function processTransactionsForUser(userId: string, itemId: string, new_transactions: number, removed_transactions: string[]): Promise<void> {
+  try {
     // Process new transactions
     if (new_transactions && new_transactions > 0) {
-      console.log(`📈 ${new_transactions} new transactions available`);
+      console.log(`📈 ${new_transactions} new transactions available for user ${userId}`);
       
-      // Store transaction update notification
+      // Store transaction update notification in transaction_updates collection
       await db.collection("transaction_updates").add({
         userId,
-        itemId: item_id,
+        itemId: itemId,
         type: "new_transactions",
         count: new_transactions,
         processed: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
+      
+      // Create a user notification about new transactions
+      await db.collection("connection_notifications").add({
+        userId,
+        itemId: itemId,
+        institutionName: itemId.includes('Tartan') ? 'Tartan Bank' : 'Your Bank',
+        type: 'new_transactions',
+        title: '💳 New Transactions Available',
+        message: `${new_transactions} new transaction${new_transactions > 1 ? 's' : ''} detected and ready for review.`,
+        actionRequired: true,
+        priority: 'medium',
+        dismissed: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+      
+      console.log(`✅ Created transaction update and notification for user ${userId}`);
       
       // TODO: Trigger transaction sync process
       // This would fetch the actual transactions and analyze them for potential receipts
@@ -1144,7 +1287,7 @@ async function handlePlaidTransactions(webhookData: any): Promise<void> {
     
     // Process removed transactions  
     if (removed_transactions && removed_transactions.length > 0) {
-      console.log(`📉 ${removed_transactions.length} transactions removed`);
+      console.log(`📉 ${removed_transactions.length} transactions removed for user ${userId}`);
       
       for (const transactionId of removed_transactions) {
         // Mark any generated receipts from these transactions as invalid
@@ -1163,10 +1306,11 @@ async function handlePlaidTransactions(webhookData: any): Promise<void> {
             return batch.commit();
           });
       }
+      
+      console.log(`✅ Processed ${removed_transactions.length} removed transactions for user ${userId}`);
     }
-    
   } catch (error) {
-    console.error("Error processing Plaid transactions webhook:", error);
+    console.error(`❌ Error processing transactions for user ${userId}:`, error);
     throw error;
   }
 }
@@ -1182,14 +1326,15 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
     const plaidItemSnapshot = await plaidItemQuery.get();
     
     if (plaidItemSnapshot.empty) {
-      console.log(`No item found for: ${item_id}`);
+      console.log(`❌ No plaid_items entry found for item_id: ${item_id}`);
+      console.log(`ℹ️  This item may not have been synced to Firestore yet. Use syncBankConnectionToPlaidItems to sync existing connections.`);
       return;
     }
     
     const plaidItemDoc = plaidItemSnapshot.docs[0];
-    const itemData = plaidItemDoc.data();
-    const userId = itemData.userId;
-    const institutionName = itemData.institutionName || "your bank";
+    const plaidItemData = plaidItemDoc.data();
+    const userId = plaidItemData.userId;
+    const institutionName = plaidItemData.institutionName || 'Your Bank';
     
     console.log(`Processing item update for user: ${userId}, code: ${webhook_code}`);
     
@@ -1271,7 +1416,6 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
     if (webhook_code === "LOGIN_REPAIRED") {
       await dismissOldNotifications(userId, item_id, ["reauth_required", "pending_expiration"]);
     }
-    
   } catch (error) {
     console.error("Error processing Plaid item webhook:", error);
     throw error;
@@ -2903,6 +3047,209 @@ export const debugWebhook = onRequest((req, res) => {
     bodyLength: req.body?.length || 0,
     timestamp: new Date().toISOString(),
   });
+});
+
+// Function to test Plaid webhooks using sandbox fire_webhook endpoint
+export const testPlaidWebhook = onCall(
+  async (request: CallableRequest<{ 
+    webhookType: 'DEFAULT_UPDATE' | 'NEW_ACCOUNTS_AVAILABLE' | 'SMS_MICRODEPOSITS_VERIFICATION' | 'LOGIN_REPAIRED';
+    webhookCode?: string;
+    accessToken: string;
+  }>) => {
+    if (!request.auth) {
+      throw new HttpsError('unauthenticated', 'User must be authenticated');
+    }
+
+    const { webhookType, webhookCode, accessToken } = request.data;
+
+    if (!webhookType || !accessToken) {
+      throw new HttpsError('invalid-argument', 'webhookType and accessToken are required');
+    }
+
+    try {
+      const plaidConfig = getPlaidConfig();
+      console.log(`🧪 Testing Plaid webhook: ${webhookType} for user: ${request.auth.uid}`);
+
+      // Prepare the request body for Plaid sandbox webhook
+      const requestBody: any = {
+        client_id: plaidConfig.clientId,
+        secret: plaidConfig.secret,
+        access_token: accessToken,
+        webhook_type: webhookType,
+      };
+
+      // Add webhook-specific parameters
+      if (webhookType === 'DEFAULT_UPDATE' && webhookCode) {
+        // For DEFAULT_UPDATE, you can specify product types like AUTH, TRANSACTIONS, etc.
+        requestBody.webhook_code = webhookCode;
+      }
+
+      console.log('📤 Sending sandbox webhook request:', {
+        webhook_type: webhookType,
+        webhook_code: webhookCode,
+        user_id: request.auth.uid,
+      });
+
+      const response = await fetch(`https://${plaidConfig.environment}.plaid.com/sandbox/item/fire_webhook`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('❌ Plaid sandbox webhook failed:', errorData);
+        throw new HttpsError('internal', `Plaid sandbox webhook failed: ${errorData.error_message || 'Unknown error'}`);
+      }
+
+      const responseData = await response.json();
+      console.log('✅ Plaid sandbox webhook fired successfully:', responseData);
+
+      return {
+        success: true,
+        message: `Successfully triggered ${webhookType} webhook`,
+        webhookType: webhookType,
+        webhookCode: webhookCode,
+        timestamp: new Date().toISOString(),
+        response: responseData
+      };
+
+    } catch (error) {
+      console.error('❌ Error testing Plaid webhook:', error);
+      
+      if (error instanceof HttpsError) {
+        throw error;
+      }
+      
+      throw new HttpsError('internal', `Failed to test webhook: ${(error as Error).message}`);
+    }
+  }
+);
+
+// Direct webhook test function (no auth required for testing)
+export const directTestPlaidWebhook = onRequest(async (req: Request, res: Response) => {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  try {
+    console.log('🧪 Direct Plaid webhook test starting...');
+    
+    const accessToken = 'access-sandbox-6193d89e-9a8a-48a3-af09-88d86d13dbb1';
+    const webhookType = 'DEFAULT_UPDATE';
+    const webhookCode = 'TRANSACTIONS';
+
+    const plaidConfig = getPlaidConfig();
+    console.log(`🧪 Testing webhook: ${webhookType} with code: ${webhookCode}`);
+
+    // Prepare the request body for Plaid sandbox webhook
+    const requestBody = {
+      client_id: plaidConfig.clientId,
+      secret: plaidConfig.secret,
+      access_token: accessToken,
+      webhook_type: webhookType,
+      webhook_code: webhookCode,
+    };
+
+    console.log('📤 Firing Plaid sandbox webhook...');
+
+    const response = await fetch(`https://${plaidConfig.environment}.plaid.com/sandbox/item/fire_webhook`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      console.error('❌ Plaid webhook failed:', errorData);
+      res.status(500).json({ 
+        success: false, 
+        error: errorData,
+        message: 'Plaid webhook failed'
+      });
+      return;
+    }
+
+    const responseData = await response.json();
+    console.log('✅ Plaid webhook fired successfully! Response:', responseData);
+
+    res.status(200).json({
+      success: true,
+      message: 'Webhook fired successfully!',
+      webhookType,
+      webhookCode,
+      plaidResponse: responseData,
+      timestamp: new Date().toISOString(),
+      instructions: 'Check Firebase Functions logs for webhook processing details'
+    });
+
+  } catch (error) {
+    console.error('❌ Error in direct webhook test:', error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message,
+      message: 'Internal server error'
+    });
+  }
+});
+
+// Sync bank connection data to plaid_items for webhook processing
+export const syncBankConnectionToPlaidItems = onRequest(async (req: Request, res: Response) => {
+  if (req.method !== 'POST') {
+    res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  try {
+    console.log('🔄 Syncing bank connection to plaid_items...');
+    
+    const userId = 'sZY5c4gQa9XVwfy7EbPUHs7Vnrc2';
+    const itemId = 'bank_sZY5c4gQa9XVwfy7EbPUHs7Vnrc2_1756666330485';
+    const accessToken = 'access-sandbox-6193d89e-9a8a-48a3-af09-88d86d13dbb1';
+
+    // Create plaid_items document for webhook processing
+    await db.collection('plaid_items').doc(itemId).set({
+      itemId: itemId,
+      userId: userId,
+      institutionId: 'ins_109511',
+      institutionName: 'Tartan Bank',
+      accessToken: accessToken,
+      accounts: [
+        { accountId: 'sample_account_1', name: 'Checking Account', type: 'depository', subtype: 'checking' },
+        { accountId: 'sample_account_2', name: 'Savings Account', type: 'depository', subtype: 'savings' }
+      ],
+      isActive: true,
+      status: 'good',
+      needsReauth: false,
+      connectedAt: new Date('2025-08-31T18:46:51.613Z'),
+      lastSyncAt: new Date('2025-08-31T18:46:51.613Z'),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    }, { merge: true });
+
+    console.log('✅ Successfully created plaid_items document');
+
+    res.status(200).json({
+      success: true,
+      message: 'Bank connection synced to plaid_items',
+      itemId: itemId,
+      userId: userId,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('❌ Error syncing to plaid_items:', error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message,
+      message: 'Failed to sync bank connection'
+    });
+  }
 });
 
 // Function to manually trigger user initialization (for testing)

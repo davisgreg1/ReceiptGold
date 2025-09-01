@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -337,6 +337,13 @@ const styles = StyleSheet.create({
     color: 'white',
     letterSpacing: 0.3,
   },
+  
+  // Error styling
+  errorText: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 4,
+  },
 });
 
 export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, navigation }) => {
@@ -352,6 +359,10 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   const [showPaymentMethodDropdown, setShowPaymentMethodDropdown] = useState(false);
   const [selectedPaymentIndex, setSelectedPaymentIndex] = useState<number | null>(null);
   const [paymentAmountInputs, setPaymentAmountInputs] = useState<{[key: number]: string}>({});
+  const [validationErrors, setValidationErrors] = useState<{[key: string]: boolean}>({});
+  const [vendorFieldY, setVendorFieldY] = useState<number>(0);
+  const [taxAmountFieldY, setTaxAmountFieldY] = useState<number>(0);
+  const scrollViewRef = useRef<ScrollView>(null);
 
   // Payment method options with display info
   const paymentMethodOptions = [
@@ -607,9 +618,42 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     try {
       setLoading(true);
       
+      // Clear previous validation errors
+      setValidationErrors({});
+      
       // Validate required fields
-      if (!formData.vendor || !formData.amount) {
-        showError('Error', 'Vendor and amount are required');
+      const errors: {[key: string]: boolean} = {};
+      
+      if (!formData.vendor?.trim()) {
+        errors.vendor = true;
+      }
+      
+      if (!formData.amount?.trim()) {
+        errors.amount = true;
+      }
+      
+      if (!formData.taxAmountDisplay?.trim()) {
+        errors.taxAmount = true;
+      }
+      
+      // If there are validation errors, highlight fields and scroll to first error
+      if (Object.keys(errors).length > 0) {
+        setValidationErrors(errors);
+        
+        // Scroll to the first error field in order of appearance
+        if (errors.vendor) {
+          scrollViewRef.current?.scrollTo({ 
+            y: Math.max(0, vendorFieldY - 30), 
+            animated: true 
+          });
+        } else if (errors.taxAmount) {
+          scrollViewRef.current?.scrollTo({ 
+            y: Math.max(0, taxAmountFieldY - 100), 
+            animated: true 
+          });
+        }
+        
+        showError('Error', 'Vendor, amount, and tax amount are required');
         return;
       }
 
@@ -792,7 +836,8 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     const receiptTotal = parseFloat(formData.amount) || 0;
     const totalPayments = formData.splitTender.payments.reduce((sum: number, p: SplitTenderPayment) => sum + p.amount, 0);
     const remaining = receiptTotal - totalPayments;
-    return Math.max(0, remaining);
+    // Round to 2 decimal places to avoid floating point precision issues
+    return Math.max(0, Math.round(remaining * 100) / 100);
   };
 
   // Handle payment method selection
@@ -809,7 +854,11 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]} edges={['top']}>
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        ref={scrollViewRef}
+        style={styles.content} 
+        showsVerticalScrollIndicator={false}
+      >
         {/* Media Section */}
         <View style={[styles.card, { backgroundColor: theme.background.elevated }]}>
           <Text style={[styles.cardTitle, { color: theme.text.primary }]}>
@@ -851,44 +900,79 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         <View style={[styles.card, { backgroundColor: theme.background.elevated }]}>
           <Text style={[styles.cardTitle, { color: theme.text.primary }]}>Basic Information</Text>
           
-          <View style={styles.fieldGroup}>
+          <View 
+            style={styles.fieldGroup}
+            onLayout={(event) => {
+              setVendorFieldY(event.nativeEvent.layout.y);
+            }}
+          >
             <Text style={[styles.fieldLabel, { color: theme.text.primary }]}>Vendor</Text>
             <View style={[styles.inputContainer, { 
               backgroundColor: theme.background.secondary,
-              borderColor: theme.border.secondary,
+              borderColor: validationErrors.vendor ? theme.status.error : theme.border.secondary,
+              borderWidth: validationErrors.vendor ? 2 : 1.5,
             }]}>
               <TextInput
                 style={[styles.input, { color: theme.text.primary }]}
                 value={formData.vendor}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, vendor: text }))}
+                onChangeText={(text) => {
+                  setFormData(prev => ({ ...prev, vendor: text }));
+                  // Clear validation error when user starts typing
+                  if (validationErrors.vendor) {
+                    setValidationErrors(prev => ({ ...prev, vendor: false }));
+                  }
+                }}
                 placeholder="Enter vendor name"
                 placeholderTextColor={theme.text.secondary}
               />
             </View>
+            {validationErrors.vendor && (
+              <Text style={[styles.errorText, { color: theme.status.error }]}>
+                Vendor name is required
+              </Text>
+            )}
           </View>
 
           <View style={styles.fieldGroup}>
             <Text style={[styles.fieldLabel, { color: theme.text.primary }]}>Amount</Text>
             <View style={[styles.inputContainer, { 
               backgroundColor: theme.background.secondary,
-              borderColor: theme.border.secondary,
+              borderColor: validationErrors.amount ? theme.status.error : theme.border.secondary,
+              borderWidth: validationErrors.amount ? 2 : 1.5,
             }]}>
               <TextInput
                 style={[styles.input, { color: theme.text.primary }]}
                 value={formData.amount}
-                onChangeText={(text) => setFormData(prev => ({ ...prev, amount: text }))}
+                onChangeText={(text) => {
+                  setFormData(prev => ({ ...prev, amount: text }));
+                  // Clear validation error when user starts typing
+                  if (validationErrors.amount) {
+                    setValidationErrors(prev => ({ ...prev, amount: false }));
+                  }
+                }}
                 keyboardType="decimal-pad"
                 placeholder="0.00"
                 placeholderTextColor={theme.text.secondary}
               />
             </View>
+            {validationErrors.amount && (
+              <Text style={[styles.errorText, { color: theme.status.error }]}>
+                Amount is required
+              </Text>
+            )}
           </View>
 
-          <View style={styles.fieldGroup}>
+          <View 
+            style={styles.fieldGroup}
+            onLayout={(event) => {
+              setTaxAmountFieldY(event.nativeEvent.layout.y);
+            }}
+          >
             <Text style={[styles.fieldLabel, { color: theme.text.primary }]}>Tax Amount</Text>
             <View style={[styles.inputContainer, { 
               backgroundColor: theme.background.secondary,
-              borderColor: theme.border.secondary,
+              borderColor: validationErrors.taxAmount ? theme.status.error : theme.border.secondary,
+              borderWidth: validationErrors.taxAmount ? 2 : 1.5,
             }]}>
               <TextInput
                 style={[styles.input, { color: theme.text.primary }]}
@@ -900,12 +984,21 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                     taxAmountDisplay: text,
                     tax: { ...prev.tax, amount: taxAmount }
                   }));
+                  // Clear validation error when user starts typing
+                  if (validationErrors.taxAmount) {
+                    setValidationErrors(prev => ({ ...prev, taxAmount: false }));
+                  }
                 }}
                 keyboardType="decimal-pad"
                 placeholder="0.00"
                 placeholderTextColor={theme.text.secondary}
               />
             </View>
+            {validationErrors.taxAmount && (
+              <Text style={[styles.errorText, { color: theme.status.error }]}>
+                Tax amount is required
+              </Text>
+            )}
           </View>
 
           <View style={styles.fieldGroup}>
@@ -1201,16 +1294,32 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                             const newPayments = [...formData.splitTender.payments];
                             newPayments[index] = { ...payment, amount };
                             
-                            // Auto-adjust the last payment to match remaining amount if there are multiple payments
+                            // Auto-adjust other payments when this payment changes
                             if (newPayments.length > 1) {
                               const receiptTotal = parseFloat(formData.amount) || 0;
-                              const lastIndex = newPayments.length - 1;
                               
-                              // If this isn't the last payment, calculate remainder for the last payment
-                              if (index !== lastIndex) {
-                                const totalExceptLast = newPayments.slice(0, -1).reduce((sum: number, p: SplitTenderPayment) => sum + p.amount, 0);
-                                const remainder = Math.max(0, receiptTotal - totalExceptLast);
-                                newPayments[lastIndex] = { ...newPayments[lastIndex], amount: remainder };
+                              // Find the next payment field that has amount 0 or is the last payment
+                              let targetIndex = -1;
+                              for (let i = index + 1; i < newPayments.length; i++) {
+                                if (newPayments[i].amount === 0) {
+                                  targetIndex = i;
+                                  break;
+                                }
+                              }
+                              
+                              // If no empty payment found, use the last payment
+                              if (targetIndex === -1) {
+                                targetIndex = newPayments.length - 1;
+                              }
+                              
+                              // Only adjust if we're not editing the target payment
+                              if (index !== targetIndex) {
+                                const totalExceptTarget = newPayments.reduce((sum: number, p: SplitTenderPayment, i: number) => {
+                                  return i === targetIndex ? sum : sum + p.amount;
+                                }, 0);
+                                const remainder = Math.max(0, receiptTotal - totalExceptTarget);
+                                // Round to 2 decimal places to avoid floating point precision issues
+                                newPayments[targetIndex] = { ...newPayments[targetIndex], amount: Math.round(remainder * 100) / 100 };
                               }
                             }
                             

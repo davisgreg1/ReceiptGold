@@ -16,6 +16,8 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import { useTheme } from '../theme/ThemeProvider';
 import { useNotifications } from '../hooks/useNotifications';
 import { useNotificationSettings } from '../context/NotificationSettingsContext';
+import { BankReceiptService } from '../services/BankReceiptService';
+import { useAuth } from '../hooks/useAuth';
 
 // Helper functions for time handling
 const timeStringToDate = (timeString: string): Date => {
@@ -39,6 +41,7 @@ const formatDisplayTime = (timeString: string): string => {
 export const NotificationSettingsScreen: React.FC = () => {
   const { theme } = useTheme();
   const { getPermissionStatus, getFCMToken } = useNotifications();
+  const { user } = useAuth();
   const { 
     settings, 
     loading, 
@@ -106,6 +109,74 @@ export const NotificationSettingsScreen: React.FC = () => {
   const copyTokenToClipboard = () => {
     if (fcmToken) {
       Alert.alert('Push Token', fcmToken, [{ text: 'OK' }]);
+    }
+  };
+
+  const testWebhook = async (webhookCode: string) => {
+    try {
+      if (!user) {
+        Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      // Get real bank connections
+      const bankService = BankReceiptService.getInstance();
+      const connections = await bankService.getBankConnections(user.uid);
+      
+      if (connections.length === 0) {
+        Alert.alert('No Bank Connections', 'Please connect a bank account first to test webhooks.');
+        return;
+      }
+
+      // Use the first active connection
+      const connection = connections.find(conn => conn.isActive) || connections[0];
+
+      const webhookTypeMap: Record<string, string> = {
+        'PENDING_EXPIRATION': 'ITEM',
+        'NEW_ACCOUNTS_AVAILABLE': 'ITEM',
+        'LOGIN_REPAIRED': 'ITEM',
+        'TRANSACTIONS': 'TRANSACTIONS',
+      };
+
+      const webhookType = webhookTypeMap[webhookCode] || 'ITEM';
+
+      const payload = {
+        webhook_type: webhookType,
+        webhook_code: webhookCode === 'TRANSACTIONS' ? 'DEFAULT_UPDATE' : webhookCode,
+        item_id: connection.id,
+        institution_name: connection.institutionName,
+        ...(webhookType === 'TRANSACTIONS' && {
+          new_transactions: 3,
+          removed_transactions: 0,
+        }),
+      };
+
+      console.log('🧪 Testing webhook:', payload);
+
+      const response = await fetch('https://us-central1-receiptgold.cloudfunctions.net/plaidWebhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('✅ Webhook test result:', result);
+        Alert.alert(
+          'Webhook Test Success',
+          `${webhookCode} webhook fired successfully!\n\nCheck Firestore for notifications.`,
+          [{ text: 'OK' }]
+        );
+      } else {
+        throw new Error(`HTTP ${response.status}`);
+      }
+    } catch (error) {
+      console.error('❌ Webhook test failed:', error);
+      Alert.alert(
+        'Webhook Test Failed',
+        `Failed to test ${webhookCode} webhook: ${error}`,
+        [{ text: 'OK' }]
+      );
     }
   };
 
@@ -465,6 +536,59 @@ export const NotificationSettingsScreen: React.FC = () => {
       fontSize: 16,
       fontWeight: '600',
     },
+    webhookTestSection: {
+      marginTop: 16,
+      paddingTop: 16,
+      borderTopWidth: 1,
+      borderTopColor: theme.border.primary,
+    },
+    webhookTestTitle: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: theme.text.primary,
+      marginBottom: 4,
+    },
+    webhookTestDescription: {
+      fontSize: 12,
+      color: theme.text.secondary,
+      marginBottom: 12,
+    },
+    webhookButtonGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'space-between',
+      gap: 8,
+    },
+    webhookButton: {
+      flex: 1,
+      minWidth: '47%',
+      maxWidth: '48%',
+      paddingVertical: 12,
+      paddingHorizontal: 8,
+      borderRadius: 8,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: 8,
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 1,
+      },
+      shadowOpacity: 0.2,
+      shadowRadius: 1.41,
+      elevation: 2,
+    },
+    webhookButtonIcon: {
+      fontSize: 16,
+      marginBottom: 4,
+    },
+    webhookButtonText: {
+      color: '#FFFFFF',
+      fontSize: 11,
+      fontWeight: '600',
+      textAlign: 'center',
+      lineHeight: 14,
+    },
   });
 
   if (loading) {
@@ -529,6 +653,50 @@ export const NotificationSettingsScreen: React.FC = () => {
                   </Text>
                 )}
               </TouchableOpacity>
+            </View>
+          )}
+
+          {__DEV__ && (
+            <View style={styles.webhookTestSection}>
+              <Text style={styles.webhookTestTitle}>Webhook Tests</Text>
+              <Text style={styles.webhookTestDescription}>
+                Test Plaid webhook notifications (Dev Only)
+              </Text>
+              {console.log('🧪 Webhook test section rendering in dev mode')}
+              
+              <View style={styles.webhookButtonGrid}>
+                <TouchableOpacity 
+                  style={[styles.webhookButton, { backgroundColor: '#FF6B6B' }]}
+                  onPress={() => testWebhook('PENDING_EXPIRATION')}
+                >
+                  <Text style={styles.webhookButtonIcon}>🔴</Text>
+                  <Text style={styles.webhookButtonText}>Connection Issue</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.webhookButton, { backgroundColor: '#4ECDC4' }]}
+                  onPress={() => testWebhook('NEW_ACCOUNTS_AVAILABLE')}
+                >
+                  <Text style={styles.webhookButtonIcon}>🆕</Text>
+                  <Text style={styles.webhookButtonText}>New Accounts</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.webhookButton, { backgroundColor: '#45B7D1' }]}
+                  onPress={() => testWebhook('LOGIN_REPAIRED')}
+                >
+                  <Text style={styles.webhookButtonIcon}>✅</Text>
+                  <Text style={styles.webhookButtonText}>Login Repaired</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={[styles.webhookButton, { backgroundColor: '#96CEB4' }]}
+                  onPress={() => testWebhook('TRANSACTIONS')}
+                >
+                  <Text style={styles.webhookButtonIcon}>💳</Text>
+                  <Text style={styles.webhookButtonText}>New Transactions</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
         </View>
