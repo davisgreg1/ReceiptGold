@@ -456,10 +456,11 @@ export const SettingsScreen: React.FC = () => {
           prev.filter((conn) => conn.id !== connection.id)
         );
 
-        showSuccess(
-          "Success",
-          `${connection.institutionName} disconnected successfully`
-        );
+        showNotification({
+          type: "success",
+          title: `${connection.institutionName} Disconnected`,
+          message: "Account disconnected successfully",
+        });
       } catch (error: any) {
         console.error("Error disconnecting bank account:", error);
         showError(
@@ -673,10 +674,11 @@ export const SettingsScreen: React.FC = () => {
 
       await bankReceiptService.saveBankConnectionLocally(bankConnection);
 
-      showSuccess(
-        "Bank Connected!",
-        `${bankConnection.institutionName} has been connected successfully.`
-      );
+      showNotification({
+        type: "success",
+        title: `${bankConnection.institutionName} Connected`,
+        message: "Account connected successfully",
+      });
 
       // Refresh bank connections list
       await refreshBankConnections();

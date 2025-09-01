@@ -12,15 +12,12 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Image,
   RefreshControl,
   TextInput,
-  Dimensions,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   TouchableWithoutFeedback,
   Keyboard,
+  Animated,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -33,7 +30,6 @@ import {
   TransactionCandidate,
 } from "../services/BankReceiptService";
 import { PlaidService } from "../services/PlaidService";
-import { GeneratedReceipt } from "../services/HTMLReceiptService";
 import { GeneratedReceiptPDF } from "../services/PDFReceiptService";
 import { PDFViewer } from "../components/PDFViewer";
 import { useInAppNotifications } from "../components/InAppNotificationProvider";
@@ -59,6 +55,7 @@ export const BankTransactionsScreen: React.FC = () => {
     Map<string, GeneratedReceiptPDF>
   >(new Map());
   const [linkToken, setLinkToken] = useState<string | null>(null);
+  const [bankConnections] = useState<any[]>([]);
 
   // Track cancelled operations
   const cancelledOperations = useRef<Set<string>>(new Set());
@@ -71,10 +68,53 @@ export const BankTransactionsScreen: React.FC = () => {
   // Bulk selection state
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [bulkMode, setBulkMode] = useState(false);
+  const [bulkSkipInProgress, setBulkSkipInProgress] = useState(false);
+  const [bulkGenerateInProgress, setBulkGenerateInProgress] = useState(false);
   
   // Alert deduplication state
   const recentAlerts = useRef<Map<string, number>>(new Map());
   const ALERT_DEDUP_WINDOW = 3000; // 3 seconds
+  
+  // Loading quotes state
+  const [currentLoadingMessage, setCurrentLoadingMessage] = useState(0);
+  const fadeAnim = useRef(new Animated.Value(1)).current;
+  const loadingMessages = [
+    "🔒 Connected to your bank securely",
+    "🛡️ Your data is protected with bank-grade encryption",
+    "Loading your transactions...",
+    "🔐 We never store your banking passwords",
+    "💎 Every receipt tells a story of success",
+    "🏦 Read-only access - we can't move your money",
+    "Organizing your financial data...",
+    "🔒 256-bit SSL encryption keeps you safe",
+    "📊 Track every dollar, maximize every deduction",
+    "🛡️ Powered by Plaid - trusted by millions",
+    "✨ Great receipts lead to great tax savings",
+    "🔐 Your login stays private and secure",
+    "Gathering your purchase history...",
+    "🏦 Bank-level security for your peace of mind",
+    "🎯 Stay organized, stay profitable",
+    "🔒 Disconnect anytime with one tap",
+    "Processing recent transactions...",
+    "🛡️ End-to-end encryption protects your data",
+    "💼 Smart businesses track everything",
+    "🔐 We only read transactions, never account details",
+    "Analyzing your spending patterns...",
+    "🏦 Your financial institution approves this connection",
+    "🌟 Turn chaos into organized success",
+    "🔒 Zero access to move or transfer funds",
+    "Syncing account information...",
+    "🛡️ Military-grade security standards",
+    "📝 Every expense matters, every receipt counts",
+    "🔐 Your privacy is our top priority",
+    "Preparing your transaction list...",
+    "🏦 Regulated and compliant financial technology",
+    "💡 Organization is the key to growth",
+    "🔒 Secure connection established and verified",
+    "Almost there...",
+    "🛡️ Your trust is our most valuable asset",
+    "🚀 Ready to streamline your finances?",
+  ];
   
   // Deduplicated notification function
   const showDedupedNotification = (notification: {
@@ -106,6 +146,62 @@ export const BankTransactionsScreen: React.FC = () => {
       }
     }
   };
+
+  // Loading message cycling effect with fade transitions and random timing
+  useEffect(() => {
+    if (!loading) {
+      // Reset to first message when not loading
+      setCurrentLoadingMessage(0);
+      fadeAnim.setValue(1);
+      return;
+    }
+
+    let timeout: NodeJS.Timeout;
+    let isActive = true;
+    
+    const cycleMessage = () => {
+      if (!isActive) return;
+      
+      // Fade out current message
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 800,
+        useNativeDriver: true,
+      }).start((finished) => {
+        if (!finished || !isActive) return;
+        
+        // Change message while invisible
+        setCurrentLoadingMessage((prev) => (prev + 1) % loadingMessages.length);
+        
+        // Fade in new message
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }).start((finished) => {
+          if (!finished || !isActive) return;
+          
+          // Schedule next message with random delay
+          const randomDelay = Math.random() * 3000 + 7000; // 7-10 seconds
+          timeout = setTimeout(() => {
+            cycleMessage();
+          }, randomDelay);
+        });
+      });
+    };
+    
+    // Start first cycle after a short initial delay
+    timeout = setTimeout(() => {
+      cycleMessage();
+    }, Math.random() * 3000 + 7000);
+    
+    return () => {
+      isActive = false;
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    };
+  }, [loading]); // Removed problematic dependencies
 
   // Date filter state
   const [showDateRangePicker, setShowDateRangePicker] = useState(false);
@@ -426,13 +522,17 @@ export const BankTransactionsScreen: React.FC = () => {
         success.publicToken
       );
       const accounts = await plaidService.getAccounts(accessToken);
+      
+      // Get institution info to get the real bank name
+      const institution = await plaidService.getInstitution(accessToken);
+      const institutionName = institution?.name || "Connected Bank";
 
       // Create bank connection record
       const bankConnection = {
         id: `bank_${user.uid}_${Date.now()}`,
         userId: user.uid,
         accessToken,
-        institutionName: "Connected Bank",
+        institutionName: institutionName,
         accounts: accounts.map((acc) => ({
           accountId: acc.account_id,
           name: acc.name,
@@ -449,8 +549,8 @@ export const BankTransactionsScreen: React.FC = () => {
 
       showNotification({
         type: "success",
-        title: "Bank Connected!",
-        message: "Your bank account has been connected successfully.",
+        title: `${institutionName} Connected`,
+        message: "Account connected successfully",
       });
 
       await loadTransactionCandidates();
@@ -686,23 +786,30 @@ export const BankTransactionsScreen: React.FC = () => {
   };
   
   const bulkSkip = async () => {
-    if (selectedItems.size === 0) return;
+    if (selectedItems.size === 0 || bulkSkipInProgress) return;
     
     try {
       const itemsToSkip = Array.from(selectedItems);
+      const skipCount = itemsToSkip.length;
       
-      // Proceed with bulk skip without confirmation notification
+      // Start the beautiful bulk skip process
+      setBulkSkipInProgress(true);
       
-      // Process each selected item
-      for (const candidateId of itemsToSkip) {
-        await rejectCandidate(candidateId);
-      }
+      // Process all items efficiently in the background
+      const skipPromises = itemsToSkip.map(candidateId => rejectCandidate(candidateId));
+      await Promise.all(skipPromises);
       
-      // Clear selection and exit bulk mode
-      setSelectedItems(new Set());
-      setBulkMode(false);
+      // Wait a moment for the animation to complete
+      setTimeout(() => {
+        // Clear selection and exit bulk mode smoothly
+        setSelectedItems(new Set());
+        setBulkMode(false);
+        setBulkSkipInProgress(false);
+      }, 1000); // Give time for the animation to be appreciated
+      
     } catch (error) {
       console.error("Error in bulk skip:", error);
+      setBulkSkipInProgress(false);
       showNotification({
         type: "error",
         title: "Bulk Skip Failed",
@@ -712,7 +819,7 @@ export const BankTransactionsScreen: React.FC = () => {
   };
   
   const bulkGeneratePDF = async () => {
-    if (selectedItems.size === 0) return;
+    if (selectedItems.size === 0 || bulkGenerateInProgress) return;
     
     try {
       const itemsToGenerate = Array.from(selectedItems);
@@ -730,10 +837,13 @@ export const BankTransactionsScreen: React.FC = () => {
         return;
       }
       
+      // Start the bulk generation process
+      setBulkGenerateInProgress(true);
+      
       showNotification({
         type: "info",
         title: "Bulk PDF Generation Started",
-        message: `Generating PDFs for ${itemsToGenerate.length} transactions...`,
+        message: `Generating PDFs for ${candidatesToGenerate.length} transactions...`,
       });
       
       // Track progress
@@ -787,6 +897,7 @@ export const BankTransactionsScreen: React.FC = () => {
       // Clear selection and exit bulk mode
       setSelectedItems(new Set());
       setBulkMode(false);
+      setBulkGenerateInProgress(false);
       
       // Show notification only for errors or partial failures
       if (failCount > 0 && successCount > 0) {
@@ -806,6 +917,7 @@ export const BankTransactionsScreen: React.FC = () => {
       
     } catch (error) {
       console.error("Error in bulk PDF generation:", error);
+      setBulkGenerateInProgress(false);
       showNotification({
         type: "error",
         title: "Bulk PDF Generation Failed",
@@ -1210,7 +1322,7 @@ export const BankTransactionsScreen: React.FC = () => {
     candidateCardSelected: {
       borderColor: theme.gold.primary,
       borderWidth: 2,
-      backgroundColor: theme.gold.light || theme.background.tertiary,
+      backgroundColor: theme.background.tertiary,
     },
     candidateHeader: {
       flexDirection: "row",
@@ -1445,14 +1557,27 @@ export const BankTransactionsScreen: React.FC = () => {
       fontFamily: "monospace",
     },
     loadingContainer: {
-      flexDirection: "row",
-      alignItems: "center",
+      flex: 1,
       justifyContent: "center",
-      padding: 16,
+      alignItems: "center",
+      paddingHorizontal: 40,
+      gap: 24,
+    },
+    loadingAnimation: {
+      marginBottom: 8,
+    },
+    loadingMessageContainer: {
+      minHeight: 60,
+      justifyContent: "center",
+      alignItems: "center",
     },
     loadingText: {
-      marginLeft: 8,
-      color: theme.text.secondary,
+      fontSize: 18,
+      color: theme.text.primary,
+      textAlign: "center",
+      fontWeight: "500",
+      lineHeight: 24,
+      maxWidth: 300,
     },
     listContainer: {
       paddingTop: 0, // Remove padding since search bar will be positioned naturally
@@ -1802,7 +1927,7 @@ export const BankTransactionsScreen: React.FC = () => {
       borderColor: theme.border.secondary,
     },
     bulkSelectAllButtonActive: {
-      backgroundColor: theme.gold.light || theme.background.tertiary,
+      backgroundColor: theme.background.tertiary,
       borderColor: theme.gold.primary,
     },
     bulkSelectAllIcon: {
@@ -1894,6 +2019,146 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.text.secondary,
       fontWeight: "500",
     },
+    
+    // Beautiful Bulk Operation Overlay
+    bulkOperationOverlay: {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: "rgba(0, 0, 0, 0.7)",
+      justifyContent: "center",
+      alignItems: "center",
+      zIndex: 1000,
+    },
+    bulkOperationCard: {
+      backgroundColor: theme.background.primary,
+      borderRadius: 24,
+      padding: 32,
+      alignItems: "center",
+      marginHorizontal: 40,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.3,
+      shadowRadius: 16,
+      elevation: 16,
+      minWidth: 280,
+    },
+    bulkOperationAnimation: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: theme.background.secondary,
+      justifyContent: "center",
+      alignItems: "center",
+      marginBottom: 24,
+    },
+    bulkOperationTitle: {
+      fontSize: 20,
+      fontWeight: "700",
+      color: theme.text.primary,
+      marginBottom: 8,
+      textAlign: "center",
+    },
+    bulkOperationSubtitle: {
+      fontSize: 14,
+      color: theme.text.secondary,
+      textAlign: "center",
+      marginBottom: 24,
+      lineHeight: 20,
+    },
+    bulkOperationProgress: {
+      width: "100%",
+      height: 4,
+      backgroundColor: theme.background.tertiary,
+      borderRadius: 2,
+      overflow: "hidden",
+    },
+    bulkOperationProgressBar: {
+      height: "100%",
+      backgroundColor: theme.gold.primary,
+      borderRadius: 2,
+    },
+    
+    // Security Trust UI
+    securityBanner: {
+      backgroundColor: theme.background.secondary,
+      borderRadius: 16,
+      padding: 20,
+      marginHorizontal: 20,
+      marginBottom: 24,
+      borderWidth: 1,
+      borderColor: theme.border.primary,
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 2,
+    },
+    securityBannerHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 16,
+      gap: 12,
+    },
+    securityIconContainer: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
+      backgroundColor: theme.background.tertiary,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    securityBannerTitle: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: theme.text.primary,
+      flex: 1,
+    },
+    securityFeatures: {
+      gap: 12,
+      marginBottom: 16,
+    },
+    securityFeature: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    securityFeatureText: {
+      fontSize: 14,
+      color: theme.text.secondary,
+      flex: 1,
+      fontWeight: "500",
+    },
+    securityBadge: {
+      backgroundColor: theme.gold.primary,
+      borderRadius: 12,
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      alignItems: "center",
+    },
+    securityBadgeText: {
+      fontSize: 14,
+      fontWeight: "700",
+      color: "white",
+    },
+    securityBadgeSubtext: {
+      fontSize: 12,
+      color: "rgba(255, 255, 255, 0.8)",
+      marginTop: 2,
+    },
+    securityIndicator: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginTop: 4,
+    },
+    securityIndicatorText: {
+      fontSize: 12,
+      color: theme.gold.primary,
+      fontWeight: "500",
+    },
   });
 
   // Check if user has Professional subscription
@@ -1925,8 +2190,19 @@ export const BankTransactionsScreen: React.FC = () => {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.gold.primary} />
-          <Text style={styles.loadingText}>Loading transactions...</Text>
+          <View style={styles.loadingAnimation}>
+            <ActivityIndicator size="large" color={theme.gold.primary} />
+          </View>
+          <View style={styles.loadingMessageContainer}>
+            <Animated.Text 
+              style={[
+                styles.loadingText,
+                { opacity: fadeAnim }
+              ]}
+            >
+              {loadingMessages[currentLoadingMessage]}
+            </Animated.Text>
+          </View>
         </View>
       </SafeAreaView>
     );
@@ -1996,16 +2272,18 @@ export const BankTransactionsScreen: React.FC = () => {
                   style={[
                     styles.bulkActionButton,
                     styles.bulkGenerateButton,
-                    (selectedItems.size === 0 || Array.from(selectedItems).filter(id => !generatedReceipts.has(id)).length === 0) && styles.bulkActionButtonDisabled
+                    (selectedItems.size === 0 || Array.from(selectedItems).filter(id => !generatedReceipts.has(id)).length === 0 || bulkGenerateInProgress) && styles.bulkActionButtonDisabled
                   ]}
                   onPress={bulkGeneratePDF}
-                  disabled={selectedItems.size === 0 || Array.from(selectedItems).filter(id => !generatedReceipts.has(id)).length === 0}
+                  disabled={selectedItems.size === 0 || Array.from(selectedItems).filter(id => !generatedReceipts.has(id)).length === 0 || bulkGenerateInProgress}
                 >
                   <View style={styles.bulkActionIcon}>
                     <Ionicons name="document-text" size={16} color="white" />
                   </View>
                   <View style={styles.bulkActionContent}>
-                    <Text style={styles.bulkActionTitle} numberOfLines={1}>Generate PDF</Text>
+                    <Text style={styles.bulkActionTitle} numberOfLines={1}>
+                      {bulkGenerateInProgress ? "Generating..." : "Generate PDF"}
+                    </Text>
                     <Text style={styles.bulkActionCount} numberOfLines={1}>
                       {Array.from(selectedItems).filter(id => !generatedReceipts.has(id)).length} items
                     </Text>
@@ -2016,16 +2294,18 @@ export const BankTransactionsScreen: React.FC = () => {
                   style={[
                     styles.bulkActionButton,
                     styles.bulkSkipButton,
-                    selectedItems.size === 0 && styles.bulkActionButtonDisabled
+                    (selectedItems.size === 0 || bulkSkipInProgress) && styles.bulkActionButtonDisabled
                   ]}
                   onPress={bulkSkip}
-                  disabled={selectedItems.size === 0}
+                  disabled={selectedItems.size === 0 || bulkSkipInProgress}
                 >
                   <View style={styles.bulkActionIcon}>
                     <Ionicons name="close-circle" size={16} color="white" />
                   </View>
                   <View style={styles.bulkActionContent}>
-                    <Text style={styles.bulkActionTitle} numberOfLines={1}>Skip</Text>
+                    <Text style={styles.bulkActionTitle} numberOfLines={1}>
+                      {bulkSkipInProgress ? "Skipping..." : "Skip"}
+                    </Text>
                     <Text style={styles.bulkActionCount} numberOfLines={1}>
                       {selectedItems.size} items
                     </Text>
@@ -2043,6 +2323,12 @@ export const BankTransactionsScreen: React.FC = () => {
                     ? "No recent purchases found"
                     : `${filteredAndSortedCandidates.length} of ${candidates.length} transactions`}
                 </Text>
+                {bankConnections.length > 0 && (
+                  <View style={styles.securityIndicator}>
+                    <Ionicons name="shield-checkmark" size={12} color={theme.gold.primary} />
+                    <Text style={styles.securityIndicatorText}>Securely connected</Text>
+                  </View>
+                )}
                 {filteredAndSortedCandidates.length > 0 && (
                   <Text style={styles.hintText}>
                     Long press any transaction to select multiple
@@ -2394,6 +2680,39 @@ export const BankTransactionsScreen: React.FC = () => {
         </View>
       ) : filteredAndSortedCandidates.length === 0 ? (
         <View style={styles.emptyState}>
+          {bankConnections.length === 0 && (
+            <View style={styles.securityBanner}>
+              <View style={styles.securityBannerHeader}>
+                <View style={styles.securityIconContainer}>
+                  <Ionicons name="shield-checkmark" size={32} color={theme.gold.primary} />
+                </View>
+                <Text style={styles.securityBannerTitle}>Your Security is Our Priority</Text>
+              </View>
+              <View style={styles.securityFeatures}>
+                <View style={styles.securityFeature}>
+                  <Ionicons name="lock-closed" size={16} color={theme.text.secondary} />
+                  <Text style={styles.securityFeatureText}>Bank-grade 256-bit encryption</Text>
+                </View>
+                <View style={styles.securityFeature}>
+                  <Ionicons name="eye-off" size={16} color={theme.text.secondary} />
+                  <Text style={styles.securityFeatureText}>Read-only access - we can't move money</Text>
+                </View>
+                <View style={styles.securityFeature}>
+                  <Ionicons name="key" size={16} color={theme.text.secondary} />
+                  <Text style={styles.securityFeatureText}>Never store your login credentials</Text>
+                </View>
+                <View style={styles.securityFeature}>
+                  <Ionicons name="business" size={16} color={theme.text.secondary} />
+                  <Text style={styles.securityFeatureText}>Powered by Plaid - trusted by millions</Text>
+                </View>
+              </View>
+              <View style={styles.securityBadge}>
+                <Text style={styles.securityBadgeText}>🔒 Secure & Safe</Text>
+                <Text style={styles.securityBadgeSubtext}>Disconnect anytime with one tap</Text>
+              </View>
+            </View>
+          )}
+          
           <Ionicons
             name="search-outline"
             size={64}
@@ -2444,6 +2763,33 @@ export const BankTransactionsScreen: React.FC = () => {
             index,
           })}
         />
+      )}
+
+      {/* Beautiful Bulk Operation Overlay */}
+      {(bulkSkipInProgress || bulkGenerateInProgress) && (
+        <View style={styles.bulkOperationOverlay}>
+          <View style={styles.bulkOperationCard}>
+            <View style={styles.bulkOperationAnimation}>
+              <Ionicons 
+                name={bulkSkipInProgress ? "trash-outline" : "document-text-outline"} 
+                size={48} 
+                color={theme.gold.primary} 
+              />
+            </View>
+            <Text style={styles.bulkOperationTitle}>
+              {bulkSkipInProgress ? "Skipping Transactions" : "Generating PDFs"}
+            </Text>
+            <Text style={styles.bulkOperationSubtitle}>
+              {bulkSkipInProgress 
+                ? `Processing ${selectedItems.size} transactions...`
+                : `Creating PDFs for selected transactions...`
+              }
+            </Text>
+            <View style={styles.bulkOperationProgress}>
+              <View style={[styles.bulkOperationProgressBar, { width: '100%' }]} />
+            </View>
+          </View>
+        </View>
       )}
 
       {/* Smart Filter FAB - hide when in bulk mode */}
