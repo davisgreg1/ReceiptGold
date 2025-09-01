@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { Text } from '../components/Text';
 import { PDFViewer } from '../components/PDFViewer';
+import { ImageViewer } from '../components/ImageViewer';
 import { receiptService } from '../services/firebaseService';
 import { format } from 'date-fns';
 import { CategoryPicker } from '../components/CategoryPicker';
@@ -87,6 +88,20 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 300,
     resizeMode: 'contain',
+  },
+  imageWrapper: {
+    position: 'relative',
+  },
+  expandIconContainer: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+  },
+  expandIconBackground: {
+    borderRadius: 20,
+    padding: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   pdfContainer: {
     flex: 1,
@@ -363,6 +378,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   const [vendorFieldY, setVendorFieldY] = useState<number>(0);
   const [taxAmountFieldY, setTaxAmountFieldY] = useState<number>(0);
   const scrollViewRef = useRef<ScrollView>(null);
+  const [showImageViewer, setShowImageViewer] = useState(false);
 
   // Payment method options with display info
   const paymentMethodOptions = [
@@ -888,10 +904,22 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
               </View>
             ) : (
               // Image Preview
-              <Image
-                source={{ uri: receipt.images[0]?.url }}
-                style={styles.image}
-              />
+              <TouchableOpacity
+                onPress={() => setShowImageViewer(true)}
+                activeOpacity={0.9}
+                style={styles.imageWrapper}
+              >
+                <Image
+                  source={{ uri: receipt.images[0]?.url }}
+                  style={styles.image}
+                />
+                {/* Expand Icon Overlay */}
+                <View style={styles.expandIconContainer}>
+                  <View style={[styles.expandIconBackground, { backgroundColor: 'rgba(0, 0, 0, 0.6)' }]}>
+                    <Ionicons name="expand" size={20} color="white" />
+                  </View>
+                </View>
+              </TouchableOpacity>
             )}
           </View>
         </View>
@@ -1645,6 +1673,15 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           </View>
         </TouchableOpacity>
       </Modal>
+      
+      {/* Image Viewer Modal */}
+      {receipt?.images?.[0]?.url && (
+        <ImageViewer
+          imageUrl={receipt.images[0].url}
+          visible={showImageViewer}
+          onClose={() => setShowImageViewer(false)}
+        />
+      )}
     </SafeAreaView>
   );
 };

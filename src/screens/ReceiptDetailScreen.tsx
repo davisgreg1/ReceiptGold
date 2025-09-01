@@ -9,10 +9,12 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { RouteProp } from '@react-navigation/native';
 import { db } from '../config/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { ImageViewer } from '../components/ImageViewer';
 
 type ReceiptDetailParams = {
   ReceiptDetail: {
@@ -38,6 +40,7 @@ export const ReceiptDetailScreen: React.FC<Props> = ({ route, navigation }) => {
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   console.log("🚀 ~ ReceiptDetailScreen ~ receipt:", receipt)
   const [error, setError] = useState<string | null>(null);
+  const [showImageViewer, setShowImageViewer] = useState(false);
 
   useEffect(() => {
     const fetchReceipt = async () => {
@@ -104,19 +107,35 @@ export const ReceiptDetailScreen: React.FC<Props> = ({ route, navigation }) => {
           <Text style={[styles.errorText, { color: theme.status.error }]}>{error}</Text>
         ) : receipt?.images?.[0]?.url ? (
           <TouchableOpacity
-            onPress={() => navigation.navigate('EditReceipt', { receipt: receipt as any })}
+            onPress={() => setShowImageViewer(true)}
             activeOpacity={0.9}
+            style={styles.imageWrapper}
           >
             <Image
               source={{ uri: receipt.images[0].url }}
               style={styles.image}
               resizeMode="contain"
             />
+            {/* Expand Icon Overlay */}
+            <View style={styles.expandIconContainer}>
+              <View style={[styles.expandIconBackground, { backgroundColor: 'rgba(0, 0, 0, 0.6)' }]}>
+                <Ionicons name="expand" size={20} color="white" />
+              </View>
+            </View>
           </TouchableOpacity>
         ) : (
           <Text style={[styles.errorText, { color: theme.status.error }]}>No image available</Text>
         )}
       </View>
+      
+      {/* Image Viewer Modal */}
+      {receipt?.images?.[0]?.url && (
+        <ImageViewer
+          imageUrl={receipt.images[0].url}
+          visible={showImageViewer}
+          onClose={() => setShowImageViewer(false)}
+        />
+      )}
     </SafeAreaView>
   );
 };
@@ -133,6 +152,20 @@ const styles = StyleSheet.create({
   image: {
     width: Dimensions.get('window').width,
     height: Dimensions.get('window').height * 0.7,
+  },
+  imageWrapper: {
+    position: 'relative',
+  },
+  expandIconContainer: {
+    position: 'absolute',
+    top: 16,
+    right: 16,
+  },
+  expandIconBackground: {
+    borderRadius: 20,
+    padding: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   errorText: {
     fontSize: 16,
