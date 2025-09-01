@@ -1,7 +1,21 @@
 import { useEffect } from 'react';
-import { onSnapshot, collection, query, where, orderBy, doc, updateDoc } from 'firebase/firestore';
+import { onSnapshot, collection, query, where, orderBy, doc, updateDoc, getDocs, Timestamp } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import * as Notifications from 'expo-notifications';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Type definitions for notification data
+interface NotificationData {
+  id: string;
+  userId: string;
+  title: string;
+  body: string;
+  data: any;
+  createdAt: Timestamp | { toDate: () => Date } | string | Date;
+  read: boolean;
+  source: string;
+  [key: string]: any;
+}
 
 export class UserNotificationMonitor {
   private static instance: UserNotificationMonitor;
@@ -17,13 +31,16 @@ export class UserNotificationMonitor {
   /**
    * Start monitoring user notifications for the given user
    */
-  public startMonitoring(userId: string): void {
+  public async startMonitoring(userId: string): Promise<void> {
     if (this.unsubscribe) {
       console.log('📡 Stopping previous monitoring session');
       this.unsubscribe();
     }
 
     console.log(`📡 Starting notification monitoring for user: ${userId}`);
+
+    // First, check for missed notifications since last app session
+    await this.checkForMissedNotifications(userId);
 
     // Query for unread notifications for this user
     const notificationsQuery = query(
@@ -46,7 +63,7 @@ export class UserNotificationMonitor {
           console.log(`📡 Processing change ${index + 1}: type=${change.type}`);
           
           if (change.type === 'added') {
-            const notification = change.doc.data();
+            const notification = change.doc.data() as NotificationData;
             console.log('📬 New user notification received:', notification);
             
             // Show local notification using the same method as test notifications
@@ -72,11 +89,83 @@ export class UserNotificationMonitor {
   /**
    * Stop monitoring notifications
    */
-  public stopMonitoring(): void {
+  public async stopMonitoring(): Promise<void> {
     if (this.unsubscribe) {
       this.unsubscribe();
       this.unsubscribe = null;
       console.log('📡 Stopped notification monitoring');
+      
+      // Save timestamp when monitoring stopped (app going to background/closing)
+      await AsyncStorage.setItem('last_notification_check', new Date().toISOString());
+    }
+  }
+
+  /**
+   * Check for missed notifications since last app session
+   */
+  private async checkForMissedNotifications(userId: string): Promise<void> {
+    try {
+      console.log('🔄 Checking for missed notifications...');
+      
+      // Get the last time we checked for notifications
+      const lastCheckStr = await AsyncStorage.getItem('last_notification_check');
+      const lastCheck = lastCheckStr ? new Date(lastCheckStr) : new Date(Date.now() - 24 * 60 * 60 * 1000); // Default to 24h ago
+      
+      console.log(`📅 Last notification check: ${lastCheck.toISOString()}`);
+      
+      // Query for unread notifications created since last check
+      const missedQuery = query(
+        collection(db, 'user_notifications'),
+        where('userId', '==', userId),
+        where('read', '==', false)
+      );
+
+      const snapshot = await getDocs(missedQuery);
+      const missedNotifications = snapshot.docs
+        .map(doc => ({ id: doc.id, ...doc.data() } as NotificationData))
+        .filter((notification: NotificationData) => {
+          if (!notification.createdAt) return false;
+          
+          // Handle Firestore Timestamp object
+          const createdAt = (notification.createdAt as any)?.toDate ? 
+            (notification.createdAt as any).toDate() : 
+            new Date(notification.createdAt as string | Date);
+          
+          return createdAt > lastCheck;
+        })
+        .sort((a: NotificationData, b: NotificationData) => {
+          const aTime = (a.createdAt as any)?.toDate ? (a.createdAt as any).toDate() : new Date(a.createdAt as string | Date);
+          const bTime = (b.createdAt as any)?.toDate ? (b.createdAt as any).toDate() : new Date(b.createdAt as string | Date);
+          return aTime.getTime() - bTime.getTime(); // Oldest first
+        });
+
+      console.log(`📬 Found ${missedNotifications.length} missed notifications`);
+
+      if (missedNotifications.length > 0) {
+        // Show notifications with a small delay between them to avoid overwhelming
+        for (let i = 0; i < missedNotifications.length; i++) {
+          const notification: NotificationData = missedNotifications[i];
+          
+          setTimeout(async () => {
+            console.log(`📱 Showing missed notification ${i + 1}/${missedNotifications.length}`);
+            
+            await this.showLocalNotification(
+              notification.title,
+              notification.body,
+              { ...notification.data, missed: true }
+            );
+
+            // Mark as read
+            await this.markAsRead(notification.id);
+          }, i * 1000); // 1 second delay between notifications
+        }
+      }
+
+      // Update the last check timestamp
+      await AsyncStorage.setItem('last_notification_check', new Date().toISOString());
+      
+    } catch (error) {
+      console.error('❌ Error checking for missed notifications:', error);
     }
   }
 
@@ -145,11 +234,17 @@ export const useUserNotificationMonitor = (userId: string | null) => {
 
     console.log('🔗 Initializing UserNotificationMonitor...');
     const monitor = UserNotificationMonitor.getInstance();
-    monitor.startMonitoring(userId);
+    
+    // Start monitoring (async)
+    monitor.startMonitoring(userId).catch((error) => {
+      console.error('❌ Failed to start notification monitoring:', error);
+    });
 
     return () => {
       console.log('🔗 Cleanup: stopping notification monitoring');
-      monitor.stopMonitoring();
+      monitor.stopMonitoring().catch((error) => {
+        console.error('❌ Failed to stop notification monitoring:', error);
+      });
     };
   }, [userId]);
 };
