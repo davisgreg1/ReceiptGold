@@ -881,6 +881,8 @@ exports.testWebhookConfig = (0, https_1.onRequest)(async (req, res) => {
         });
     }
 });
+// LOCAL NOTIFICATION APPROACH
+// Using Firestore monitoring + local notifications instead of FCM
 // NOTIFICATION HANDLERS
 exports.onConnectionNotificationCreate = functionsV1.firestore
     .document("connection_notifications/{notificationId}")
@@ -894,53 +896,43 @@ exports.onConnectionNotificationCreate = functionsV1.firestore
         // Get user's push token from Firestore
         const userDoc = await db.collection("users").doc(userId).get();
         const userData = userDoc.data();
-        if (!(userData === null || userData === void 0 ? void 0 : userData.expoPushToken)) {
-            console.log(`❌ No push token found for user ${userId}`);
-            return;
-        }
+        // We no longer need tokens for the local notification approach
+        console.log(`📱 Processing notification for user ${userId}`);
         // Check if user has notifications enabled
-        const notificationSettings = userData.notificationSettings;
+        const notificationSettings = userData === null || userData === void 0 ? void 0 : userData.notificationSettings;
         if (!(notificationSettings === null || notificationSettings === void 0 ? void 0 : notificationSettings.notificationsEnabled) || !(notificationSettings === null || notificationSettings === void 0 ? void 0 : notificationSettings.bankConnections)) {
             console.log(`📵 User ${userId} has disabled bank connection notifications`);
             return;
         }
-        // Prepare Expo push notification payload
-        const pushMessage = {
-            to: userData.expoPushToken,
-            sound: 'default',
-            title,
-            body: message,
-            data: {
-                type,
-                priority: priority || 'medium',
-                userId,
-                notificationId: context.params.notificationId,
-                createdAt: new Date().toISOString()
-            },
-            priority: priority === 'high' ? 'high' : 'normal',
+        // Prepare notification data
+        const notificationData = {
+            type,
+            priority: priority || 'medium',
+            userId,
+            notificationId: context.params.notificationId,
+            createdAt: new Date().toISOString()
         };
-        // Send push notification via Expo
-        const response = await fetch('https://exp.host/--/api/v2/push/send', {
-            method: 'POST',
-            headers: {
-                Accept: 'application/json',
-                'Accept-encoding': 'gzip, deflate',
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(pushMessage),
+        // Simple approach: Create a local notification trigger document that the app monitors
+        // This avoids all FCM complexity and uses the same approach as your working test notifications
+        console.log(`📱 Creating local notification trigger for user ${userId}`);
+        // Create a document in user_notifications collection that the app monitors
+        await db.collection("user_notifications").add({
+            userId: userId,
+            title: title,
+            body: message,
+            data: notificationData,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            read: false,
+            source: 'webhook',
+            sourceId: context.params.notificationId
         });
-        const result = await response.json();
-        if (response.ok) {
-            console.log(`✅ Push notification sent successfully to user ${userId}`);
-            // Update the notification document to mark as sent
-            await db.collection("connection_notifications").doc(context.params.notificationId).update({
-                pushSent: true,
-                pushSentAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-        }
-        else {
-            console.error(`❌ Failed to send push notification:`, result);
-        }
+        console.log(`✅ Local notification trigger created for user ${userId}`);
+        // Update the original notification document to mark as processed
+        await db.collection("connection_notifications").doc(context.params.notificationId).update({
+            pushSent: true,
+            pushSentAt: admin.firestore.FieldValue.serverTimestamp(),
+            pushMethod: 'local_trigger'
+        });
     }
     catch (error) {
         console.error('Error sending push notification:', error);

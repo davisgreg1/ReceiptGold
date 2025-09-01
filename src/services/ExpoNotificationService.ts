@@ -2,7 +2,6 @@ import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
 
 // Configure how notifications are handled when received
 Notifications.setNotificationHandler({
@@ -17,7 +16,7 @@ Notifications.setNotificationHandler({
 
 export class NotificationService {
   private static instance: NotificationService;
-  private expoPushToken: string | null = null;
+  private devicePushToken: string | null = null;
 
   public static getInstance(): NotificationService {
     if (!NotificationService.instance) {
@@ -34,8 +33,8 @@ export class NotificationService {
       // Request permission for notifications
       await this.requestPermission();
       
-      // Get Expo push token
-      await this.getExpoPushToken();
+      // Get native device push token
+      await this.getDevicePushToken();
       
       // Set up notification handlers
       this.setupNotificationHandlers();
@@ -78,18 +77,18 @@ export class NotificationService {
   }
 
   /**
-   * Get Expo push token
+   * Get native device push token (FCM for Android, APNs for iOS)
    */
-  public async getExpoPushToken(): Promise<string | null> {
+  public async getDevicePushToken(): Promise<string | null> {
     try {
-      if (this.expoPushToken) {
-        return this.expoPushToken;
+      if (this.devicePushToken) {
+        return this.devicePushToken;
       }
 
       // Check if we have a cached token
-      const cachedToken = await AsyncStorage.getItem('expo_push_token');
+      const cachedToken = await AsyncStorage.getItem('device_push_token');
       if (cachedToken) {
-        this.expoPushToken = cachedToken;
+        this.devicePushToken = cachedToken;
         return cachedToken;
       }
 
@@ -98,53 +97,28 @@ export class NotificationService {
         return null;
       }
 
-      // Get project ID from app config
-      const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-      
-      if (!projectId || projectId === 'your-project-id-here') {
-        console.log('⚠️ No valid Expo project ID configured. Push notifications will work with local notifications only.');
-        console.log('To enable push notifications, run: npx expo install @expo/cli && npx eas update:configure');
-        
-        // Return a mock token for development
-        const mockToken = `ExpoToken[${Date.now()}]`;
-        this.expoPushToken = mockToken;
-        await AsyncStorage.setItem('expo_push_token', mockToken);
-        return mockToken;
-      }
-
       try {
-        // Get real token with project ID
-        const tokenData = await Notifications.getExpoPushTokenAsync({
-          projectId: projectId,
-        });
+        // Get native device push token (FCM for Android, APNs for iOS)
+        const tokenData = await Notifications.getDevicePushTokenAsync();
         
         if (tokenData.data) {
-          this.expoPushToken = tokenData.data;
-          await AsyncStorage.setItem('expo_push_token', tokenData.data);
-          console.log('📱 Expo Push Token:', tokenData.data);
+          this.devicePushToken = tokenData.data;
+          await AsyncStorage.setItem('device_push_token', tokenData.data);
+          console.log('📱 Native Device Push Token:', tokenData.data);
+          console.log('📱 Platform:', Platform.OS);
           return tokenData.data;
         }
       } catch (tokenError) {
-        console.error('Failed to get Expo push token:', tokenError);
+        console.error('Failed to get native device push token:', tokenError);
         
-        // Fallback to mock token for development
-        const mockToken = `ExpoToken[MOCK-${Date.now()}]`;
-        this.expoPushToken = mockToken;
-        await AsyncStorage.setItem('expo_push_token', mockToken);
-        console.log('📱 Using mock token for development:', mockToken);
-        return mockToken;
+        // Return null - no fallback for device tokens
+        return null;
       }
 
       return null;
     } catch (error) {
-      console.error('Error getting Expo push token:', error);
-      
-      // Create a mock token for development purposes
-      const mockToken = `ExpoToken[ERROR-${Date.now()}]`;
-      this.expoPushToken = mockToken;
-      await AsyncStorage.setItem('expo_push_token', mockToken);
-      console.log('📱 Using mock token due to error:', mockToken);
-      return mockToken;
+      console.error('Error getting native device push token:', error);
+      return null;
     }
   }
 
@@ -155,6 +129,8 @@ export class NotificationService {
     // Handle notification received while app is foregrounded
     Notifications.addNotificationReceivedListener(notification => {
       console.log('📬 Notification received:', notification);
+      // For data-only messages from FCM, manually show the notification
+      this.handleDataOnlyNotification(notification);
     });
 
     // Handle notification response (user tapped notification)
@@ -165,38 +141,104 @@ export class NotificationService {
   }
 
   /**
+   * Handle data-only notifications from FCM (show them manually)
+   */
+  private async handleDataOnlyNotification(notification: Notifications.Notification): Promise<void> {
+    const { data } = notification.request.content;
+    
+    // Check if this is a data-only notification with title/body in data
+    if (data?.title && data?.body && !notification.request.content.title) {
+      console.log('📱 Processing data-only FCM notification');
+      
+      try {
+        // Schedule local notification to display it
+        await Notifications.scheduleNotificationAsync({
+          content: {
+            title: data.title as string,
+            body: data.body as string,
+            data: data,
+            sound: true,
+          },
+          trigger: null, // Show immediately
+        });
+        
+        console.log('✅ Data-only notification displayed locally');
+      } catch (error) {
+        console.error('❌ Error displaying data-only notification:', error);
+      }
+    }
+  }
+
+  /**
    * Handle notification press/tap
    */
   private handleNotificationPress(notification: Notifications.Notification): void {
     console.log('🔔 Notification pressed:', notification);
+    console.log('🔔 Notification data:', notification.request.content.data);
     
     // Handle different notification types based on data payload
     const { data } = notification.request.content;
     
     if (data?.type) {
+      console.log("🚀 ~ NotificationService ~ handleNotificationPress ~ data:", data)
       switch (data.type) {
-        case 'plaid_connection_issue':
-          // Navigate to connection management or directly trigger reconnection
+        case 'pending_expiration':
+        case 'reauth_required':
+        case 'permission_revoked':
+          // Navigate to bank connection management
           console.log('Navigate to bank connection management:', {
-            institutionName: data.institutionName,
-            connectionType: data.connectionType,
             itemId: data.itemId,
-            action: data.action
+            userId: data.userId,
+            priority: data.priority
           });
-          this.handleBankConnectionAction(data);
+          this.handleBankConnectionAction({
+            ...data,
+            action: 'reconnect_bank',
+            connectionType: data.type
+          });
           break;
+          
+        case 'new_accounts_available':
+          // Navigate to bank connections to add new accounts
+          console.log('Navigate to add new accounts:', {
+            itemId: data.itemId,
+            userId: data.userId
+          });
+          this.handleBankConnectionAction({
+            ...data,
+            action: 'add_accounts',
+            connectionType: 'new_accounts'
+          });
+          break;
+          
+        case 'new_transactions':
+          // Navigate to transactions or receipts screen
+          console.log('Navigate to new transactions:', {
+            itemId: data.itemId,
+            userId: data.userId
+          });
+          this.handleNewTransactionsAction(data);
+          break;
+          
+        case 'login_repaired':
+          // Just show success, maybe navigate to transactions
+          console.log('Bank connection restored:', {
+            itemId: data.itemId,
+            userId: data.userId
+          });
+          this.handleLoginRepairedAction(data);
+          break;
+          
         case 'receipt_processed':
           // Navigate to receipts list or specific receipt
           console.log('Navigate to receipt:', data.receiptId);
           break;
+          
         case 'subscription_reminder':
           // Navigate to pricing/subscription page
           console.log('Navigate to subscription page');
           break;
-        case 'tax_deadline':
-          // Navigate to reports or tax section
-          console.log('Navigate to tax reports');
-          break;
+          
         default:
           console.log('Unknown notification type:', data.type);
       }
@@ -208,15 +250,12 @@ export class NotificationService {
    */
   private handleBankConnectionAction(data: any): void {
     // Store the notification data for the app to handle navigation
-    // This allows the app to navigate to the correct screen when it becomes active
     try {
-      // Use AsyncStorage to store navigation intent
       import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
         const navigationData = {
-          screen: 'ConnectionManagement',
+          screen: 'Settings', // Navigate to Settings screen where bank connections are managed
           params: {
             highlightItem: data.itemId,
-            institutionName: data.institutionName,
             actionRequired: data.action === 'reconnect_bank',
             notificationType: data.connectionType,
             fromNotification: true,
@@ -224,9 +263,7 @@ export class NotificationService {
           }
         };
 
-        // Store navigation intent in AsyncStorage
         AsyncStorage.setItem('navigationIntent', JSON.stringify(navigationData));
-        
         console.log('🔗 Bank connection navigation intent stored:', navigationData);
       }).catch(error => {
         console.error('Error storing navigation intent:', error);
@@ -237,12 +274,63 @@ export class NotificationService {
   }
 
   /**
+   * Handle new transactions notification
+   */
+  private handleNewTransactionsAction(data: any): void {
+    try {
+      import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+        const navigationData = {
+          screen: 'BankTransactions', // Navigate to bank transactions screen
+          params: {
+            itemId: data.itemId,
+            fromNotification: true,
+            timestamp: Date.now()
+          }
+        };
+
+        AsyncStorage.setItem('navigationIntent', JSON.stringify(navigationData));
+        console.log('💳 New transactions navigation intent stored:', navigationData);
+      }).catch(error => {
+        console.error('Error storing navigation intent:', error);
+      });
+    } catch (error) {
+      console.error('Error handling new transactions action:', error);
+    }
+  }
+
+  /**
+   * Handle login repaired notification
+   */
+  private handleLoginRepairedAction(data: any): void {
+    try {
+      import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+        const navigationData = {
+          screen: 'BankTransactions', // Navigate to transactions to see updated data
+          params: {
+            itemId: data.itemId,
+            connectionRestored: true,
+            fromNotification: true,
+            timestamp: Date.now()
+          }
+        };
+
+        AsyncStorage.setItem('navigationIntent', JSON.stringify(navigationData));
+        console.log('✅ Login repaired navigation intent stored:', navigationData);
+      }).catch(error => {
+        console.error('Error storing navigation intent:', error);
+      });
+    } catch (error) {
+      console.error('Error handling login repaired action:', error);
+    }
+  }
+
+  /**
    * Send push token to Firestore for the current user
    * Preserves existing notification preferences
    */
   public async saveTokenToFirestore(userId: string): Promise<void> {
     try {
-      const token = await this.getExpoPushToken();
+      const token = await this.getDevicePushToken();
       if (!token || !userId) {
         console.log('❌ No token or user ID available');
         return;
@@ -277,7 +365,8 @@ export class NotificationService {
       const notificationSettings = existingData.notificationSettings || defaultNotificationSettings;
 
       const updateData = {
-        expoPushToken: token,
+        devicePushToken: token,
+        pushTokenType: Platform.OS === 'ios' ? 'apns' : 'fcm',
         pushTokenUpdatedAt: serverTimestamp(),
         // Only set notification settings if they don't exist
         ...(existingData.notificationSettings ? {} : { notificationSettings })
@@ -293,7 +382,7 @@ export class NotificationService {
         });
       }
 
-      console.log('✅ Expo push token saved to Firestore for user:', userId);
+      console.log('✅ Native device push token saved to Firestore for user:', userId);
       console.log('📋 Notification settings preserved/initialized');
     } catch (error) {
       console.error('❌ Error saving push token to Firestore:', error);
@@ -530,17 +619,23 @@ export class NotificationService {
    */
   public async clearToken(): Promise<void> {
     try {
-      await AsyncStorage.removeItem('expo_push_token');
-      this.expoPushToken = null;
-      console.log('✅ Expo push token cleared');
+      await AsyncStorage.removeItem('device_push_token');
+      this.devicePushToken = null;
+      console.log('✅ Native device push token cleared');
     } catch (error) {
-      console.error('Error clearing Expo push token:', error);
+      console.error('Error clearing native device push token:', error);
     }
   }
 
   // Compatibility methods for Firebase-like interface
   public async getFCMToken(): Promise<string | null> {
-    return this.getExpoPushToken();
+    return this.getDevicePushToken();
+  }
+
+  // Legacy compatibility method
+  public async getExpoPushToken(): Promise<string | null> {
+    console.warn('getExpoPushToken is deprecated, use getDevicePushToken instead');
+    return this.getDevicePushToken();
   }
 
   public async subscribeToTopic(topic: string): Promise<void> {
