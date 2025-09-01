@@ -18,6 +18,7 @@ import { useNotifications } from '../hooks/useNotifications';
 import { useNotificationSettings } from '../context/NotificationSettingsContext';
 import { BankReceiptService } from '../services/BankReceiptService';
 import { useAuth } from '../hooks/useAuth';
+import { useSubscription } from '../context/SubscriptionContext';
 import { NotificationService } from '../services/ExpoNotificationService';
 
 // Helper functions for time handling
@@ -43,6 +44,7 @@ export const NotificationSettingsScreen: React.FC = () => {
   const { theme } = useTheme();
   const { getPermissionStatus, getFCMToken } = useNotifications();
   const { user } = useAuth();
+  const subscription = useSubscription();
   const { 
     settings, 
     loading, 
@@ -177,6 +179,12 @@ export const NotificationSettingsScreen: React.FC = () => {
     try {
       if (!user) {
         Alert.alert('Error', 'User not authenticated');
+        return;
+      }
+
+      // Only allow professional tier users to test webhooks
+      if (subscription.subscription.currentTier !== 'professional') {
+        Alert.alert('Upgrade Required', 'Webhook testing is only available for Professional tier users.');
         return;
       }
 

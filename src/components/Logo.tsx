@@ -1,5 +1,5 @@
 import React from "react";
-import { Image, ImageStyle } from "react-native";
+import { Image, ImageStyle, View } from "react-native";
 import { useTheme } from "../theme/ThemeProvider";
 
 interface LogoProps {
@@ -17,16 +17,16 @@ export const Logo: React.FC<LogoProps> = ({ size = 48, style }) => {
       : require("../../assets/images/logo/logo-light.svg");
 
   return (
-    <Image
-      source={logoSource}
-      style={[
-        {
+    <View style={[{ width: size, height: size, backgroundColor: 'transparent' }, style]}>
+      <Image
+        source={logoSource}
+        style={{
           width: size,
           height: size,
-        },
-        style,
-      ]}
-      resizeMode="contain"
-    />
+          backgroundColor: 'transparent',
+        }}
+        resizeMode="contain"
+      />
+    </View>
   );
 };

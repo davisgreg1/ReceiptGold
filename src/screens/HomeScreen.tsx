@@ -5,7 +5,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
   Dimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -17,6 +16,7 @@ import { useSubscription } from "../context/SubscriptionContext";
 import { useHomeNavigation, useTabNavigation, navigationHelpers } from "../navigation/navigationHelpers";
 import { BrandText, HeadingText, BodyText, ButtonText } from '../components/Typography';
 import { Signature } from '../components/Signature';
+import { StatCardSkeleton } from '../components/StatCardSkeleton';
 import { db } from '../config/firebase';
 import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 import { ReceiptCategoryService, ReceiptCategory } from '../services/ReceiptCategoryService';
@@ -394,11 +394,9 @@ export const HomeScreen: React.FC = () => {
 
           {/* Stats Overview Cards */}
           {loading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={theme.gold.primary} />
-              <BodyText size="small" color="secondary" style={{ marginTop: 12 }}>
-                Loading your insights...
-              </BodyText>
+            <View style={styles.statsContainer}>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
             </View>
           ) : (
             <View style={styles.statsContainer}>
@@ -650,11 +648,6 @@ const styles = StyleSheet.create({
   },
   welcomeSection: {
     marginBottom: 24,
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 40,
   },
   
   // Stats Cards
