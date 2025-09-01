@@ -17,6 +17,7 @@ import { useNotificationSettings } from './src/context/NotificationSettingsConte
 import { NotificationService } from './src/services/ExpoNotificationService';
 import { useUserNotificationMonitor } from './src/services/UserNotificationMonitor';
 import { useReceiptSync } from './src/services/ReceiptSyncService';
+import { useNavigationIntent } from './src/hooks/useNavigationIntent';
 
 const AppContent: React.FC = () => {
   const [splashFinished, setSplashFinished] = useState(false);
@@ -26,6 +27,9 @@ const AppContent: React.FC = () => {
   // Monitor user notifications for local display
   console.log('🔗 App.tsx: Setting up notification monitoring for user:', user?.uid);
   useUserNotificationMonitor(user?.uid || null);
+
+  // Handle navigation intents from notifications
+  useNavigationIntent();
 
   // Initialize notification service when user is authenticated
   useEffect(() => {

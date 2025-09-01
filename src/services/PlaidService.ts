@@ -90,14 +90,25 @@ export class PlaidService {
   public async createLinkToken(userId: string): Promise<string> {
     console.log("🚀 Starting link token creation for user:", userId);
     try {
+      // Prepare platform-specific configuration
+      const requestBody: any = { 
+        user_id: userId
+      };
+
+      if (Platform.OS === 'android') {
+        requestBody.android_package_name = 'com.receiptgold.app';
+        console.log('🤖 Android: Using package name for OAuth redirect');
+      } else {
+        requestBody.redirect_uri = 'receiptgold://oauth';
+        console.log('🍎 iOS: Using redirect URI for OAuth redirect');
+      }
+
       const response = await fetch(`${API_BASE_URL}/api/plaid/create-link-token`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ 
-          user_id: userId
-        }),
+        body: JSON.stringify(requestBody),
       });
       
       const data = await response.json();
@@ -219,7 +230,16 @@ export class PlaidService {
     endDate: string
   ): Promise<PlaidTransaction[]> {
     try {
-      console.log(`Fetching transactions from ${startDate} to ${endDate}`);
+      console.log(`🔍 PlaidService.fetchRecentTransactions called with:`);
+      console.log(`  - accessToken: ${accessToken ? 'present (' + accessToken.substring(0, 20) + '...)' : 'MISSING'}`);
+      console.log(`  - startDate: ${startDate || 'MISSING'}`);
+      console.log(`  - endDate: ${endDate || 'MISSING'}`);
+      
+      if (!accessToken || !startDate || !endDate) {
+        throw new Error(`Missing required parameters: accessToken=${!!accessToken}, startDate=${!!startDate}, endDate=${!!endDate}`);
+      }
+      
+      console.log(`📡 Fetching transactions from ${startDate} to ${endDate}`);
       
       const response = await fetch(`${API_BASE_URL}/api/plaid/transactions`, {
         method: 'POST',
@@ -356,7 +376,13 @@ export class PlaidService {
    */
   public async disconnectBankAccount(accessToken: string): Promise<void> {
     try {
-      console.log('🔌 Disconnecting bank account from Plaid again...');
+      // Check if access token is available
+      if (!accessToken) {
+        console.log('⚠️ No access token available - skipping Plaid API disconnection (connection was never fully established)');
+        return;
+      }
+
+      console.log('🔌 Disconnecting bank account from Plaid...');
       
       const response = await fetch(`${API_BASE_URL}/api/plaid`, {
         method: 'POST',
@@ -371,6 +397,14 @@ export class PlaidService {
 
       if (!response.ok) {
         const errorData = await response.json();
+        console.error('❌ Plaid API error during disconnect:', errorData);
+        
+        // If the access token is invalid, log it but don't throw - we still want to clean up locally
+        if (errorData.error_code === 'INVALID_ACCESS_TOKEN' || errorData.error_type === 'INVALID_INPUT') {
+          console.log('⚠️ Access token was invalid - proceeding with local cleanup');
+          return;
+        }
+        
         throw new Error(errorData.error || 'Failed to disconnect bank account');
       }
 

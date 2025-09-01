@@ -2619,7 +2619,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   recentSectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
     marginBottom: 4,
     textAlign: "center",
@@ -2756,7 +2756,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 18,
     borderWidth: 1,
-    minWidth: 80,
+    minWidth: 90,
     alignItems: "center",
   },
   categoryChipText: {
@@ -2793,7 +2793,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 14,
     borderWidth: 1,
-    minWidth: 70,
+    minWidth: 90,
     alignItems: "center",
   },
   quickDateChipText: {
