@@ -71,8 +71,17 @@ export class BankReceiptService {
     try {
       const bankConnections = await this.getBankConnections(userId);
       
-      // Filter for only active connections
-      const activeConnections = bankConnections.filter(conn => conn.isActive);
+      // Filter for only active connections with valid access tokens
+      const activeConnections = bankConnections.filter(conn => conn.isActive && conn.accessToken);
+      
+      // Log invalid connections that need to be cleaned up
+      const invalidConnections = bankConnections.filter(conn => conn.isActive && !conn.accessToken);
+      if (invalidConnections.length > 0) {
+        console.warn(`⚠️ Found ${invalidConnections.length} invalid connections without access tokens:`);
+        invalidConnections.forEach(conn => {
+          console.warn(`  - ${conn.institutionName} (${conn.id}) - needs to be re-linked`);
+        });
+      }
 
       // If no active bank connections exist, clear any cached data and return empty array
       if (activeConnections.length === 0) {
@@ -91,12 +100,29 @@ export class BankReceiptService {
       }
 
       console.log('🔄 Fetching fresh transaction data from Plaid...');
+      console.log(`🔍 Processing ${activeConnections.length} active connections:`);
+      
+      activeConnections.forEach((conn, index) => {
+        console.log(`  Connection ${index + 1}: ${conn.institutionName}`);
+        console.log(`    - ID: ${conn.id}`);
+        console.log(`    - Access Token: ${conn.accessToken ? 'present (' + conn.accessToken.substring(0, 20) + '...)' : 'MISSING'}`);
+        console.log(`    - Active: ${conn.isActive}`);
+      });
+
       const candidates: TransactionCandidate[] = [];
 
       for (const connection of activeConnections) {
+        console.log(`📡 Fetching transactions for ${connection.institutionName}...`);
+        
         // Get transactions from the last 12 months
         const endDate = new Date().toISOString().split('T')[0];
         const startDate = new Date(Date.now() - BankReceiptService.TRANSACTION_LOOKBACK_PERIOD).toISOString().split('T')[0];
+
+        if (!connection.accessToken) {
+          console.error(`❌ No access token for connection ${connection.institutionName} (${connection.id})`);
+          console.log(`🗑️ This connection is invalid and should be removed`);
+          continue; // Skip this connection
+        }
 
         const transactions = await this.plaidService.fetchRecentTransactions(
           connection.accessToken,

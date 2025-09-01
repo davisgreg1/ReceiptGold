@@ -188,20 +188,105 @@ export class UserNotificationMonitor {
         return;
       }
       
+      // Determine navigation screen based on notification type
+      const navigationScreen = this.getNavigationScreen(data);
+      
       const notificationId = await Notifications.scheduleNotificationAsync({
         content: {
           title,
           body,
-          data,
+          data: {
+            ...data,
+            // Add navigation data for tap handling
+            navigationScreen: navigationScreen,
+            fromLocalNotification: true
+          },
           sound: true,
         },
         trigger: null, // Show immediately
       });
       
       console.log(`✅ Local notification scheduled successfully with ID: ${notificationId}`);
+      
+      // Set up one-time tap handler for this notification
+      this.setupNotificationTapHandler();
+      
     } catch (error) {
       console.error('❌ Error showing local notification:', error);
     }
+  }
+
+  /**
+   * Set up notification tap handler (one-time setup)
+   */
+  private setupNotificationTapHandler(): void {
+    if ((this as any).tapHandlerSetup) {
+      return; // Already set up
+    }
+    
+    console.log('📱 Setting up notification tap handler');
+    
+    // Listen for notification responses (taps)
+    const subscription = Notifications.addNotificationResponseReceivedListener(response => {
+      console.log('📱 Local notification tapped:', response);
+      
+      const { data } = response.notification.request.content;
+      if (data?.fromLocalNotification && data?.navigationScreen) {
+        console.log('📱 Handling local notification tap, navigating to:', data.navigationScreen);
+        this.handleNotificationTap(data);
+      }
+    });
+    
+    (this as any).tapHandlerSetup = true;
+    (this as any).tapSubscription = subscription;
+  }
+
+  /**
+   * Handle notification tap and navigate
+   */
+  private handleNotificationTap(data: any): void {
+    try {
+      import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+        const navigationData = {
+          screen: data.navigationScreen || 'BankTransactions',
+          params: {
+            fromNotification: true,
+            timestamp: Date.now(),
+            notificationData: data
+          }
+        };
+        
+        AsyncStorage.setItem('navigationIntent', JSON.stringify(navigationData));
+        console.log('📱 Navigation intent stored from local notification:', navigationData);
+      }).catch(error => {
+        console.error('❌ Error storing navigation intent:', error);
+      });
+    } catch (error) {
+      console.error('❌ Error handling notification tap:', error);
+    }
+  }
+
+  /**
+   * Determine navigation screen based on notification type
+   */
+  private getNavigationScreen(data: any): string {
+    if (data?.type) {
+      switch (data.type) {
+        case 'new_transactions':
+        case 'login_repaired':
+          return 'BankTransactions'; // Bank Sync screen
+        case 'pending_expiration':
+        case 'reauth_required':
+        case 'permission_revoked':
+        case 'new_accounts_available':
+          return 'BankTransactions'; // Also Bank Sync screen for connection issues
+        case 'receipt_processed':
+          return 'ReceiptsList'; // Receipts screen
+        default:
+          return 'BankTransactions'; // Default to Bank Sync
+      }
+    }
+    return 'BankTransactions'; // Default fallback
   }
 
   /**

@@ -67,6 +67,45 @@ export const BankTransactionsScreen: React.FC = () => {
   const [selectedQuickFilters, setSelectedQuickFilters] = useState<string[]>([]);
   const [showSearchSection, setShowSearchSection] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Bulk selection state
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const [bulkMode, setBulkMode] = useState(false);
+  
+  // Alert deduplication state
+  const recentAlerts = useRef<Map<string, number>>(new Map());
+  const ALERT_DEDUP_WINDOW = 3000; // 3 seconds
+  
+  // Deduplicated notification function
+  const showDedupedNotification = (notification: {
+    type: "success" | "error" | "warning" | "info";
+    title: string;
+    message: string;
+  }) => {
+    const alertKey = `${notification.title}|${notification.message}`;
+    const now = Date.now();
+    
+    // Check if this alert was shown recently
+    const lastShown = recentAlerts.current.get(alertKey);
+    if (lastShown && (now - lastShown) < ALERT_DEDUP_WINDOW) {
+      console.log(`🔇 Suppressing duplicate alert: ${notification.title}`);
+      return;
+    }
+    
+    // Show the alert and record the timestamp
+    recentAlerts.current.set(alertKey, now);
+    showNotification(notification);
+    
+    // Clean up old entries to prevent memory leaks
+    if (recentAlerts.current.size > 50) {
+      const cutoffTime = now - ALERT_DEDUP_WINDOW;
+      for (const [key, timestamp] of recentAlerts.current.entries()) {
+        if (timestamp < cutoffTime) {
+          recentAlerts.current.delete(key);
+        }
+      }
+    }
+  };
 
   // Date filter state
   const [showDateRangePicker, setShowDateRangePicker] = useState(false);
@@ -534,7 +573,16 @@ export const BankTransactionsScreen: React.FC = () => {
   ) => {
     if (!user) return;
 
+    // Prevent duplicate approval attempts
+    if (generatingReceipt === candidateId) {
+      console.log("🔄 Approval already in progress for:", candidateId);
+      return;
+    }
+
     try {
+      // Set as generating to prevent duplicates
+      setGeneratingReceipt(candidateId);
+
       await bankReceiptService.saveGeneratedPDFReceiptAsReceipt(
         user.uid,
         generatedReceiptPDF,
@@ -551,7 +599,7 @@ export const BankTransactionsScreen: React.FC = () => {
         return newMap;
       });
 
-      showNotification({
+      showDedupedNotification({
         type: "success",
         title: "Receipt Saved!",
         message: "The generated receipt has been added to your collection.",
@@ -563,6 +611,11 @@ export const BankTransactionsScreen: React.FC = () => {
         title: "Save Failed",
         message: "Failed to save receipt. Please try again.",
       });
+    } finally {
+      // Clear the generating state after a short delay
+      setTimeout(() => {
+        setGeneratingReceipt(null);
+      }, 500);
     }
   };
 
@@ -591,12 +644,172 @@ export const BankTransactionsScreen: React.FC = () => {
         newMap.delete(candidateId);
         return newMap;
       });
+      
+      // Remove from selected items if in bulk mode
+      if (bulkMode) {
+        setSelectedItems((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(candidateId);
+          return newSet;
+        });
+      }
     } catch (error) {
       console.error("Error dismissing candidate:", error);
       showNotification({
         type: "error",
         title: "Dismiss Failed",
         message: "Failed to dismiss transaction. Please try again.",
+      });
+    }
+  };
+  
+  // Bulk operations
+  const toggleItemSelection = (candidateId: string) => {
+    setSelectedItems((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(candidateId)) {
+        newSet.delete(candidateId);
+      } else {
+        newSet.add(candidateId);
+      }
+      return newSet;
+    });
+  };
+  
+  const selectAll = () => {
+    const allIds = new Set(filteredAndSortedCandidates.map(c => (c as any)._id));
+    setSelectedItems(allIds);
+  };
+  
+  const deselectAll = () => {
+    setSelectedItems(new Set());
+  };
+  
+  const bulkSkip = async () => {
+    if (selectedItems.size === 0) return;
+    
+    try {
+      const itemsToSkip = Array.from(selectedItems);
+      
+      // Proceed with bulk skip without confirmation notification
+      
+      // Process each selected item
+      for (const candidateId of itemsToSkip) {
+        await rejectCandidate(candidateId);
+      }
+      
+      // Clear selection and exit bulk mode
+      setSelectedItems(new Set());
+      setBulkMode(false);
+    } catch (error) {
+      console.error("Error in bulk skip:", error);
+      showNotification({
+        type: "error",
+        title: "Bulk Skip Failed",
+        message: "Failed to skip some transactions. Please try again.",
+      });
+    }
+  };
+  
+  const bulkGeneratePDF = async () => {
+    if (selectedItems.size === 0) return;
+    
+    try {
+      const itemsToGenerate = Array.from(selectedItems);
+      const candidatesToGenerate = filteredAndSortedCandidates.filter(candidate => {
+        const candidateId = (candidate as any)._id;
+        return itemsToGenerate.includes(candidateId) && !generatedReceipts.has(candidateId);
+      });
+      
+      if (candidatesToGenerate.length === 0) {
+        showNotification({
+          type: "info",
+          title: "No PDFs to Generate",
+          message: "All selected transactions already have PDFs generated.",
+        });
+        return;
+      }
+      
+      showNotification({
+        type: "info",
+        title: "Bulk PDF Generation Started",
+        message: `Generating PDFs for ${itemsToGenerate.length} transactions...`,
+      });
+      
+      // Track progress
+      let successCount = 0;
+      let failCount = 0;
+      
+      // Process each selected item
+      for (let i = 0; i < candidatesToGenerate.length; i++) {
+        const candidate = candidatesToGenerate[i];
+        const candidateId = (candidate as any)._id;
+        
+        try {
+          console.log(`🔄 Bulk generating PDF ${i + 1}/${candidatesToGenerate.length} for:`, candidateId);
+          
+          // Clear any previous cancellation for this candidate
+          cancelledOperations.current.delete(candidateId);
+          
+          const generatedReceipt = await bankReceiptService.generateReceiptForTransaction(
+            candidateId,
+            candidate.transaction,
+            user!.uid
+          );
+          
+          // Check if operation was cancelled
+          if (cancelledOperations.current.has(candidateId)) {
+            console.log('🔍 Generation was cancelled during bulk operation');
+            cancelledOperations.current.delete(candidateId);
+            continue;
+          }
+          
+          // Store the generated receipt
+          setGeneratedReceipts((prev) => {
+            const newMap = new Map(prev);
+            newMap.set(candidateId, generatedReceipt);
+            return newMap;
+          });
+          
+          successCount++;
+          
+          // Small delay between generations to prevent overwhelming the system
+          if (i < candidatesToGenerate.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+          
+        } catch (error) {
+          console.error(`❌ Error generating PDF for ${candidateId}:`, error);
+          failCount++;
+        }
+      }
+      
+      // Clear selection and exit bulk mode
+      setSelectedItems(new Set());
+      setBulkMode(false);
+      
+      // Show notification only for errors or partial failures
+      if (failCount > 0 && successCount > 0) {
+        showNotification({
+          type: "warning",
+          title: "Bulk PDF Generation Partial",
+          message: `Generated ${successCount} PDFs successfully. ${failCount} failed.`,
+        });
+      } else if (failCount > 0 && successCount === 0) {
+        showNotification({
+          type: "error",
+          title: "Bulk PDF Generation Failed",
+          message: "Failed to generate any PDFs. Please try again.",
+        });
+      }
+      // No notification for complete success (failCount === 0)
+      
+    } catch (error) {
+      console.error("Error in bulk PDF generation:", error);
+      showNotification({
+        type: "error",
+        title: "Bulk PDF Generation Failed",
+        message: "Failed to generate PDFs. Please try again.",
       });
     }
   };
@@ -751,11 +964,41 @@ export const BankTransactionsScreen: React.FC = () => {
       `${candidate.transaction.transaction_id}_fallback`;
     const generatedReceipt = generatedReceipts.get(docId);
     const isGenerating = generatingReceipt === docId;
+    const isSelected = selectedItems.has(docId);
     console.log("🚀 ~ renderTransactionItem ~ candidate:", candidate);
 
     return (
-      <View style={styles.candidateCard}>
+      <TouchableOpacity
+        style={[styles.candidateCard, isSelected && styles.candidateCardSelected]}
+        onPress={() => {
+          if (bulkMode) {
+            toggleItemSelection(docId);
+          }
+        }}
+        onLongPress={() => {
+          if (!bulkMode) {
+            // Enter bulk mode and select this item (following My Receipts pattern)
+            setBulkMode(true);
+            setSelectedItems(new Set([docId]));
+            setShowSearchSection(false); // Hide search when entering bulk mode
+          }
+        }}
+        activeOpacity={bulkMode ? 0.7 : 0.8}
+        delayLongPress={500}
+      >
         <View style={styles.candidateHeader}>
+          {bulkMode && (
+            <TouchableOpacity
+              style={styles.checkboxContainer}
+              onPress={() => toggleItemSelection(docId)}
+            >
+              <View style={[styles.checkbox, isSelected && styles.checkboxSelected]}>
+                {isSelected && (
+                  <Ionicons name="checkmark" size={16} color="white" />
+                )}
+              </View>
+            </TouchableOpacity>
+          )}
           <View style={styles.merchantInfo}>
             <Text style={styles.merchantName}>
               {candidate.transaction.merchant_name ||
@@ -814,82 +1057,84 @@ export const BankTransactionsScreen: React.FC = () => {
           </View>
         )}
 
-        <View style={styles.buttonContainer}>
-          {!generatedReceipt && !isGenerating && (
-            <>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.generateButton]}
-                onPress={() => generateReceipt(candidate, docId)}
-              >
-                <Text style={[styles.buttonText, styles.generateButtonText]}>
-                  Generate PDF
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.rejectButton]}
-                onPress={() => rejectCandidate(docId)}
-              >
-                <Text style={[styles.buttonText, styles.rejectButtonText]}>
-                  Skip
-                </Text>
-              </TouchableOpacity>
-            </>
-          )}
+        {!bulkMode && (
+          <View style={styles.buttonContainer}>
+            {!generatedReceipt && !isGenerating && (
+              <>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.generateButton]}
+                  onPress={() => generateReceipt(candidate, docId)}
+                >
+                  <Text style={[styles.buttonText, styles.generateButtonText]}>
+                    Generate PDF
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.rejectButton]}
+                  onPress={() => rejectCandidate(docId)}
+                >
+                  <Text style={[styles.buttonText, styles.rejectButtonText]}>
+                    Skip
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
 
-          {(isGenerating || generatedReceipt) && (
-            <>
-              <TouchableOpacity
-                style={[
-                  styles.actionButton,
-                  styles.approveButton,
-                  !generatedReceipt && { opacity: 0.6 },
-                ]}
-                onPress={() => {
-                  if (generatedReceipt) {
-                    approveReceipt(candidate, docId, generatedReceipt);
-                  } else {
-                    // Receipt is still generating, but user wants to save it
-                    // We'll mark it for auto-save when generation completes
-                    showNotification({
-                      type: "info",
-                      title: "Will Save",
-                      message:
-                        "Receipt will be saved automatically when generation completes.",
-                    });
-                  }
-                }}
-                disabled={!generatedReceipt}
-              >
-                <Text style={[styles.buttonText, styles.approveButtonText]}>
-                  {isGenerating ? "Generating..." : "Save Receipt"}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.actionButton, styles.rejectButton]}
-                onPress={() => {
-                  if (isGenerating) {
-                    // Cancel generation - mark operation as cancelled
-                    cancelledOperations.current.add(docId);
-                    setGeneratingReceipt(null);
-                    showNotification({
-                      type: "info",
-                      title: "Cancelled",
-                      message: "Receipt generation cancelled.",
-                    });
-                  } else {
-                    // Discard generated receipt
-                    discardGeneratedReceipt(docId);
-                  }
-                }}
-              >
-                <Text style={[styles.buttonText, styles.rejectButtonText]}>
-                  {isGenerating ? "Cancel" : "Discard"}
-                </Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </View>
+            {(isGenerating || generatedReceipt) && (
+              <>
+                <TouchableOpacity
+                  style={[
+                    styles.actionButton,
+                    styles.approveButton,
+                    !generatedReceipt && { opacity: 0.6 },
+                  ]}
+                  onPress={() => {
+                    if (generatedReceipt) {
+                      approveReceipt(candidate, docId, generatedReceipt);
+                    } else {
+                      // Receipt is still generating, but user wants to save it
+                      // We'll mark it for auto-save when generation completes
+                      showNotification({
+                        type: "info",
+                        title: "Will Save",
+                        message:
+                          "Receipt will be saved automatically when generation completes.",
+                      });
+                    }
+                  }}
+                  disabled={!generatedReceipt}
+                >
+                  <Text style={[styles.buttonText, styles.approveButtonText]}>
+                    {isGenerating ? "Generating..." : "Save Receipt"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.rejectButton]}
+                  onPress={() => {
+                    if (isGenerating) {
+                      // Cancel generation - mark operation as cancelled
+                      cancelledOperations.current.add(docId);
+                      setGeneratingReceipt(null);
+                      showNotification({
+                        type: "info",
+                        title: "Cancelled",
+                        message: "Receipt generation cancelled.",
+                      });
+                    } else {
+                      // Discard generated receipt
+                      discardGeneratedReceipt(docId);
+                    }
+                  }}
+                >
+                  <Text style={[styles.buttonText, styles.rejectButtonText]}>
+                    {isGenerating ? "Cancel" : "Discard"}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        )}
+      </TouchableOpacity>
     );
   };
 
@@ -913,6 +1158,13 @@ export const BankTransactionsScreen: React.FC = () => {
       fontSize: 14,
       color: theme.text.secondary,
       textAlign: "center",
+    },
+    hintText: {
+      fontSize: 12,
+      color: theme.text.tertiary,
+      textAlign: "center",
+      marginTop: 2,
+      fontStyle: "italic",
     },
     emptyState: {
       flex: 1,
@@ -955,11 +1207,34 @@ export const BankTransactionsScreen: React.FC = () => {
       borderWidth: 1,
       borderColor: theme.border.primary,
     },
+    candidateCardSelected: {
+      borderColor: theme.gold.primary,
+      borderWidth: 2,
+      backgroundColor: theme.gold.light || theme.background.tertiary,
+    },
     candidateHeader: {
       flexDirection: "row",
       justifyContent: "space-between",
       alignItems: "flex-start",
       marginBottom: 12,
+    },
+    checkboxContainer: {
+      marginRight: 12,
+      justifyContent: "center",
+    },
+    checkbox: {
+      width: 20,
+      height: 20,
+      borderRadius: 4,
+      borderWidth: 2,
+      borderColor: theme.border.secondary,
+      backgroundColor: theme.background.primary,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    checkboxSelected: {
+      backgroundColor: theme.gold.primary,
+      borderColor: theme.gold.primary,
     },
     merchantInfo: {
       flex: 1,
@@ -1436,6 +1711,189 @@ export const BankTransactionsScreen: React.FC = () => {
       padding: 2,
       marginLeft: 2,
     },
+    // Beautiful Bulk Selection Styles
+    bulkHeader: {
+      paddingVertical: 20,
+      paddingHorizontal: 24,
+      backgroundColor: theme.background.secondary,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border.primary,
+      gap: 20,
+    },
+    
+    // Top Row: Cancel & Count
+    bulkTopRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      marginBottom: 4,
+      paddingHorizontal: 4,
+    },
+    bulkSpacer: {
+      flex: 1,
+      minWidth: 20,
+    },
+    bulkCancelButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingVertical: 10,
+      paddingHorizontal: 16,
+      borderRadius: 12,
+      backgroundColor: theme.background.primary,
+      borderWidth: 1,
+      borderColor: theme.border.secondary,
+    },
+    bulkCancelIcon: {
+      width: 24,
+      height: 24,
+      borderRadius: 12,
+      backgroundColor: theme.background.tertiary,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    bulkCancelText: {
+      fontSize: 14,
+      color: theme.text.primary,
+      fontWeight: "500",
+    },
+    bulkSelectionCount: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    bulkCountBadge: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: theme.gold.primary,
+      justifyContent: "center",
+      alignItems: "center",
+      shadowColor: theme.gold.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.3,
+      shadowRadius: 4,
+      elevation: 4,
+    },
+    bulkCountNumber: {
+      fontSize: 14,
+      color: "white",
+      fontWeight: "700",
+    },
+    bulkCountLabel: {
+      fontSize: 12,
+      color: theme.text.secondary,
+      fontWeight: "500",
+    },
+    
+    // Middle Row: Select All
+    bulkMiddleRow: {
+      paddingHorizontal: 4,
+      marginVertical: 2,
+    },
+    bulkSelectAllButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 14,
+      paddingVertical: 14,
+      paddingHorizontal: 18,
+      borderRadius: 14,
+      backgroundColor: theme.background.primary,
+      borderWidth: 1,
+      borderColor: theme.border.secondary,
+    },
+    bulkSelectAllButtonActive: {
+      backgroundColor: theme.gold.light || theme.background.tertiary,
+      borderColor: theme.gold.primary,
+    },
+    bulkSelectAllIcon: {
+      width: 24,
+      height: 24,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    bulkSelectAllText: {
+      fontSize: 14,
+      color: theme.text.primary,
+      fontWeight: "500",
+    },
+    bulkSelectAllTextActive: {
+      color: theme.gold.primary,
+      fontWeight: "600",
+    },
+    
+    // Bottom Row: Action Buttons
+    bulkActionRow: {
+      flexDirection: "row",
+      gap: 8,
+    },
+    bulkActionButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderRadius: 14,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 6,
+      elevation: 3,
+      minHeight: 52,
+      flex: 1,
+    },
+    bulkActionButtonDisabled: {
+      opacity: 0.5,
+      shadowOpacity: 0,
+      elevation: 0,
+    },
+    bulkGenerateButton: {
+      backgroundColor: theme.gold.primary,
+      shadowColor: theme.gold.primary,
+    },
+    bulkSkipButton: {
+      backgroundColor: theme.status.error,
+      shadowColor: theme.status.error,
+    },
+    bulkActionIcon: {
+      width: 26,
+      height: 26,
+      borderRadius: 13,
+      backgroundColor: "rgba(255, 255, 255, 0.2)",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    bulkActionContent: {
+      flex: 1,
+    },
+    bulkActionTitle: {
+      fontSize: 14,
+      color: "white",
+      fontWeight: "600",
+      marginBottom: 1,
+      flexShrink: 0,
+    },
+    bulkActionCount: {
+      fontSize: 11,
+      color: "rgba(255, 255, 255, 0.85)",
+      fontWeight: "500",
+    },
+    normalHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      paddingHorizontal: 4,
+    },
+    bulkModeButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+    },
+    bulkModeButtonText: {
+      fontSize: 14,
+      color: theme.text.secondary,
+      fontWeight: "500",
+    },
   });
 
   // Check if user has Professional subscription
@@ -1478,16 +1936,137 @@ export const BankTransactionsScreen: React.FC = () => {
     <SafeAreaView style={styles.container}>
       {candidates.length > 0 && (
         <View style={styles.countContainer}>
-          <Text style={styles.countText}>
-            {filteredAndSortedCandidates.length === 0 && hasActiveFilters
-              ? `No transactions match the current filter`
-              : filteredAndSortedCandidates.length === 0
-              ? "No recent purchases found"
-              : `${filteredAndSortedCandidates.length} of ${candidates.length} transactions`}
-          </Text>
+          {bulkMode ? (
+            <View style={styles.bulkHeader}>
+              {/* Top Row: Cancel & Selection Count */}
+              <View style={styles.bulkTopRow}>
+                <TouchableOpacity
+                  style={styles.bulkCancelButton}
+                  onPress={() => {
+                    setBulkMode(false);
+                    setSelectedItems(new Set());
+                  }}
+                >
+                  <View style={styles.bulkCancelIcon}>
+                    <Ionicons name="arrow-back" size={18} color={theme.text.primary} />
+                  </View>
+                  <Text style={styles.bulkCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                
+                <View style={styles.bulkSpacer} />
+                
+                <View style={styles.bulkSelectionCount}>
+                  <View style={styles.bulkCountBadge}>
+                    <Text style={styles.bulkCountNumber}>{selectedItems.size}</Text>
+                  </View>
+                  <Text style={styles.bulkCountLabel}>
+                    of {filteredAndSortedCandidates.length} selected
+                  </Text>
+                </View>
+              </View>
+              
+              {/* Middle Row: Select All Toggle */}
+              <View style={styles.bulkMiddleRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.bulkSelectAllButton,
+                    selectedItems.size === filteredAndSortedCandidates.length && styles.bulkSelectAllButtonActive
+                  ]}
+                  onPress={selectedItems.size === filteredAndSortedCandidates.length ? deselectAll : selectAll}
+                >
+                  <View style={styles.bulkSelectAllIcon}>
+                    <Ionicons 
+                      name={selectedItems.size === filteredAndSortedCandidates.length ? "checkbox" : "square-outline"} 
+                      size={20} 
+                      color={selectedItems.size === filteredAndSortedCandidates.length ? theme.gold.primary : theme.text.secondary} 
+                    />
+                  </View>
+                  <Text style={[
+                    styles.bulkSelectAllText,
+                    selectedItems.size === filteredAndSortedCandidates.length && styles.bulkSelectAllTextActive
+                  ]}>
+                    {selectedItems.size === filteredAndSortedCandidates.length ? "Deselect All" : "Select All"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              
+              {/* Bottom Row: Action Buttons */}
+              <View style={styles.bulkActionRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.bulkActionButton,
+                    styles.bulkGenerateButton,
+                    (selectedItems.size === 0 || Array.from(selectedItems).filter(id => !generatedReceipts.has(id)).length === 0) && styles.bulkActionButtonDisabled
+                  ]}
+                  onPress={bulkGeneratePDF}
+                  disabled={selectedItems.size === 0 || Array.from(selectedItems).filter(id => !generatedReceipts.has(id)).length === 0}
+                >
+                  <View style={styles.bulkActionIcon}>
+                    <Ionicons name="document-text" size={16} color="white" />
+                  </View>
+                  <View style={styles.bulkActionContent}>
+                    <Text style={styles.bulkActionTitle} numberOfLines={1}>Generate PDF</Text>
+                    <Text style={styles.bulkActionCount} numberOfLines={1}>
+                      {Array.from(selectedItems).filter(id => !generatedReceipts.has(id)).length} items
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                
+                <TouchableOpacity
+                  style={[
+                    styles.bulkActionButton,
+                    styles.bulkSkipButton,
+                    selectedItems.size === 0 && styles.bulkActionButtonDisabled
+                  ]}
+                  onPress={bulkSkip}
+                  disabled={selectedItems.size === 0}
+                >
+                  <View style={styles.bulkActionIcon}>
+                    <Ionicons name="close-circle" size={16} color="white" />
+                  </View>
+                  <View style={styles.bulkActionContent}>
+                    <Text style={styles.bulkActionTitle} numberOfLines={1}>Skip</Text>
+                    <Text style={styles.bulkActionCount} numberOfLines={1}>
+                      {selectedItems.size} items
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.normalHeader}>
+              <View>
+                <Text style={styles.countText}>
+                  {filteredAndSortedCandidates.length === 0 && hasActiveFilters
+                    ? `No transactions match the current filter`
+                    : filteredAndSortedCandidates.length === 0
+                    ? "No recent purchases found"
+                    : `${filteredAndSortedCandidates.length} of ${candidates.length} transactions`}
+                </Text>
+                {filteredAndSortedCandidates.length > 0 && (
+                  <Text style={styles.hintText}>
+                    Long press any transaction to select multiple
+                  </Text>
+                )}
+              </View>
+              
+              {filteredAndSortedCandidates.length > 0 && (
+                <TouchableOpacity
+                  style={styles.bulkModeButton}
+                  onPress={() => {
+                    setBulkMode(true);
+                    setShowSearchSection(false); // Hide search when entering bulk mode
+                  }}
+                >
+                  <Ionicons name="checkmark-circle-outline" size={18} color={theme.text.secondary} />
+                  <Text style={styles.bulkModeButtonText}>Select</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
 
-          {/* Active Filter Badges */}
-          {!showSearchSection && hasActiveFilters && (
+          {/* Active Filter Badges - only show when not in bulk mode */}
+          {!showSearchSection && hasActiveFilters && !bulkMode && (
             <View style={styles.activeFilterBadges}>
               {selectedQuickFilters.map((filter, index) => (
                 <TouchableOpacity
@@ -1867,8 +2446,8 @@ export const BankTransactionsScreen: React.FC = () => {
         />
       )}
 
-      {/* Smart Filter FAB */}
-      {candidates.length > 0 && (
+      {/* Smart Filter FAB - hide when in bulk mode */}
+      {candidates.length > 0 && !bulkMode && (
         <View style={styles.fabContainer}>
           {hasActiveFilters && !showSearchSection && (
             <View style={styles.filterLabel}>
