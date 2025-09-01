@@ -650,13 +650,30 @@ export const SettingsScreen: React.FC = () => {
 
       // Get institution information
       const institution = await plaidService.getInstitution(accessToken);
+      const institutionName = institution?.name || "Connected Bank";
+
+      // Check for duplicate connections
+      const existingConnections = await bankReceiptService.getBankConnections(user.uid);
+      const isDuplicate = existingConnections.some(conn => 
+        conn.institutionName === institutionName && conn.isActive
+      );
+
+      if (isDuplicate) {
+        showNotification({
+          type: "warning",
+          title: "Bank Already Connected",
+          message: `${institutionName} is already connected to your account`,
+        });
+        setIsLoading(false);
+        return;
+      }
 
       // Create bank connection record
       const bankConnection = {
         id: `bank_${user.uid}_${Date.now()}`,
         userId: user.uid,
         accessToken,
-        institutionName: institution?.name || "Connected Bank",
+        institutionName: institutionName,
         institutionId: institution?.institution_id,
         institutionLogo: institution?.logo,
         institutionColor: institution?.primary_color,
