@@ -516,6 +516,16 @@ export const BankTransactionsScreen: React.FC = () => {
   const handlePlaidSuccess = async (success: LinkSuccess) => {
     if (!user) return;
 
+    // Only professional tier users can connect banks
+    if (subscription.currentTier !== "professional") {
+      showNotification({
+        type: "warning",
+        title: "Professional Tier Required",
+        message: "Bank connections are available for Professional tier users. Please upgrade your subscription.",
+      });
+      return;
+    }
+
     try {
       setLoading(true);
       const accessToken = await plaidService.exchangePublicToken(

@@ -460,6 +460,7 @@ export class BankReceiptService {
       }
 
       // Try to get from Firestore as fallback
+      // Note: This will only work if the user has proper permissions (professional tier)
       console.log('📱 No local bank connections found, checking Firestore...');
       return await this.getBankConnectionsFromFirestore(userId);
     } catch (error) {
@@ -516,6 +517,7 @@ export class BankReceiptService {
    */
   private async getBankConnectionsFromFirestore(userId: string): Promise<BankConnection[]> {
     try {
+      console.log('📱 Attempting to get bank connections from Firestore for user:', userId);
       const bankConnectionRef = doc(db, 'bankConnections', userId);
       const bankConnectionSnap = await getDoc(bankConnectionRef);
       
@@ -536,7 +538,12 @@ export class BankReceiptService {
         connectedAt: conn.connectedAt instanceof Date ? conn.connectedAt.toISOString() : conn.connectedAt,
         lastSyncAt: conn.lastSyncAt instanceof Date ? conn.lastSyncAt.toISOString() : conn.lastSyncAt,
       }));
-    } catch (error) {
+    } catch (error: any) {
+      // Handle permission errors gracefully for non-professional users
+      if (error?.code === 'permission-denied' || error?.message?.includes('insufficient permissions')) {
+        console.log('🚫 Bank connections not accessible - user may not have professional tier permissions');
+        return [];
+      }
       console.error('❌ Error getting bank connections from Firestore:', error);
       return [];
     }
@@ -647,7 +654,7 @@ export class BankReceiptService {
       
       // Import Firebase Functions
       const { getFunctions, httpsCallable } = await import('firebase/functions');
-      const { app } = await import('../config/firebase');
+      const app = (await import('../config/firebase')).default;
       
       const functions = getFunctions(app);
       const testPlaidWebhook = httpsCallable(functions, 'testPlaidWebhook');

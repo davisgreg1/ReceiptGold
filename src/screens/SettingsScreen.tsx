@@ -235,10 +235,13 @@ export const SettingsScreen: React.FC = () => {
   useFocusEffect(
     React.useCallback(() => {
       if (user) {
-        refreshBankConnections();
+        // Only refresh bank connections for professional tier users
+        if (subscription.currentTier === 'professional') {
+          refreshBankConnections();
+        }
         loadCustomCategories();
       }
-    }, [user])
+    }, [user, subscription.currentTier])
   );
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
@@ -488,6 +491,13 @@ export const SettingsScreen: React.FC = () => {
   // Refresh bank connections
   const refreshBankConnections = async () => {
     if (!user) return;
+    
+    // Only allow professional tier users to access bank connections
+    if (subscription.currentTier !== 'professional') {
+      console.log('🚫 Bank connections only available for professional tier users');
+      setBankConnections([]);
+      return;
+    }
 
     try {
       setLoadingBankConnections(true);
