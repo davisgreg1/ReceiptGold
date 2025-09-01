@@ -433,10 +433,9 @@ export class BankReceiptService {
         return connections;
       }
 
-      // In production, query Firebase for user's bank connections
-      // For now, return empty array if no local connections exist
-      console.log('📱 No local bank connections found for user:', userId);
-      return [];
+      // Try to get from Firestore as fallback
+      console.log('📱 No local bank connections found, checking Firestore...');
+      return await this.getBankConnectionsFromFirestore(userId);
     } catch (error) {
       console.error('Error getting bank connections:', error);
       return [];
@@ -478,11 +477,199 @@ export class BankReceiptService {
 
       await AsyncStorage.setItem(key, JSON.stringify(connections));
       console.log(`💾 Total bank connections: ${connections.length}`);
+      
+      // Also sync to Firestore
+      await this.syncBankConnectionsToFirestore(connection.userId, connections);
     } catch (error) {
       console.error('Error saving bank connection locally:', error);
     }
   }
 
+  /**
+   * Get bank connections from Firestore
+   */
+  private async getBankConnectionsFromFirestore(userId: string): Promise<BankConnection[]> {
+    try {
+      const bankConnectionRef = doc(db, 'bankConnections', userId);
+      const bankConnectionSnap = await getDoc(bankConnectionRef);
+      
+      if (!bankConnectionSnap.exists()) {
+        console.log('📱 No bank connections found in Firestore for user:', userId);
+        return [];
+      }
+      
+      const data = bankConnectionSnap.data();
+      const firestoreConnections = data?.connections || [];
+      
+      console.log(`🔥 Found ${firestoreConnections.length} bank connections in Firestore`);
+      
+      // Note: Firestore connections don't have access tokens, so they're read-only
+      // This is mainly for displaying connection info, not for making API calls
+      return firestoreConnections.map((conn: any) => ({
+        ...conn,
+        connectedAt: conn.connectedAt instanceof Date ? conn.connectedAt.toISOString() : conn.connectedAt,
+        lastSyncAt: conn.lastSyncAt instanceof Date ? conn.lastSyncAt.toISOString() : conn.lastSyncAt,
+      }));
+    } catch (error) {
+      console.error('❌ Error getting bank connections from Firestore:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Sync bank connections to Firestore
+   */
+  private async syncBankConnectionsToFirestore(userId: string, connections: BankConnection[]): Promise<void> {
+    try {
+      console.log('🔄 Syncing bank connections to Firestore...');
+      
+      // Create a sanitized version without sensitive data for Firestore
+      const sanitizedConnections = connections.map(conn => ({
+        id: conn.id,
+        userId: conn.userId,
+        institutionId: conn.institutionId,
+        institutionName: conn.institutionName,
+        accounts: conn.accounts.map(acc => ({
+          accountId: acc.accountId,
+          name: acc.name,
+          type: acc.type,
+          subtype: acc.subtype,
+          // Don't store account numbers or sensitive data
+        })),
+        isActive: conn.isActive,
+        connectedAt: conn.connectedAt,
+        lastSyncAt: conn.lastSyncAt,
+        // Don't store access tokens in Firestore
+      }));
+
+      const bankConnectionRef = doc(db, 'bankConnections', userId);
+      await setDoc(bankConnectionRef, {
+        userId: userId,
+        connections: sanitizedConnections,
+        updatedAt: new Date(),
+      });
+      
+      console.log(`🔥 Synced ${connections.length} bank connections to Firestore`);
+    } catch (error) {
+      console.error('❌ Error syncing bank connections to Firestore:', error);
+      // Don't throw error - local storage should still work even if Firestore sync fails
+    }
+  }
+
+  /**
+   * Manually sync existing local bank connections to Firestore
+   * This is useful for migrating existing connections to the cloud
+   */
+  public async syncLocalConnectionsToFirestore(userId: string): Promise<void> {
+    try {
+      console.log('🔄 Manual sync: Moving local bank connections to Firestore...');
+      
+      // Get existing local connections
+      const key = `${BankReceiptService.BANK_CONNECTIONS_KEY}_${userId}`;
+      const localConnections = await AsyncStorage.getItem(key);
+      
+      if (!localConnections) {
+        console.log('📱 No local connections found to sync');
+        return;
+      }
+      
+      const connections: BankConnection[] = JSON.parse(localConnections);
+      console.log(`📱 Found ${connections.length} local connections to sync`);
+      
+      // Sync to Firestore
+      await this.syncBankConnectionsToFirestore(userId, connections);
+      console.log('✅ Manual sync completed successfully');
+    } catch (error) {
+      console.error('❌ Error during manual sync:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Test Plaid webhook notifications using sandbox
+   */
+  public async testPlaidWebhook(
+    webhookType: 'DEFAULT_UPDATE' | 'NEW_ACCOUNTS_AVAILABLE' | 'SMS_MICRODEPOSITS_VERIFICATION' | 'LOGIN_REPAIRED',
+    accessToken: string,
+    webhookCode?: string
+  ): Promise<any> {
+    try {
+      console.log('🧪 Triggering Plaid webhook test:', { webhookType, webhookCode });
+      
+      // Import Firebase Functions
+      const { getFunctions, httpsCallable } = await import('firebase/functions');
+      const { app } = await import('../config/firebase');
+      
+      const functions = getFunctions(app);
+      const testPlaidWebhook = httpsCallable(functions, 'testPlaidWebhook');
+      
+      const result = await testPlaidWebhook({
+        webhookType,
+        webhookCode,
+        accessToken
+      });
+      
+      console.log('✅ Webhook test result:', result.data);
+      return result.data;
+    } catch (error) {
+      console.error('❌ Error testing webhook:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Sync local bank connection to plaid_items collection for webhook processing
+   */
+  public async syncBankConnectionToPlaidItems(userId: string): Promise<void> {
+    try {
+      console.log('🔄 Syncing bank connection to plaid_items collection...');
+      
+      // Get local connections
+      const connections = await this.getBankConnections(userId);
+      if (connections.length === 0) {
+        console.log('📱 No bank connections found to sync');
+        return;
+      }
+
+      // Import Firebase
+      const { doc, setDoc } = await import('firebase/firestore');
+      const { db } = await import('../config/firebase');
+
+      for (const connection of connections) {
+        console.log(`🔄 Syncing connection: ${connection.id} (${connection.institutionName})`);
+        
+        // Create plaid_items document for webhook processing
+        const plaidItemRef = doc(db, 'plaid_items', connection.id);
+        await setDoc(plaidItemRef, {
+          itemId: connection.id,
+          userId: connection.userId,
+          institutionId: connection.institutionId,
+          institutionName: connection.institutionName,
+          accessToken: connection.accessToken, // Needed for API calls
+          accounts: connection.accounts.map(acc => ({
+            accountId: acc.accountId,
+            name: acc.name,
+            type: acc.type,
+            subtype: acc.subtype,
+          })),
+          isActive: connection.isActive,
+          status: 'good',
+          needsReauth: false,
+          connectedAt: connection.connectedAt,
+          lastSyncAt: connection.lastSyncAt,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }, { merge: true });
+
+        console.log(`✅ Synced ${connection.institutionName} to plaid_items collection`);
+      }
+
+      console.log(`🎉 Successfully synced ${connections.length} bank connections to plaid_items`);
+    } catch (error) {
+      console.error('❌ Error syncing to plaid_items:', error);
+      throw error;
+    }
+  }
 
   /**
    * Update last sync time

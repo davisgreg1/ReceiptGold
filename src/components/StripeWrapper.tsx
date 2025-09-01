@@ -17,7 +17,7 @@ export const StripeWrapper: React.FC<StripeWrapperProps> = ({ children }) => {
     <StripeProvider
       publishableKey={publishableKey}
       merchantIdentifier="merchant.com.receiptgold" // Replace with your merchant ID
-      urlScheme="receiptgold" // For deep linking
+      urlScheme="receiptgold.stripe" // Specific scheme for Stripe to avoid conflicts
     >
       {children as React.ReactElement}
     </StripeProvider>

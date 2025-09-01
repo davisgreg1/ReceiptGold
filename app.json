@@ -27,6 +27,9 @@
         "NSCameraUsageDescription": "$(PRODUCT_NAME) needs camera access to scan and capture your receipts",
         "ITSAppUsesNonExemptEncryption": false
       },
+      "entitlements": {
+        "aps-environment": "development"
+      },
       "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
@@ -98,7 +101,8 @@
       ],
       [
         "@react-native-firebase/messaging"
-      ]
+      ],
+      "expo-notifications"
     ],
     "owner": "davisgreg1"
   }

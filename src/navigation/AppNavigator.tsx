@@ -334,7 +334,13 @@ const SettingsStackNavigator = () => {
 
 // Deep linking configuration for OAuth redirects
 const linking: LinkingOptions<BottomTabParamList> = {
-  prefixes: ['receiptgold://', 'https://receiptgold.app'],
+  prefixes: [
+    // Production URLs
+    'receiptgold://',
+    'https://receiptgold.app',
+    // Development URLs (Expo)
+    ...__DEV__ ? ['exp+receiptgold://'] : [],
+  ],
   config: {
     screens: {
       HomeTab: {
@@ -354,7 +360,22 @@ export const AppNavigator: React.FC = () => {
   const { theme } = useTheme();
 
   return (
-    <NavigationContainer linking={linking}>
+    <NavigationContainer 
+      linking={linking}
+      onStateChange={(state) => {
+        // Optional: Log navigation state changes for debugging
+        if (__DEV__) {
+          console.log('Navigation state changed:', state);
+        }
+      }}
+      onUnhandledAction={(action) => {
+        // Handle unhandled navigation actions
+        if (__DEV__) {
+          console.warn('Unhandled navigation action:', action);
+        }
+      }}
+      fallback={<View style={{ flex: 1, backgroundColor: theme.background.primary }} />}
+    >
       <Tab.Navigator
         screenOptions={{
           headerShown: false,
