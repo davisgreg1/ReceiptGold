@@ -77,6 +77,7 @@ export const BankTransactionsScreen: React.FC = () => {
   
   // Loading quotes state
   const [currentLoadingMessage, setCurrentLoadingMessage] = useState(0);
+  const [currentBankStatus, setCurrentBankStatus] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const loadingMessages = [
     "🔒 Connected to your bank securely",
@@ -356,7 +357,10 @@ export const BankTransactionsScreen: React.FC = () => {
         await bankReceiptService.getCachedTransactionCandidates(user.uid);
 
       if (cachedCandidates.length > 0) {
-        console.log("� Using cached candidates:", cachedCandidates.length);
+        console.log("📱 Using cached candidates:", cachedCandidates.length);
+        setCurrentBankStatus("Showing recent transactions");
+        // Clear the message after 4 seconds
+        setTimeout(() => setCurrentBankStatus(null), 4000);
         setCandidates(
           cachedCandidates.map((candidate) => ({
             _id: candidate.transaction?.transaction_id || "unknown",
@@ -377,18 +381,22 @@ export const BankTransactionsScreen: React.FC = () => {
       }
 
       // No cache, run the full sync process
-      console.log("� No cache found, running full sync...");
-      await bankReceiptService.monitorTransactions(user.uid);
+      console.log("🔄 No cache found, running full sync...");
+      setCurrentBankStatus("🔄 Connecting to your banks...");
+      await bankReceiptService.monitorTransactions(user.uid, (status: string | null) => {
+        setCurrentBankStatus(status);
+      });
 
       // Now fetch the newly created candidates from Firestore
       const { getDocs, collection, query, where } = await import(
         "firebase/firestore"
       );
       const { db } = await import("../config/firebase");
+      // Use 'in' query instead of '!=' to avoid BloomFilter errors
       const candidatesQuery = query(
         collection(db, "transactionCandidates"),
         where("userId", "==", user.uid),
-        where("status", "!=", "rejected")
+        where("status", "in", ["pending", "approved", "generated"])
       );
       const snapshot = await getDocs(candidatesQuery);
       const allCandidates = snapshot.docs.map((doc) => ({
@@ -396,6 +404,9 @@ export const BankTransactionsScreen: React.FC = () => {
         ...(doc.data() as TransactionCandidate),
       }));
       setCandidates(allCandidates);
+
+      // Clear bank status when sync completes
+      setCurrentBankStatus(null);
 
       // Cache these candidates with their Firestore IDs
       await bankReceiptService.cacheFirestoreCandidates(
@@ -825,6 +836,12 @@ export const BankTransactionsScreen: React.FC = () => {
       const skipPromises = itemsToSkip.map(candidateId => rejectCandidate(candidateId));
       await Promise.all(skipPromises);
       
+      // Clear transaction cache to ensure dismissed transactions don't reappear
+      if (user?.uid) {
+        await bankReceiptService.clearTransactionCache(user.uid);
+        console.log('🗑️ Cleared transaction cache after bulk skip');
+      }
+      
       // Wait a moment for the animation to complete
       setTimeout(() => {
         // Clear selection and exit bulk mode smoothly
@@ -921,8 +938,24 @@ export const BankTransactionsScreen: React.FC = () => {
       }
       
       // Clear selection and exit bulk mode
-      setSelectedItems(new Set());
-      setBulkMode(false);
+      // Cleanup state and memory after bulk operations
+      setTimeout(() => {
+        setSelectedItems(new Set());
+        setBulkMode(false);
+        setBulkGenerateInProgress(false);
+        setGeneratingReceipt(null);
+        
+        // Force garbage collection if available (helps with memory after bulk PDF generation)
+        if (global.gc && typeof global.gc === 'function') {
+          try {
+            global.gc();
+            console.log('🧹 Triggered garbage collection after bulk PDF generation');
+          } catch (e) {
+            // Garbage collection not available in release mode, which is fine
+          }
+        }
+      }, 1000);
+      
       setBulkGenerateInProgress(false);
       
       // Show notification only for errors or partial failures
@@ -1091,8 +1124,8 @@ export const BankTransactionsScreen: React.FC = () => {
     searchQuery.trim() !== "" ||
     dateRangeFilter.active;
 
-  // FlatList item renderer
-  const renderTransactionItem = ({
+  // FlatList item renderer - memoized to prevent unnecessary re-renders
+  const renderTransactionItem = useCallback(({
     item: candidate,
   }: {
     item: TransactionCandidate & { _id?: string };
@@ -1103,7 +1136,7 @@ export const BankTransactionsScreen: React.FC = () => {
     const generatedReceipt = generatedReceipts.get(docId);
     const isGenerating = generatingReceipt === docId;
     const isSelected = selectedItems.has(docId);
-    console.log("🚀 ~ renderTransactionItem ~ candidate:", candidate);
+    // Removed console.log to improve performance
 
     return (
       <TouchableOpacity
@@ -1181,11 +1214,14 @@ export const BankTransactionsScreen: React.FC = () => {
           <View style={styles.generatedReceiptContainer}>
             <Text style={styles.receiptTitle}>Generated PDF Receipt</Text>
 
-            <View style={styles.pdfViewerContainer}>
-              <PDFViewer
-                pdfFilePath={generatedReceipt.receiptPdfPath}
-                style={styles.pdfViewer}
-              />
+            <View style={styles.pdfPlaceholderContainer}>
+              <View style={styles.pdfPlaceholder}>
+                <Ionicons name="document-text" size={24} color={theme.text.secondary} />
+                <Text style={styles.pdfPlaceholderText}>PDF Generated</Text>
+                <Text style={styles.pdfPlaceholderSubtext}>
+                  {generatedReceipt.receiptData.businessName} • {generatedReceipt.receiptData.date}
+                </Text>
+              </View>
             </View>
 
             <Text style={styles.receiptDetails}>
@@ -1274,7 +1310,7 @@ export const BankTransactionsScreen: React.FC = () => {
         )}
       </TouchableOpacity>
     );
-  };
+  }, [bulkMode, selectedItems, generatedReceipts, generatingReceipt, toggleItemSelection, generateReceipt, formatDate, formatCurrency, discardGeneratedReceipt, approveReceipt, theme]);
 
   const styles = StyleSheet.create({
     container: {
@@ -1517,6 +1553,32 @@ export const BankTransactionsScreen: React.FC = () => {
       height: 250, // Preview height
       width: "100%",
     },
+    pdfPlaceholderContainer: {
+      backgroundColor: theme.background.secondary,
+      borderRadius: 8,
+      marginVertical: 8,
+      borderWidth: 1,
+      borderColor: theme.border.primary,
+      height: 120, // Much smaller than PDF viewer
+    },
+    pdfPlaceholder: {
+      alignItems: "center",
+      justifyContent: "center",
+      flex: 1,
+      padding: 16,
+    },
+    pdfPlaceholderText: {
+      fontSize: 14,
+      fontWeight: "600",
+      color: theme.text.primary,
+      marginTop: 8,
+    },
+    pdfPlaceholderSubtext: {
+      fontSize: 12,
+      color: theme.text.secondary,
+      marginTop: 4,
+      textAlign: "center",
+    },
     receiptDetails: {
       fontSize: 12,
       color: theme.text.secondary,
@@ -1604,6 +1666,47 @@ export const BankTransactionsScreen: React.FC = () => {
       fontWeight: "500",
       lineHeight: 24,
       maxWidth: 300,
+    },
+    bankStatusContainer: {
+      marginTop: 24,
+      paddingHorizontal: 20,
+    },
+    bankStatusCard: {
+      backgroundColor: theme.background.secondary,
+      borderRadius: 16,
+      paddingVertical: 16,
+      paddingHorizontal: 20,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "flex-start",
+      borderWidth: 1,
+      borderColor: theme.gold.primary + "20", // 20% opacity
+      shadowColor: theme.gold.primary,
+      shadowOffset: {
+        width: 0,
+        height: 2,
+      },
+      shadowOpacity: 0.1,
+      shadowRadius: 4,
+      elevation: 3,
+      minHeight: 50,
+      width: "100%",
+    },
+    bankStatusIcon: {
+      marginRight: 8,
+      padding: 4,
+      backgroundColor: theme.gold.primary + "15", // 15% opacity
+      borderRadius: 8,
+    },
+    bankStatusText: {
+      flex: 1,
+      fontSize: 15,
+      fontWeight: "500",
+      color: theme.text.primary,
+      textAlign: "left",
+      marginLeft: 10,
+      lineHeight: 20,
+      flexWrap: "wrap",
     },
     listContainer: {
       paddingTop: 0, // Remove padding since search bar will be positioned naturally
@@ -2229,6 +2332,20 @@ export const BankTransactionsScreen: React.FC = () => {
               {loadingMessages[currentLoadingMessage]}
             </Animated.Text>
           </View>
+
+          {/* Beautiful Bank Status Section */}
+          {currentBankStatus && (
+            <View style={styles.bankStatusContainer}>
+              <View style={styles.bankStatusCard}>
+                <View style={styles.bankStatusIcon}>
+                  <Ionicons name="card" size={16} color={theme.gold.primary} />
+                </View>
+                <Text style={styles.bankStatusText}>
+                  {currentBankStatus}
+                </Text>
+              </View>
+            </View>
+          )}
         </View>
       </SafeAreaView>
     );
@@ -2780,12 +2897,15 @@ export const BankTransactionsScreen: React.FC = () => {
           scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContainer}
-          initialNumToRender={10}
-          maxToRenderPerBatch={10}
-          windowSize={10}
+          initialNumToRender={5}
+          maxToRenderPerBatch={3}
+          windowSize={3}
+          removeClippedSubviews={true}
+          updateCellsBatchingPeriod={200}
+          legacyImplementation={false}
           getItemLayout={(data, index) => ({
-            length: 200,
-            offset: 200 * index,
+            length: 180, // Reduced height since PDF placeholder is smaller
+            offset: 180 * index,
             index,
           })}
         />

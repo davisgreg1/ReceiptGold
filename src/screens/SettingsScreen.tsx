@@ -318,7 +318,6 @@ export const SettingsScreen: React.FC = () => {
       await refreshUser();
 
       setShowNameDialog(false);
-      showSuccess("Success", "Name updated successfully");
     } catch (error: any) {
       showFirebaseError(error, "Failed to Update Name");
     } finally {
@@ -723,14 +722,28 @@ export const SettingsScreen: React.FC = () => {
 
       await bankReceiptService.saveBankConnectionLocally(bankConnection);
 
+      // Small delay to ensure local storage is updated
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Refresh bank connections list immediately after saving
+      await refreshBankConnections();
+
       showNotification({
         type: "success",
         title: `${bankConnection.institutionName} Connected`,
         message: "Account connected successfully",
       });
 
-      // Refresh bank connections list
-      await refreshBankConnections();
+      // Automatically sync new transactions after connecting the bank
+      try {
+        console.log('🔄 Auto-syncing transactions for newly connected bank...');
+        await bankReceiptService.clearTransactionCache(user.uid); // Clear any existing cache
+        const candidates = await bankReceiptService.monitorTransactions(user.uid);
+        console.log(`✅ Found ${candidates.length} transaction candidates from new bank connection`);
+      } catch (syncError) {
+        console.error('❌ Error auto-syncing transactions after bank connection:', syncError);
+        // Don't show error to user - they can manually sync later
+      }
     } catch (error) {
       console.error("Error handling Plaid success:", error);
       showError(

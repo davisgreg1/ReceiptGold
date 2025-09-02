@@ -67,7 +67,10 @@ export class BankReceiptService {
   /**
    * Monitor for new transactions and create receipt candidates
    */
-  public async monitorTransactions(userId: string): Promise<TransactionCandidate[]> {
+  public async monitorTransactions(
+    userId: string, 
+    statusCallback?: (status: string | null) => void
+  ): Promise<TransactionCandidate[]> {
     try {
       const bankConnections = await this.getBankConnections(userId);
       
@@ -102,6 +105,8 @@ export class BankReceiptService {
       console.log('🔄 Fetching fresh transaction data from Plaid...');
       console.log(`🔍 Processing ${activeConnections.length} active connections:`);
       
+      statusCallback?.('🔍 Preparing to sync transactions...');
+      
       activeConnections.forEach((conn, index) => {
         console.log(`  Connection ${index + 1}: ${conn.institutionName}`);
         console.log(`    - ID: ${conn.id}`);
@@ -113,6 +118,7 @@ export class BankReceiptService {
 
       for (const connection of activeConnections) {
         console.log(`📡 Fetching transactions for ${connection.institutionName}...`);
+        statusCallback?.(`📱 Syncing with ${connection.institutionName}`);
         
         // Get transactions from the last 12 months
         const endDate = new Date().toISOString().split('T')[0];
@@ -130,6 +136,8 @@ export class BankReceiptService {
           endDate
         );
 
+        statusCallback?.(`Found ${transactions.length} transactions from ${connection.institutionName}`);
+
         // Filter for receipt candidates
         const receiptCandidates = transactions
         // const receiptCandidates = this.plaidService.filterReceiptCandidates(transactions);
@@ -145,7 +153,14 @@ export class BankReceiptService {
             );
             const existingSnap = await getDocs(q);
             if (!existingSnap.empty) {
-              // already have this transaction as a candidate
+              // Check the status of existing candidate
+              const existingCandidate = existingSnap.docs[0].data();
+              if (existingCandidate.status === 'rejected') {
+                // Skip rejected transactions - don't recreate them
+                console.log(`⏭️ Skipping rejected transaction: ${transaction.transaction_id}`);
+                continue;
+              }
+              // If it exists but not rejected, we already have it as a valid candidate
               continue;
             }
           } catch (err) {
@@ -168,6 +183,8 @@ export class BankReceiptService {
 
       // Update last sync time
       await this.updateLastSyncTime(userId);
+      
+      statusCallback?.(`🔄 Organizing ${candidates.length} transactions...`);
 
       // Cache the candidates locally for faster access
       await this.cacheTransactionCandidates(userId, candidates);
@@ -175,7 +192,15 @@ export class BankReceiptService {
       // Send notification if there are new candidates
       if (candidates.length > 0) {
         await this.sendTransactionNotification(candidates.length);
+        statusCallback?.(`✨ Ready! Found ${candidates.length} transactions`);
+      } else {
+        statusCallback?.(`Sync complete - no new transactions`);
       }
+
+      // Clear status after a brief delay to show completion
+      setTimeout(() => {
+        statusCallback?.(null);
+      }, 2500);
 
       return candidates;
     } catch (error) {

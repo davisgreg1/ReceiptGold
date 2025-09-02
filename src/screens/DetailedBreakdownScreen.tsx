@@ -486,7 +486,7 @@ export const DetailedBreakdownScreen = () => {
                 <Ionicons name="briefcase-outline" size={20} color={theme.gold.primary} />
               </View>
               <Text style={[styles.statValue, { color: theme.text.primary }]}>
-                {businessPercentage.toFixed(1)}%
+                {businessPercentage % 1 === 0 ? businessPercentage.toFixed(0) : businessPercentage.toFixed(1)}%
               </Text>
               <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
                 Business
