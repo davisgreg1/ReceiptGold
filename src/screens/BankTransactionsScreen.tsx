@@ -504,80 +504,60 @@ export const BankTransactionsScreen: React.FC = () => {
     }
   };
 
-  const loadTransactionCandidates = async () => {
+  const loadTransactionCandidates = async (forceFullSync = false) => {
     if (!user) return;
 
     try {
       setLoading(true);
 
-      // First, try to get candidates from cache
-      const cachedCandidates =
-        await bankReceiptService.getCachedTransactionCandidates(user.uid);
+      // Use smart sync instead of manual cache checking and full sync
+      console.log("🧠 Starting smart sync...");
+      const candidates = await bankReceiptService.smartSync(
+        user.uid, 
+        (status: string | null) => {
+          setCurrentBankStatus(status);
+        },
+        forceFullSync
+      );
 
-      if (cachedCandidates.length > 0) {
-        console.log("📱 Using cached candidates:", cachedCandidates.length);
-        setCurrentBankStatus("Showing recent transactions");
-        // Clear the message after 4 seconds
-        setTimeout(() => setCurrentBankStatus(null), 4000);
-        setCandidates(
-          cachedCandidates.map((candidate) => ({
-            _id: candidate.transaction?.transaction_id || "unknown",
-            ...candidate,
-          }))
-        );
+      // Convert to expected format with IDs
+      const candidatesWithIds = candidates.map((candidate) => ({
+        _id: candidate.transaction?.transaction_id || "unknown",
+        ...candidate,
+      }));
 
-        // Load generated receipts for candidates with 'generated' status
+      setCandidates(candidatesWithIds);
+
+      // If we got candidates from smart sync, load their generated receipts
+      if (candidatesWithIds.length > 0) {
+        // Load generated receipts for candidates with 'generated' status  
         await loadGeneratedReceipts(
-          cachedCandidates
-            .filter((c) => c.status === "generated")
-            .map((candidate) => ({
-              _id: candidate.transaction?.transaction_id || "unknown",
-              ...candidate,
-            }))
+          candidatesWithIds.filter((c) => c.status === "generated")
         );
-        return;
       }
 
-      // No cache, run the full sync process
-      console.log("🔄 No cache found, running full sync...");
-      setCurrentBankStatus("🔄 Connecting to your banks...");
-      await bankReceiptService.monitorTransactions(user.uid, (status: string | null) => {
-        setCurrentBankStatus(status);
-      });
-
-      // Now fetch the newly created candidates from Firestore
-      const { getDocs, collection, query, where } = await import(
-        "firebase/firestore"
-      );
-      const { db } = await import("../config/firebase");
-      // Use 'in' query instead of '!=' to avoid BloomFilter errors
-      const candidatesQuery = query(
-        collection(db, "transactionCandidates"),
-        where("userId", "==", user.uid),
-        where("status", "in", ["pending", "approved", "generated"])
-      );
-      const snapshot = await getDocs(candidatesQuery);
-      const allCandidates = snapshot.docs.map((doc) => ({
-        _id: doc.id,
-        ...(doc.data() as TransactionCandidate),
-      }));
-      setCandidates(allCandidates);
-
-      // Clear bank status when sync completes
-      setCurrentBankStatus(null);
-
-      // Cache these candidates with their Firestore IDs
-      await bankReceiptService.cacheFirestoreCandidates(
-        user.uid,
-        allCandidates
-      );
-
-      // Load generated receipts for candidates with 'generated' status
-      await loadGeneratedReceipts(
-        allCandidates.filter((c) => c.status === "generated")
-      );
     } catch (error) {
-      console.error("Error loading transaction candidates:", error);
+      console.error("Error in smart sync:", error);
+      
+      // Try to fallback to cached data
+      try {
+        const cachedCandidates = await bankReceiptService.getCachedTransactionCandidates(user.uid);
+        if (cachedCandidates.length > 0) {
+          console.log("📱 Falling back to cached candidates:", cachedCandidates.length);
+          setCurrentBankStatus("⚠️ Using offline data");
+          setCandidates(
+            cachedCandidates.map((candidate) => ({
+              _id: candidate.transaction?.transaction_id || "unknown", 
+              ...candidate,
+            }))
+          );
+          setTimeout(() => setCurrentBankStatus(null), 4000);
+          return;
+        }
+      } catch (cacheError) {
+        console.error("Cache fallback failed:", cacheError);
+      }
+
       // Check if error is due to no bank connections
       if (
         error instanceof Error &&
@@ -588,12 +568,13 @@ export const BankTransactionsScreen: React.FC = () => {
       } else {
         showNotification({
           type: "error",
-          title: "Error Loading Transactions",
-          message: "Failed to load recent transactions. Please try again.",
+          title: "Sync Failed", 
+          message: "Unable to load bank transactions. Please try again.",
         });
       }
     } finally {
       setLoading(false);
+      setCurrentBankStatus(null);
     }
   };
 
@@ -657,11 +638,7 @@ export const BankTransactionsScreen: React.FC = () => {
   const handleRefresh = async () => {
     setRefreshing(true);
 
-    // Clear cache to force fresh data fetch
-    if (user) {
-      await bankReceiptService.clearTransactionCache(user.uid);
-    }
-
+    // Use smart sync for refresh (will do incremental or return cache as appropriate)
     await loadTransactionCandidates();
     await loadBankConnections();
     setRefreshing(false);
@@ -682,6 +659,32 @@ export const BankTransactionsScreen: React.FC = () => {
       });
     }
   };
+
+  // Force a full sync - useful for troubleshooting or ensuring fresh data
+  const forceFullSync = useCallback(async () => {
+    if (!user || loading) return;
+    
+    try {
+      // Clear cache first to ensure fresh sync
+      await bankReceiptService.clearTransactionCache(user.uid);
+      
+      // Run full sync
+      await loadTransactionCandidates(true);
+      
+      showNotification({
+        type: "success",
+        title: "Sync Complete",
+        message: "All transactions have been refreshed from your banks.",
+      });
+    } catch (error) {
+      console.error('Force sync error:', error);
+      showNotification({
+        type: "error", 
+        title: "Sync Failed",
+        message: "Unable to refresh transactions. Please check your connection and try again.",
+      });
+    }
+  }, [user, loading, loadTransactionCandidates, bankReceiptService, showNotification]);
 
   const handlePlaidSuccess = async (success: LinkSuccess) => {
     if (!user) return;
@@ -1881,7 +1884,7 @@ export const BankTransactionsScreen: React.FC = () => {
     },
     listContainer: {
       paddingTop: 0, // Remove padding since search bar will be positioned naturally
-      paddingBottom: 20,
+      paddingBottom: 20, // Normal padding for transactions list
     },
     searchAndFiltersContainer: {
       backgroundColor: theme.background.primary,
@@ -1994,6 +1997,9 @@ export const BankTransactionsScreen: React.FC = () => {
     filtersSection: {
       paddingHorizontal: 20,
       paddingBottom: 24,
+    },
+    filtersSectionContent: {
+      paddingBottom: 0, // Extra padding to clear bottom tab navigation
     },
     filtersSectionTitle: {
       fontSize: 16,
@@ -2673,7 +2679,7 @@ export const BankTransactionsScreen: React.FC = () => {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       {candidates.length > 0 && (
         <View style={styles.countContainer}>
           {bulkMode ? (
@@ -2920,6 +2926,7 @@ export const BankTransactionsScreen: React.FC = () => {
           {/* Filters Section */}
           <ScrollView
             style={styles.filtersSection}
+            contentContainerStyle={styles.filtersSectionContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
             onStartShouldSetResponder={() => true}
