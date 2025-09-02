@@ -9,20 +9,12 @@ import React, {
 import {
   doc,
   onSnapshot,
-  updateDoc,
-  writeBatch,
-  collection,
-  query,
-  where,
-  getDocs,
-  getDoc,
-  DocumentData,
 } from "firebase/firestore";
 import { useAuth } from "./AuthContext";
 import { db } from "../config/firebase";
 import { getMonthlyReceiptCount } from "../utils/getMonthlyReceipts";
 
-export type SubscriptionTier = "free" | "starter" | "growth" | "professional";
+export type SubscriptionTier = "trial" | "free" | "starter" | "growth" | "professional";
 
 export interface SubscriptionFeatures {
   maxReceipts: number;
@@ -59,6 +51,12 @@ export interface SubscriptionState {
   isActive: boolean;
   expiresAt: Date | null;
   billing: BillingInfo;
+  trial: {
+    isActive: boolean;
+    startedAt: Date | null;
+    expiresAt: Date | null;
+    daysRemaining: number;
+  };
 }
 
 interface SubscriptionContextType {
@@ -74,6 +72,9 @@ interface SubscriptionContextType {
     error?: string;
   }>;
   isRefreshing: boolean;
+  startTrial: () => Promise<{ success: boolean; error?: string }>;
+  canAccessPremiumFeatures: () => boolean;
+  hasProfessionalAccess: () => boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(
@@ -97,6 +98,19 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
   const limits = getReceiptLimits();
 
   switch (tier) {
+    case "trial":
+      return {
+        maxReceipts: limits.professional,
+        advancedReporting: true,
+        taxPreparation: true,
+        accountingIntegrations: true,
+        prioritySupport: true,
+        multiBusinessManagement: true,
+        whiteLabel: true,
+        apiAccess: true,
+        dedicatedManager: true,
+        bankConnection: true,
+      };
     case "free":
       return {
         maxReceipts: limits.free,
@@ -325,10 +339,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-  // Quick refresh without delay
-  const quickRefresh = useCallback(() => {
-    return refreshReceiptCount({ skipDelay: true, forceRefresh: true });
-  }, [refreshReceiptCount]);
 
   const [subscription, setSubscription] = useState<SubscriptionState>({
     currentTier: "free",
@@ -349,6 +359,12 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       currentPeriodEnd: null,
       cancelAtPeriodEnd: false,
       trialEnd: null,
+    },
+    trial: {
+      isActive: false,
+      startedAt: null,
+      expiresAt: null,
+      daysRemaining: 0,
     },
   });
   const [loading, setLoading] = useState(true);
@@ -394,6 +410,12 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           cancelAtPeriodEnd: false,
           trialEnd: null,
         },
+        trial: {
+          isActive: false,
+          startedAt: null,
+          expiresAt: null,
+          daysRemaining: 0,
+        },
       });
       setLoading(false);
       return;
@@ -410,52 +432,119 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
           const currentTier = (data.currentTier || "free") as SubscriptionTier;
           
+          // Calculate trial information
+          const calculateTrialData = () => {
+            // Check if this is a free user without trial data - they should get trial access
+            if (!data.trial && currentTier === "free") {
+              console.log("🔄 Converting free user to trial:", user.uid);
+              const now = new Date();
+              const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
+              
+              // Update the document with trial data
+              const updateTrialData = async () => {
+                try {
+                  const { updateDoc } = await import('firebase/firestore');
+                  await updateDoc(doc(db, "subscriptions", user.uid), {
+                    trial: {
+                      isActive: true,
+                      startedAt: now,
+                      expiresAt: trialExpires,
+                    },
+                    currentTier: "trial",
+                    features: getFeaturesByTier("trial"),
+                  });
+                  console.log("✅ Successfully converted free user to trial");
+                } catch (error) {
+                  console.error("❌ Error updating trial data:", error);
+                }
+              };
+              
+              updateTrialData();
+              
+              return {
+                isActive: true,
+                startedAt: now,
+                expiresAt: trialExpires,
+                daysRemaining: 3,
+              };
+            }
+            
+            if (!data.trial) {
+              return {
+                isActive: false,
+                startedAt: null,
+                expiresAt: null,
+                daysRemaining: 0,
+              };
+            }
+
+            const startedAt = data.trial.startedAt?.toDate() || null;
+            const expiresAt = data.trial.expiresAt?.toDate() || null;
+            const now = new Date();
+            const isActive = !!(expiresAt && now < expiresAt);
+            const daysRemaining = expiresAt 
+              ? Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+              : 0;
+
+            return {
+              isActive,
+              startedAt,
+              expiresAt,
+              daysRemaining,
+            };
+          };
+
+          const trialData = calculateTrialData();
+          const effectiveTier = trialData.isActive ? "trial" : currentTier;
+          
           console.log("Subscription updated:", {
             currentTier,
             status: data.status,
           });
 
-          // Always compute the limits based on the current tier
+          // Always compute the limits based on the effective tier (trial acts like professional)
           const receiptLimits = getReceiptLimits();
           const limits = {
             maxReceipts:
-              currentTier === "professional"
+              effectiveTier === "professional" || effectiveTier === "trial"
                 ? receiptLimits.professional
-                : currentTier === "growth"
+                : effectiveTier === "growth"
                 ? receiptLimits.growth
-                : currentTier === "starter"
+                : effectiveTier === "starter"
                 ? receiptLimits.starter
                 : receiptLimits.free,
             maxBusinesses:
-              currentTier === "professional"
+              effectiveTier === "professional" || effectiveTier === "trial"
                 ? -1
-                : 1, // Unlimited for professional, 1 for others
+                : 1, // Unlimited for professional/trial, 1 for others
             apiCallsPerMonth:
-              currentTier === "professional"
+              effectiveTier === "professional" || effectiveTier === "trial"
                 ? -1
-                : currentTier === "growth"
+                : effectiveTier === "growth"
                 ? 1000
                 : 0,
             maxReports:
-              currentTier === "professional"
+              effectiveTier === "professional" || effectiveTier === "trial"
                 ? -1
-                : currentTier === "growth"
+                : effectiveTier === "growth"
                 ? 50
-                : currentTier === "starter"
+                : effectiveTier === "starter"
                 ? 10
                 : 3,
           };
 
           setSubscription({
-            currentTier,
-            features: getFeaturesByTier(currentTier),
+            currentTier: effectiveTier,
+            features: getFeaturesByTier(effectiveTier),
             limits,
-            isActive: currentTier !== "free" && data.status === "active",
-            expiresAt: data.billing?.currentPeriodEnd
-              ? data.billing.currentPeriodEnd instanceof Date
-                ? data.billing.currentPeriodEnd
-                : data.billing.currentPeriodEnd.toDate()
-              : null,
+            isActive: effectiveTier !== "free" && (data.status === "active" || trialData.isActive),
+            expiresAt: trialData.isActive 
+              ? trialData.expiresAt
+              : data.billing?.currentPeriodEnd
+                ? data.billing.currentPeriodEnd instanceof Date
+                  ? data.billing.currentPeriodEnd
+                  : data.billing.currentPeriodEnd.toDate()
+                : null,
             billing: {
               customerId: data.billing?.customerId || null,
               subscriptionId: data.billing?.subscriptionId || null,
@@ -467,6 +556,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               cancelAtPeriodEnd: data.billing?.cancelAtPeriodEnd || false,
               trialEnd: data.billing?.trialEnd?.toDate() || null,
             },
+            trial: trialData,
           });
 
           // Refresh receipt count when subscription changes
@@ -477,25 +567,70 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           }, 500); // Small delay to allow for Firestore consistency
 
         } else {
-          setSubscription({
+          // New user - start with trial
+          console.log("🆕 New user detected, creating trial subscription for:", user.uid);
+          const now = new Date();
+          const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
+          const receiptLimits = getReceiptLimits();
+          
+          // Create subscription document with trial
+          const newSubscriptionData = {
             currentTier: "free",
-            features: getFeaturesByTier("free"),
-            limits: {
-              maxReceipts: limits.free,
-              maxBusinesses: 1,
-              apiCallsPerMonth: 0,
-              maxReports: 3,
+            status: "active", 
+            trial: {
+              startedAt: now,
+              expiresAt: trialExpires,
             },
-            isActive: false,
-            expiresAt: null,
             billing: {
               customerId: null,
               subscriptionId: null,
               priceId: null,
-              currentPeriodStart: new Date(),
+              currentPeriodStart: now,
               currentPeriodEnd: null,
               cancelAtPeriodEnd: false,
               trialEnd: null,
+            },
+            createdAt: now,
+            updatedAt: now,
+          };
+          
+          console.log("📝 Creating subscription document with data:", newSubscriptionData);
+          
+          // Save to Firestore
+          try {
+            const { setDoc } = await import('firebase/firestore');
+            await setDoc(doc(db, "subscriptions", user.uid), newSubscriptionData);
+            console.log("✅ Successfully created trial subscription document for user:", user.uid);
+          } catch (error) {
+            console.error("❌ Error creating trial subscription:", error);
+            // Don't return early - still set local state even if Firestore write fails
+          }
+          
+          setSubscription({
+            currentTier: "trial",
+            features: getFeaturesByTier("trial"),
+            limits: {
+              maxReceipts: receiptLimits.professional,
+              maxBusinesses: -1,
+              apiCallsPerMonth: -1,
+              maxReports: -1,
+            },
+            isActive: true,
+            expiresAt: trialExpires,
+            billing: {
+              customerId: null,
+              subscriptionId: null,
+              priceId: null,
+              currentPeriodStart: now,
+              currentPeriodEnd: null,
+              cancelAtPeriodEnd: false,
+              trialEnd: null,
+            },
+            trial: {
+              isActive: true,
+              startedAt: now,
+              expiresAt: trialExpires,
+              daysRemaining: 3,
             },
           });
         }
@@ -522,6 +657,12 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           currentPeriodEnd: null,
           cancelAtPeriodEnd: false,
           trialEnd: null,
+        },
+        trial: {
+          isActive: false,
+          startedAt: null,
+          expiresAt: null,
+          daysRemaining: 0,
         },
       });
       setLoading(false);
@@ -562,6 +703,45 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     [subscription.limits.maxReceipts]
   );
 
+  // Trial management methods
+  const startTrial = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
+    if (!user?.uid) {
+      return { success: false, error: "No user authenticated" };
+    }
+
+    try {
+      const now = new Date();
+      const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
+      
+      const subscriptionData = {
+        currentTier: "free",
+        status: "active",
+        trial: {
+          startedAt: now,
+          expiresAt: trialExpires,
+        },
+        updatedAt: now,
+      };
+
+      const { setDoc } = await import('firebase/firestore');
+      await setDoc(doc(db, "subscriptions", user.uid), subscriptionData, { merge: true });
+      
+      console.log("✅ Started trial for user:", user.uid);
+      return { success: true };
+    } catch (error) {
+      console.error("Error starting trial:", error);
+      return { success: false, error: "Failed to start trial" };
+    }
+  }, [user?.uid]);
+
+  const canAccessPremiumFeatures = useCallback((): boolean => {
+    return subscription.currentTier !== "free" || subscription.trial.isActive;
+  }, [subscription.currentTier, subscription.trial.isActive]);
+
+  const hasProfessionalAccess = useCallback((): boolean => {
+    return subscription.currentTier === "professional" || subscription.trial.isActive;
+  }, [subscription.currentTier, subscription.trial.isActive]);
+
   const contextValue = {
     subscription,
     canAccessFeature,
@@ -571,6 +751,9 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     currentReceiptCount,
     refreshReceiptCount,
     isRefreshing,
+    startTrial,
+    canAccessPremiumFeatures,
+    hasProfessionalAccess,
   };
 
   return (

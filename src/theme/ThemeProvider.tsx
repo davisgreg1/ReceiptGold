@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState, useEffect, useMemo } from "react";
 import { useColorScheme } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { typography } from "./typography";
@@ -120,7 +120,10 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     loadTheme();
   }, [systemColorScheme]);
 
-  const theme = themeMode === "dark" ? darkTheme : lightTheme;
+  const theme = useMemo(() => 
+    themeMode === "dark" ? darkTheme : lightTheme, 
+    [themeMode]
+  );
 
   const toggleTheme = async () => {
     const newMode = themeMode === "dark" ? "light" : "dark";
@@ -133,8 +136,15 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
     await AsyncStorage.setItem("themeMode", mode);
   };
 
+  const contextValue = useMemo(() => ({
+    theme,
+    themeMode,
+    toggleTheme,
+    setTheme
+  }), [theme, themeMode]);
+
   return (
-    <ThemeContext.Provider value={{ theme, themeMode, toggleTheme, setTheme }}>
+    <ThemeContext.Provider value={contextValue}>
       {children}
     </ThemeContext.Provider>
   );

@@ -128,6 +128,8 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
               false: theme.text.tertiary,
               true: theme.gold.primary,
             }}
+            thumbColor={switchValue ? "#FFFFFF" : "#F4F3F4"}
+            ios_backgroundColor={theme.text.tertiary}
           />
         ) : rightElement ? (
           rightElement
@@ -232,14 +234,25 @@ export const SettingsScreen: React.FC = () => {
   }, [user]);
 
   // Fetch bank connections and custom categories on focus
+  const lastRefreshTime = React.useRef<number>(0);
+  
   useFocusEffect(
     React.useCallback(() => {
       if (user) {
-        // Only refresh bank connections for professional tier users
-        if (subscription.currentTier === 'professional') {
-          refreshBankConnections();
+        // Debounce refreshes to prevent theme changes from triggering unnecessary loads
+        const now = Date.now();
+        const timeSinceLastRefresh = now - lastRefreshTime.current;
+        
+        // Only refresh if it's been more than 2 seconds since last refresh
+        if (timeSinceLastRefresh > 2000) {
+          lastRefreshTime.current = now;
+          
+          // Only refresh bank connections for professional tier or trial users
+          if (subscription.currentTier === 'professional' || subscription.trial.isActive) {
+            refreshBankConnections();
+          }
+          loadCustomCategories();
         }
-        loadCustomCategories();
       }
     }, [user, subscription.currentTier])
   );
@@ -415,15 +428,24 @@ export const SettingsScreen: React.FC = () => {
 
   const handleThemeChange = async (isDark: boolean) => {
     if (!user) return;
+    
+    // Immediately update the theme for smooth UX
+    toggleTheme();
+    
+    // Update Firestore in the background without blocking the UI
     const newTheme = isDark ? "dark" : "light";
     try {
-      await updateDoc(doc(db, "users", user.uid), {
+      // Don't await this - let it happen in the background
+      updateDoc(doc(db, "users", user.uid), {
         settings: {
           theme: newTheme,
           defaultCurrency: "USD", // Preserve existing currency setting
         },
+      }).catch(error => {
+        console.error("Failed to update theme setting:", error);
+        // If Firestore update fails, we could potentially revert the theme here
+        // but for better UX, we'll keep the local change and just log the error
       });
-      toggleTheme(); // Update the theme in ThemeProvider
     } catch (error) {
       console.error("Failed to update theme setting:", error);
     }
@@ -492,9 +514,9 @@ export const SettingsScreen: React.FC = () => {
   const refreshBankConnections = async () => {
     if (!user) return;
     
-    // Only allow professional tier users to access bank connections
-    if (subscription.currentTier !== 'professional') {
-      console.log('🚫 Bank connections only available for professional tier users');
+    // Only allow professional tier or trial users to access bank connections
+    if (subscription.currentTier !== 'professional' && !subscription.trial.isActive) {
+      console.log('🚫 Bank connections only available for professional tier or trial users');
       setBankConnections([]);
       return;
     }
@@ -1006,16 +1028,7 @@ export const SettingsScreen: React.FC = () => {
         {/* Bank Accounts Section */}
         {canUseBankConnection && (
           <SettingsSection title="Connected Bank Accounts">
-            {loadingBankConnections ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator color={theme.gold.primary} />
-                <Text
-                  style={[styles.loadingText, { color: theme.text.secondary }]}
-                >
-                  Loading bank connections...
-                </Text>
-              </View>
-            ) : bankConnections.length > 0 ? (
+            {bankConnections.length > 0 ? (
               <>
                 {bankConnections.map((connection) => (
                   <View
@@ -1392,9 +1405,13 @@ export const SettingsScreen: React.FC = () => {
             }
             description={
               subscription.isActive
-                ? `Your plan renews on ${
-                    subscription.expiresAt?.toLocaleDateString() || "N/A"
-                  }`
+                ? subscription.currentTier === "trial" || subscription.trial.isActive
+                  ? `Your trial ends on ${
+                      subscription.expiresAt?.toLocaleDateString() || "N/A"
+                    }`
+                  : `Your plan renews on ${
+                      subscription.expiresAt?.toLocaleDateString() || "N/A"
+                    }`
                 : subscription.currentTier === "free"
                 ? "Free plan"
                 : `Your plan has expired`

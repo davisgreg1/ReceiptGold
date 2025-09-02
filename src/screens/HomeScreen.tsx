@@ -62,6 +62,7 @@ export const HomeScreen: React.FC = () => {
     weeklyTotal: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
 
   // Load dashboard data on mount and when screen is focused
   useEffect(() => {
@@ -83,7 +84,10 @@ export const HomeScreen: React.FC = () => {
     if (!user) return;
     
     try {
-      setLoading(true);
+      // Only show skeleton loading on initial load, not on refresh/focus
+      if (isInitialLoad) {
+        setLoading(true);
+      }
       
       // Get all receipts from Firebase
       let receiptDocs;
@@ -317,6 +321,7 @@ export const HomeScreen: React.FC = () => {
       console.error('Error loading dashboard data:', error);
     } finally {
       setLoading(false);
+      setIsInitialLoad(false);
     }
   };
 
@@ -393,7 +398,7 @@ export const HomeScreen: React.FC = () => {
           </View>
 
           {/* Stats Overview Cards */}
-          {loading ? (
+          {loading && isInitialLoad ? (
             <View style={styles.statsContainer}>
               <StatCardSkeleton />
               <StatCardSkeleton />
@@ -471,7 +476,7 @@ export const HomeScreen: React.FC = () => {
               </ButtonText>
             </TouchableOpacity>
             
-            {subscription.currentTier === 'professional' && (
+            {(subscription.currentTier === 'professional' || subscription.trial.isActive) && (
               <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: theme.status.success }]}
                 onPress={() => homeNavigation.navigate('BankTransactions')}
@@ -486,7 +491,7 @@ export const HomeScreen: React.FC = () => {
         </View>
 
         {/* Recent Activity & Top Categories */}
-        {!loading && (
+        {!(loading && isInitialLoad) && (
           <View style={styles.insightsSection}>
             {/* Recent Receipts */}
             <View style={[styles.insightCard, { backgroundColor: theme.background.secondary }]}>
@@ -584,26 +589,26 @@ export const HomeScreen: React.FC = () => {
               <Text style={styles.subscriptionEmoji}>
                 {subscription.currentTier === 'starter' ? '📄' : 
                  subscription.currentTier === 'growth' ? '📈' : 
-                 subscription.currentTier === 'professional' ? '💼' : '🆓'}
+                 subscription.currentTier === 'professional' || subscription.trial.isActive ? '💼' : '🆓'}
               </Text>
             </View>
             <View style={styles.subscriptionDetails}>
               <HeadingText size="medium" color="gold">
                 {subscription.currentTier === 'starter' ? 'Starter Plan' : 
                  subscription.currentTier === 'growth' ? 'Growth Plan' : 
-                 subscription.currentTier === 'professional' ? 'Professional Plan' : 'Free Plan'}
+                 subscription.currentTier === 'professional' || subscription.trial.isActive ? 'Professional Plan' : 'Free Plan'}
               </HeadingText>
               <BodyText size="small" color="secondary">
                 {subscription.currentTier === 'starter' && '50 receipts/mo • Basic categorization'}
                 {subscription.currentTier === 'growth' && '150 receipts/mo • Advanced reporting'}
-                {subscription.currentTier === 'professional' && 'Unlimited receipts • Multi-business • Bank sync'}
-                {subscription.currentTier === 'free' && 'Limited features • Upgrade for more'}
+                {(subscription.currentTier === 'professional' || subscription.trial.isActive) && 'Unlimited receipts • Multi-business • Bank sync'}
+                {subscription.currentTier === 'free' && !subscription.trial.isActive && 'Limited features • Upgrade for more'}
               </BodyText>
               <BodyText size="small" color="tertiary" style={{ marginTop: 4 }}>
                 {subscription.currentTier === 'starter' && '$9.99/month'}
                 {subscription.currentTier === 'growth' && '$19.99/month'}
-                {subscription.currentTier === 'professional' && '$39.99/month'}
-                {subscription.currentTier === 'free' && 'Try premium features'}
+                {(subscription.currentTier === 'professional' || subscription.trial.isActive) && (subscription.trial.isActive ? 'Trial Active' : '$39.99/month')}
+                {subscription.currentTier === 'free' && !subscription.trial.isActive && 'Try premium features'}
               </BodyText>
             </View>
             <TouchableOpacity

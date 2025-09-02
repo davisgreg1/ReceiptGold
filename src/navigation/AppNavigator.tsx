@@ -18,6 +18,7 @@ import { BankTransactionsScreen } from "../screens/BankTransactionsScreen";
 import { ContactSupportScreen } from "../screens/ContactSupportScreen";
 import { HelpCenterScreen } from "../screens/HelpCenterScreen";
 import { PrivacyPolicyScreen } from "../screens/PrivacyPolicyScreen";
+import { TrialBanner } from "../components/TrialBanner";
 import { TermsOfServiceScreen } from "../screens/TermsOfServiceScreen";
 import BusinessManagementScreen from "../screens/BusinessManagementScreen";
 import CreateBusinessScreen from "../screens/CreateBusinessScreen";
@@ -356,7 +357,7 @@ const linking: LinkingOptions<BottomTabParamList> = {
   },
 };
 
-export const AppNavigator: React.FC = () => {
+const BaseAppNavigator: React.FC = () => {
   const { theme } = useTheme();
 
   return (
@@ -437,6 +438,10 @@ export const AppNavigator: React.FC = () => {
           }}
         />
       </Tab.Navigator>
+      <TrialBanner />
     </NavigationContainer>
   );
 };
+
+// Export the main navigator
+export { BaseAppNavigator as AppNavigator };
