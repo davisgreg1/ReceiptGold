@@ -244,7 +244,9 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
             stats: {
               totalReceipts: data.stats?.totalReceipts || 0,
               totalAmount: data.stats?.totalAmount || 0,
-              lastReceiptDate: data.stats?.lastReceiptDate?.toDate() || null,
+              lastReceiptDate: data.stats?.lastReceiptDate && typeof data.stats.lastReceiptDate.toDate === 'function' 
+                ? data.stats.lastReceiptDate.toDate() 
+                : null,
             },
             isActive: data.isActive,
             createdAt: data.createdAt?.toDate() || new Date(),

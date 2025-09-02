@@ -312,7 +312,8 @@ export class BankReceiptService {
   public async saveGeneratedPDFReceiptAsReceipt(
     userId: string,
     generatedReceiptPDF: GeneratedReceiptPDF,
-    candidateId: string
+    candidateId: string,
+    business?: any
   ): Promise<string> {
     try {
       // Create receipt document for Firebase with PDF data
@@ -320,8 +321,7 @@ export class BankReceiptService {
         userId,
         pdfUrl: generatedReceiptPDF.receiptPdfUrl,
         pdfPath: generatedReceiptPDF.receiptPdfPath,
-        businessName: generatedReceiptPDF.receiptData.businessName || 'Unknown Business',
-        vendor: generatedReceiptPDF.receiptData.businessName || 'Unknown Business', // Map businessName to vendor for edit screen compatibility
+        vendor: generatedReceiptPDF.receiptData.businessName || 'Unknown Business', // Merchant/vendor name (Amazon, Starbucks, etc.)
         amount: Number(generatedReceiptPDF.receiptData.total) || 0,
         date: generatedReceiptPDF.receiptData.date,
         description: generatedReceiptPDF.receiptData.description || '', // Add description from PDF receipt data
@@ -334,6 +334,9 @@ export class BankReceiptService {
           taxYear: new Date().getFullYear(),
           amount: generatedReceiptPDF.receiptData.tax || 0, // Store the actual tax amount from receipt
         },
+        // Set user's business if one is selected (for expense categorization)
+        businessId: business?.id || null,
+        businessName: business?.businessName || null,
         receiptData: generatedReceiptPDF.receiptData, // Store complete receipt data for regeneration
         metadata: {
           source: 'bank_transaction',

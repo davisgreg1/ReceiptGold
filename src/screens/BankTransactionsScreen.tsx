@@ -29,6 +29,7 @@ import * as Sharing from 'expo-sharing';
 import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
 import { useSubscription } from "../context/SubscriptionContext";
+import { useBusiness } from "../context/BusinessContext";
 import {
   BankReceiptService,
   TransactionCandidate,
@@ -44,6 +45,7 @@ export const BankTransactionsScreen: React.FC = () => {
   const { theme } = useTheme();
   const { user } = useAuth();
   const { subscription } = useSubscription();
+  const { selectedBusiness } = useBusiness();
   const { showNotification } = useInAppNotifications();
 
   const [candidates, setCandidates] = useState<
@@ -897,7 +899,8 @@ export const BankTransactionsScreen: React.FC = () => {
       await bankReceiptService.saveGeneratedPDFReceiptAsReceipt(
         user.uid,
         generatedReceiptPDF,
-        candidateId
+        candidateId,
+        selectedBusiness
       );
 
       // Remove from candidates list by Firestore doc id
