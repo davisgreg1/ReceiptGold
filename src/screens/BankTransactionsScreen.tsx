@@ -10,6 +10,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  SectionList,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
@@ -18,10 +19,13 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
   Animated,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinkSuccess, LinkExit } from "react-native-plaid-link-sdk";
+import Pdf from 'react-native-pdf';
+import * as Sharing from 'expo-sharing';
 import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
 import { useSubscription } from "../context/SubscriptionContext";
@@ -31,7 +35,6 @@ import {
 } from "../services/BankReceiptService";
 import { PlaidService } from "../services/PlaidService";
 import { GeneratedReceiptPDF } from "../services/PDFReceiptService";
-import { PDFViewer } from "../components/PDFViewer";
 import { useInAppNotifications } from "../components/InAppNotificationProvider";
 import { PlaidLinkButton } from "../components/PlaidLinkButton";
 import CollapsibleFilterSection from "../components/CollapsibleFilterSection";
@@ -55,7 +58,7 @@ export const BankTransactionsScreen: React.FC = () => {
     Map<string, GeneratedReceiptPDF>
   >(new Map());
   const [linkToken, setLinkToken] = useState<string | null>(null);
-  const [bankConnections] = useState<any[]>([]);
+  const [bankConnections, setBankConnections] = useState<any[]>([]);
 
   // Track cancelled operations
   const cancelledOperations = useRef<Set<string>>(new Set());
@@ -70,6 +73,11 @@ export const BankTransactionsScreen: React.FC = () => {
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkSkipInProgress, setBulkSkipInProgress] = useState(false);
   const [bulkGenerateInProgress, setBulkGenerateInProgress] = useState(false);
+  const [bulkGenerateProgress, setBulkGenerateProgress] = useState({ current: 0, total: 0, currentItem: '' });
+  
+  // PDF Viewing state
+  const [pdfModalVisible, setPdfModalVisible] = useState(false);
+  const [selectedPdfUri, setSelectedPdfUri] = useState<string | null>(null);
   
   // Alert deduplication state
   const recentAlerts = useRef<Map<string, number>>(new Map());
@@ -224,6 +232,86 @@ export const BankTransactionsScreen: React.FC = () => {
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
 
+  // Function to handle viewing PDF
+  const viewPDF = useCallback((generatedReceipt: any) => {
+    console.log("🔍 DEBUG: Attempting to view PDF. GeneratedReceipt object:", JSON.stringify(generatedReceipt, null, 2));
+    console.log("🔍 DEBUG: pdfUri:", generatedReceipt?.pdfUri);
+    console.log("🔍 DEBUG: All keys in generatedReceipt:", Object.keys(generatedReceipt || {}));
+    
+    // Try different possible URI field names based on actual structure
+    const pdfUri = generatedReceipt?.receiptPdfPath || 
+                   generatedReceipt?.receiptPdfUrl ||
+                   generatedReceipt?.pdfUri || 
+                   generatedReceipt?.pdfPath || 
+                   generatedReceipt?.filePath ||
+                   generatedReceipt?.uri ||
+                   generatedReceipt?.path;
+    
+    console.log("🔍 DEBUG: Final pdfUri to use:", pdfUri);
+    
+    if (pdfUri) {
+      setSelectedPdfUri(pdfUri);
+      setPdfModalVisible(true);
+    } else {
+      showNotification({
+        type: "error",
+        title: "PDF Not Available",
+        message: "PDF file could not be found or is corrupted.",
+      });
+    }
+  }, [showNotification]);
+
+  // Function to handle PDF sharing
+  const sharePDF = useCallback(async () => {
+    if (!selectedPdfUri) return;
+    
+    try {
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(selectedPdfUri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Share Receipt PDF',
+        });
+      } else {
+        showNotification({
+          type: "error",
+          title: "Sharing Not Available",
+          message: "Sharing is not available on this device.",
+        });
+      }
+    } catch (error) {
+      console.error('Error sharing PDF:', error);
+      showNotification({
+        type: "error",
+        title: "Share Failed",
+        message: "Failed to share PDF file.",
+      });
+    }
+  }, [selectedPdfUri, showNotification]);
+
+  // Quick filter options including bank connections
+  const quickFilterOptions = useMemo(() => {
+    const baseFilters = [
+      { key: "all", label: "All", icon: "list" },
+      { key: "recent", label: "Recent", icon: "time" },
+      { key: "high", label: "High Amount", icon: "trending-up" },
+      { key: "dining", label: "Dining", icon: "restaurant" },
+      { key: "shopping", label: "Shopping", icon: "bag" },
+      { key: "transport", label: "Transport", icon: "car" },
+    ];
+
+    // Add bank connections as filter options
+    const bankFilters = bankConnections.map(connection => ({
+      key: `bank_${connection.institutionName?.toLowerCase().replace(/\s+/g, '_')}`,
+      label: connection.institutionName || "Unknown Bank",
+      icon: "card-outline" as const,
+      isBankFilter: true,
+      connection: connection
+    }));
+
+    return [...baseFilters, ...bankFilters];
+  }, [bankConnections]);
+
   // Filtered and sorted candidates
   const filteredAndSortedCandidates = useMemo(() => {
     let filtered = candidates;
@@ -289,6 +377,18 @@ export const BankTransactionsScreen: React.FC = () => {
                 candidate.transaction.category?.[0]?.toLowerCase().includes("taxi")
               );
             default:
+              // Check if it's a bank filter
+              if (filterType.startsWith('bank_')) {
+                // Find the bank connection that matches this filter
+                const bankFilter = quickFilterOptions.find(option => option.key === filterType);
+                if (bankFilter && 'connection' in bankFilter && bankFilter.connection) {
+                  // Check if transaction belongs to this bank connection
+                  return bankFilter.connection.accounts?.some((account: any) => {
+                    const accountId = account.accountId || account.account_id;
+                    return accountId === candidate.transaction.account_id;
+                  });
+                }
+              }
               return true;
           }
         });
@@ -327,7 +427,7 @@ export const BankTransactionsScreen: React.FC = () => {
     });
 
     return filtered;
-  }, [candidates, selectedQuickFilters, searchQuery, dateRangeFilter]); // Get unique categories for filter
+  }, [candidates, selectedQuickFilters, searchQuery, dateRangeFilter, quickFilterOptions]); // Get unique categories for filter
   const availableCategories = useMemo(() => {
     const categories = new Set<string>();
     candidates.forEach((candidate) => {
@@ -338,13 +438,85 @@ export const BankTransactionsScreen: React.FC = () => {
     return Array.from(categories).sort();
   }, [candidates]);
 
+  // Group transactions by bank connection for SectionList
+  const groupedTransactions = useMemo(() => {
+    console.log("🔍 DEBUG: Grouping transactions...");
+    console.log("🏦 DEBUG: Bank connections:", bankConnections.length, bankConnections);
+    console.log("💳 DEBUG: Filtered transactions:", filteredAndSortedCandidates.length);
+    
+    // Debug: Show first few transaction account IDs
+    if (filteredAndSortedCandidates.length > 0) {
+      console.log("💳 DEBUG: Sample transaction account IDs:", 
+        filteredAndSortedCandidates.slice(0, 5).map(c => ({
+          id: c.transaction.transaction_id,
+          account_id: c.transaction.account_id,
+          merchant: c.transaction.merchant_name || c.transaction.name
+        }))
+      );
+    }
+    
+    if (bankConnections.length === 0) {
+      console.log("❌ DEBUG: No bank connections found");
+      return [];
+    }
+
+    const sections = bankConnections.map(connection => {
+      console.log("🏦 DEBUG: Processing connection:", connection.institutionName);
+      console.log("🏦 DEBUG: Connection account IDs:", connection.accounts?.map(acc => acc.accountId || acc.account_id));
+      
+      const bankTransactions = filteredAndSortedCandidates.filter(candidate => {
+        const hasMatch = connection.accounts?.some((account: any) => {
+          // Try both accountId and account_id fields
+          const accountId = account.accountId || account.account_id;
+          const match = accountId === candidate.transaction.account_id;
+          if (match) {
+            console.log("✅ DEBUG: Transaction matched:", candidate.transaction.account_id, "to", connection.institutionName);
+          }
+          return match;
+        });
+        
+        if (!hasMatch && filteredAndSortedCandidates.length < 10) {
+          console.log("❌ DEBUG: No match for transaction:", candidate.transaction.account_id, "in", connection.institutionName);
+        }
+        
+        return hasMatch;
+      });
+
+      const section = {
+        title: connection.institutionName || "Unknown Bank",
+        data: bankTransactions,
+        connection: connection
+      };
+      
+      console.log("📊 DEBUG: Section for", section.title, "has", section.data.length, "transactions");
+      return section;
+    }).filter(section => section.data.length > 0); // Only show sections with transactions
+
+    console.log("📋 DEBUG: Final grouped sections:", sections.length, sections.map(s => `${s.title}: ${s.data.length}`));
+    return sections;
+  }, [filteredAndSortedCandidates, bankConnections]);
+
+
   useEffect(() => {
     if (user && (subscription.currentTier === "professional" || subscription.trial.isActive)) {
       // Only load candidates and create link token; do not clear bank connections in dev mode
       loadTransactionCandidates();
+      loadBankConnections();
       createLinkToken(); // Prepare link token for bank connection
     }
   }, [user, subscription.currentTier]);
+
+  const loadBankConnections = async () => {
+    if (!user) return;
+    
+    try {
+      const connections = await bankReceiptService.getBankConnections(user.uid);
+      const activeConnections = connections.filter(conn => conn.isActive);
+      setBankConnections(activeConnections);
+    } catch (error) {
+      console.error("Error loading bank connections:", error);
+    }
+  };
 
   const loadTransactionCandidates = async () => {
     if (!user) return;
@@ -505,6 +677,7 @@ export const BankTransactionsScreen: React.FC = () => {
     }
 
     await loadTransactionCandidates();
+    await loadBankConnections();
     setRefreshing(false);
   };
 
@@ -591,6 +764,7 @@ export const BankTransactionsScreen: React.FC = () => {
       });
 
       await loadTransactionCandidates();
+      await loadBankConnections();
     } catch (error) {
       console.error("Error handling Plaid success:", error);
       showNotification({
@@ -882,6 +1056,7 @@ export const BankTransactionsScreen: React.FC = () => {
       
       // Start the bulk generation process
       setBulkGenerateInProgress(true);
+      setBulkGenerateProgress({ current: 0, total: candidatesToGenerate.length, currentItem: 'Preparing...' });
       
       showNotification({
         type: "info",
@@ -900,6 +1075,14 @@ export const BankTransactionsScreen: React.FC = () => {
         
         try {
           console.log(`🔄 Bulk generating PDF ${i + 1}/${candidatesToGenerate.length} for:`, candidateId);
+          
+          // Update progress with current item
+          const merchantName = candidate.transaction.merchant_name || candidate.transaction.name || 'Unknown Merchant';
+          setBulkGenerateProgress({ 
+            current: i, 
+            total: candidatesToGenerate.length, 
+            currentItem: `Processing ${merchantName}...` 
+          });
           
           // Clear any previous cancellation for this candidate
           cancelledOperations.current.delete(candidateId);
@@ -926,6 +1109,13 @@ export const BankTransactionsScreen: React.FC = () => {
           
           successCount++;
           
+          // Update progress after successful generation
+          setBulkGenerateProgress({ 
+            current: i + 1, 
+            total: candidatesToGenerate.length, 
+            currentItem: `Generated PDF for ${merchantName}` 
+          });
+          
           // Small delay between generations to prevent overwhelming the system
           if (i < candidatesToGenerate.length - 1) {
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -934,8 +1124,23 @@ export const BankTransactionsScreen: React.FC = () => {
         } catch (error) {
           console.error(`❌ Error generating PDF for ${candidateId}:`, error);
           failCount++;
+          
+          // Update progress after failed generation
+          const merchantName = candidate.transaction.merchant_name || candidate.transaction.name || 'Unknown Merchant';
+          setBulkGenerateProgress({ 
+            current: i + 1, 
+            total: candidatesToGenerate.length, 
+            currentItem: `Failed to generate PDF for ${merchantName}` 
+          });
         }
       }
+      
+      // Final progress update
+      setBulkGenerateProgress({ 
+        current: candidatesToGenerate.length, 
+        total: candidatesToGenerate.length, 
+        currentItem: 'Completing...' 
+      });
       
       // Clear selection and exit bulk mode
       // Cleanup state and memory after bulk operations
@@ -943,6 +1148,7 @@ export const BankTransactionsScreen: React.FC = () => {
         setSelectedItems(new Set());
         setBulkMode(false);
         setBulkGenerateInProgress(false);
+        setBulkGenerateProgress({ current: 0, total: 0, currentItem: '' });
         setGeneratingReceipt(null);
         
         // Force garbage collection if available (helps with memory after bulk PDF generation)
@@ -977,6 +1183,7 @@ export const BankTransactionsScreen: React.FC = () => {
     } catch (error) {
       console.error("Error in bulk PDF generation:", error);
       setBulkGenerateInProgress(false);
+      setBulkGenerateProgress({ current: 0, total: 0, currentItem: '' });
       showNotification({
         type: "error",
         title: "Bulk PDF Generation Failed",
@@ -1215,13 +1422,18 @@ export const BankTransactionsScreen: React.FC = () => {
             <Text style={styles.receiptTitle}>Generated PDF Receipt</Text>
 
             <View style={styles.pdfPlaceholderContainer}>
-              <View style={styles.pdfPlaceholder}>
+              <TouchableOpacity 
+                style={styles.pdfPlaceholder} 
+                onPress={() => viewPDF(generatedReceipt)}
+                activeOpacity={0.7}
+              >
                 <Ionicons name="document-text" size={24} color={theme.text.secondary} />
                 <Text style={styles.pdfPlaceholderText}>PDF Generated</Text>
                 <Text style={styles.pdfPlaceholderSubtext}>
                   {generatedReceipt.receiptData.businessName} • {generatedReceipt.receiptData.date}
                 </Text>
-              </View>
+                <Ionicons name="eye" size={16} color={theme.gold.primary} style={{ marginTop: 4 }} />
+              </TouchableOpacity>
             </View>
 
             <Text style={styles.receiptDetails}>
@@ -1279,7 +1491,7 @@ export const BankTransactionsScreen: React.FC = () => {
                   disabled={!generatedReceipt}
                 >
                   <Text style={[styles.buttonText, styles.approveButtonText]}>
-                    {isGenerating ? "Generating..." : "Save Receipt"}
+                    {isGenerating ? (generatedReceipt ? "Saving..." : "Generating...") : "Save Receipt"}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -1311,6 +1523,24 @@ export const BankTransactionsScreen: React.FC = () => {
       </TouchableOpacity>
     );
   }, [bulkMode, selectedItems, generatedReceipts, generatingReceipt, toggleItemSelection, generateReceipt, formatDate, formatCurrency, discardGeneratedReceipt, approveReceipt, theme]);
+
+  // Section header for bank groups
+  const renderSectionHeader = useCallback(({ section }: { section: { title: string, data: any[], connection: any } }) => {
+    console.log("📱 Rendering section header for:", section.title, "with", section.data.length, "transactions");
+    return (
+      <View style={styles.sectionHeader}>
+        <View style={styles.sectionHeaderContent}>
+          <Ionicons name="card-outline" size={24} color={theme.gold.primary} />
+          <Text style={[styles.sectionHeaderText, { color: theme.text.primary }]}>
+            {section.title}
+          </Text>
+          <Text style={[styles.sectionHeaderCount, { color: theme.text.secondary }]}>
+            {section.data.length} transactions
+          </Text>
+        </View>
+      </View>
+    );
+  }, [theme]);
 
   const styles = StyleSheet.create({
     container: {
@@ -1566,6 +1796,8 @@ export const BankTransactionsScreen: React.FC = () => {
       justifyContent: "center",
       flex: 1,
       padding: 16,
+      borderRadius: 8,
+      backgroundColor: theme.background.secondary,
     },
     pdfPlaceholderText: {
       fontSize: 14,
@@ -2172,7 +2404,9 @@ export const BankTransactionsScreen: React.FC = () => {
       shadowOpacity: 0.3,
       shadowRadius: 16,
       elevation: 16,
-      minWidth: 280,
+      width: 320,
+      minHeight: 280,
+      justifyContent: "center",
     },
     bulkOperationAnimation: {
       width: 80,
@@ -2189,13 +2423,18 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.text.primary,
       marginBottom: 8,
       textAlign: "center",
+      width: "100%",
+      maxWidth: 260,
     },
     bulkOperationSubtitle: {
       fontSize: 14,
       color: theme.text.secondary,
       textAlign: "center",
-      marginBottom: 24,
+      marginBottom: 16,
       lineHeight: 20,
+      width: "100%",
+      maxWidth: 260,
+      height: 20,
     },
     bulkOperationProgress: {
       width: "100%",
@@ -2208,6 +2447,27 @@ export const BankTransactionsScreen: React.FC = () => {
       height: "100%",
       backgroundColor: theme.gold.primary,
       borderRadius: 2,
+    },
+    bulkOperationCurrentItem: {
+      fontSize: 12,
+      color: theme.text.secondary,
+      textAlign: "center",
+      marginTop: 8,
+      marginBottom: 8,
+      fontStyle: "italic",
+      lineHeight: 16,
+      width: "100%",
+      maxWidth: 260,
+      height: 32,
+    },
+    bulkOperationPercentage: {
+      fontSize: 16,
+      fontWeight: "600",
+      color: theme.gold.primary,
+      textAlign: "center",
+      marginTop: 8,
+      width: "100%",
+      height: 20,
     },
     
     // Security Trust UI
@@ -2287,6 +2547,76 @@ export const BankTransactionsScreen: React.FC = () => {
       fontSize: 12,
       color: theme.gold.primary,
       fontWeight: "500",
+    },
+    sectionHeader: {
+      backgroundColor: theme.background.secondary,
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      marginTop: 0,
+      marginBottom: 8,
+      marginHorizontal: 16,
+      borderRadius: 12,
+      minHeight: 56,
+      elevation: 4,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.15,
+      shadowRadius: 4,
+      borderWidth: 1,
+      borderColor: theme.gold.primary + '20',
+    },
+    sectionHeaderContent: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+    },
+    sectionHeaderText: {
+      fontSize: 18,
+      fontWeight: "700",
+      flex: 1,
+      letterSpacing: 0.5,
+    },
+    sectionHeaderCount: {
+      fontSize: 14,
+      fontWeight: "600",
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      backgroundColor: theme.gold.primary + '20',
+      borderRadius: 12,
+      overflow: 'hidden',
+    },
+    
+    // PDF Overlay styles
+    pdfOverlay: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 1000,
+      pointerEvents: 'box-none', // Allow touches to pass through to PDF
+    },
+    pdfTopButtons: {
+      position: 'absolute',
+      top: 60,
+      right: 20,
+      flexDirection: 'row',
+      gap: 16,
+    },
+    pdfOverlayButton: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      backgroundColor: 'rgba(0, 0, 0, 0.8)',
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
+      elevation: 8,
+      borderWidth: 0.5,
+      borderColor: 'rgba(255, 255, 255, 0.2)',
     },
   });
 
@@ -2738,14 +3068,7 @@ export const BankTransactionsScreen: React.FC = () => {
               shadowColor={theme.text.primary}
             >
               <View style={styles.filtersContainer}>
-                {[
-                  { key: "all", label: "All", icon: "list" },
-                  { key: "recent", label: "Recent", icon: "time" },
-                  { key: "high", label: "High Amount", icon: "trending-up" },
-                  { key: "dining", label: "Dining", icon: "restaurant" },
-                  { key: "shopping", label: "Shopping", icon: "bag" },
-                  { key: "transport", label: "Transport", icon: "car" },
-                ].map((option) => (
+                {quickFilterOptions.map((option) => (
                   <TouchableOpacity
                     key={option.key}
                     style={[
@@ -2878,6 +3201,35 @@ export const BankTransactionsScreen: React.FC = () => {
             </TouchableOpacity>
           )}
         </View>
+      ) : groupedTransactions.length > 0 ? (
+        <SectionList
+          sections={groupedTransactions}
+          renderItem={renderTransactionItem}
+          renderSectionHeader={renderSectionHeader}
+          keyExtractor={(item) =>
+            (item as any)._id ?? `${item.transaction.transaction_id}_fallback`
+          }
+          stickySectionHeadersEnabled={true}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[theme.gold.primary]}
+              tintColor={theme.gold.primary}
+            />
+          }
+          onScroll={undefined}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.listContainer}
+          initialNumToRender={5}
+          maxToRenderPerBatch={3}
+          windowSize={3}
+          removeClippedSubviews={true}
+          updateCellsBatchingPeriod={200}
+          legacyImplementation={false}
+          ItemSeparatorComponent={null}
+        />
       ) : (
         <FlatList
           data={filteredAndSortedCandidates}
@@ -2928,12 +3280,34 @@ export const BankTransactionsScreen: React.FC = () => {
             <Text style={styles.bulkOperationSubtitle}>
               {bulkSkipInProgress 
                 ? `Processing ${selectedItems.size} transactions...`
-                : `Creating PDFs for selected transactions...`
+                : bulkGenerateProgress.total > 0
+                  ? `${bulkGenerateProgress.current} of ${bulkGenerateProgress.total} PDFs ${bulkGenerateProgress.current === bulkGenerateProgress.total ? 'completed' : 'generated'}`
+                  : `Creating PDFs for selected transactions...`
               }
             </Text>
+            {!bulkSkipInProgress && (
+              <Text style={styles.bulkOperationCurrentItem} numberOfLines={2}>
+                {bulkGenerateProgress.currentItem || " "}
+              </Text>
+            )}
             <View style={styles.bulkOperationProgress}>
-              <View style={[styles.bulkOperationProgressBar, { width: '100%' }]} />
+              <View style={[
+                styles.bulkOperationProgressBar, 
+                { 
+                  width: bulkSkipInProgress || bulkGenerateProgress.total === 0 
+                    ? '100%' 
+                    : `${Math.round((bulkGenerateProgress.current / bulkGenerateProgress.total) * 100)}%` 
+                }
+              ]} />
             </View>
+            {!bulkSkipInProgress && (
+              <Text style={styles.bulkOperationPercentage}>
+                {bulkGenerateProgress.total > 0 
+                  ? `${Math.round((bulkGenerateProgress.current / bulkGenerateProgress.total) * 100)}%`
+                  : " "
+                }
+              </Text>
+            )}
           </View>
         </View>
       )}
@@ -2988,6 +3362,53 @@ export const BankTransactionsScreen: React.FC = () => {
           onChange={handleDatePickerChange}
         />
       )}
+
+      {/* PDF Viewer Modal */}
+      <Modal
+        visible={pdfModalVisible}
+        animationType="slide"
+        onRequestClose={() => setPdfModalVisible(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          {selectedPdfUri && (
+            <Pdf
+              source={{ uri: selectedPdfUri }}
+              style={{ flex: 1 }}
+              onLoadComplete={(numberOfPages) => {
+                console.log(`PDF loaded with ${numberOfPages} pages`);
+              }}
+              onError={(error) => {
+                console.log('PDF load error:', error);
+                showNotification({
+                  type: "error",
+                  title: "PDF Load Error",
+                  message: "Failed to load PDF file.",
+                });
+              }}
+            />
+          )}
+          
+          {/* Overlay Controls */}
+          <View style={styles.pdfOverlay}>
+            {/* Top buttons */}
+            <View style={styles.pdfTopButtons}>
+              <TouchableOpacity 
+                onPress={sharePDF}
+                style={styles.pdfOverlayButton}
+              >
+                <Ionicons name="share" size={24} color="#fff" />
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                onPress={() => setPdfModalVisible(false)}
+                style={styles.pdfOverlayButton}
+              >
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
