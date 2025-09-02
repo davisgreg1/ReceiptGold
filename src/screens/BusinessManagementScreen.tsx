@@ -261,6 +261,7 @@ const BusinessManagementScreen: React.FC = () => {
         secondaryButtonText: 'Cancel',
         onPrimaryPress: async () => {
           try {
+            hideAlert(); // Close the confirmation dialog
             if (business.id) {
               // Check if this is the currently selected business
               const isSelectedBusiness = selectedBusiness?.id === business.id;
@@ -273,11 +274,6 @@ const BusinessManagementScreen: React.FC = () => {
               if (isSelectedBusiness || isOnlyBusiness) {
                 selectBusiness(null);
               }
-              
-              showSuccess(
-                'Business Deleted',
-                `"${business.name}" has been deleted.`
-              );
             }
           } catch (err) {
             showError(

@@ -20,6 +20,7 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
   Platform,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
@@ -101,6 +102,9 @@ export const ReceiptsListScreen: React.FC = () => {
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
   const [expandedFilterSection, setExpandedFilterSection] = useState<string | null>(null);
   const [quickFilters, setQuickFilters] = useState<string[]>([]);
+  
+  // Animation for camera FAB pulse effect
+  const pulseAnim = useRef(new Animated.Value(1)).current;
 
   // Load all available categories for filtering
   useEffect(() => {
@@ -143,6 +147,28 @@ export const ReceiptsListScreen: React.FC = () => {
   const sectionListRef = useRef<SectionList>(null);
   // Ref for the search input
   const searchInputRef = useRef<TextInput>(null);
+
+  // Start pulsing animation on component mount
+  useEffect(() => {
+    const startPulsing = () => {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.2,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1500,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    };
+    
+    startPulsing();
+  }, [pulseAnim]);
 
   // Handle quick filter selection (multi-select)
   const handleQuickFilter = useCallback(
@@ -1133,7 +1159,9 @@ export const ReceiptsListScreen: React.FC = () => {
             }
           }}
         >
-          <Ionicons name="camera" size={28} color="white" />
+          <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+            <Ionicons name="camera" size={28} color="white" />
+          </Animated.View>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -2219,7 +2247,9 @@ export const ReceiptsListScreen: React.FC = () => {
           }
         }}
       >
-        <Ionicons name="camera" size={28} color="white" />
+        <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+          <Ionicons name="camera" size={28} color="white" />
+        </Animated.View>
       </TouchableOpacity>
     </SafeAreaView>
   );

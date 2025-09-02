@@ -265,32 +265,13 @@ const CreateBusinessScreen: React.FC = () => {
       if (isEditMode && businessId) {
         // Update existing business
         await updateBusiness(businessId, businessData);
-        showSuccess(
-          'Success',
-          'Business updated successfully!',
-          {
-            primaryButtonText: 'OK',
-            onPrimaryPress: () => {
-              hideAlert();
-              navigation.goBack();
-            },
-          }
-        );
       } else {
         // Create new business
         await createBusiness(businessData);
-        showSuccess(
-          'Success',
-          'Business created successfully!',
-          {
-            primaryButtonText: 'OK',
-            onPrimaryPress: () => {
-              hideAlert();
-              navigation.goBack();
-            },
-          }
-        );
       }
+      
+      // Navigate back after successful creation/update
+      navigation.goBack();
     } catch (error) {
       console.error(`Error ${isEditMode ? 'updating' : 'creating'} business:`, error);
       showError(
