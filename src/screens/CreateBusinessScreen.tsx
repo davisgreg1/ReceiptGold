@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,10 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ActivityIndicator,
+  Keyboard,
+  Dimensions,
+  TouchableWithoutFeedback,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -70,16 +72,21 @@ const CreateBusinessScreen: React.FC = () => {
       country: 'US',
     },
     settings: {
-      defaultCurrency: 'USD',
+      defaultCurrency: 'USD' as const,
       taxYear: new Date().getFullYear(),
-      categories: [],
+      categories: [] as string[],
     },
   });
 
   const [showIOSPicker, setShowIOSPicker] = useState(false);
   const [showIOSIndustryPicker, setShowIOSIndustryPicker] = useState(false);
+  
+  // Keyboard and scroll handling
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [screenHeight, setScreenHeight] = useState(Dimensions.get('window').height);
+  const inputRefs = useRef<{ [key: string]: TextInput | null }>({});
 
-  const businessTypes = BusinessService.getBusinessTypes();
   const industries = BusinessService.getIndustryOptions();
 
   // Populate form with existing business data in edit mode
@@ -114,13 +121,86 @@ const CreateBusinessScreen: React.FC = () => {
           country: 'US',
         },
         settings: existingBusiness.settings || {
-          defaultCurrency: 'USD',
+          defaultCurrency: 'USD' as const,
           taxYear: new Date().getFullYear(),
-          categories: [],
+          categories: [] as string[],
         },
       });
     }
   }, [isEditMode, existingBusiness]);
+
+  // Keyboard handling
+  useEffect(() => {
+    const keyboardWillShow = (event: any) => {
+      setKeyboardHeight(event.endCoordinates.height);
+    };
+
+    const keyboardWillHide = () => {
+      setKeyboardHeight(0);
+    };
+
+    const dimensionChange = ({ window }: { window: any }) => {
+      setScreenHeight(window.height);
+    };
+
+    const keyboardWillShowListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      keyboardWillShow
+    );
+    const keyboardWillHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      keyboardWillHide
+    );
+    const dimensionListener = Dimensions.addEventListener('change', dimensionChange);
+
+    return () => {
+      keyboardWillShowListener?.remove();
+      keyboardWillHideListener?.remove();
+      dimensionListener?.remove();
+    };
+  }, []);
+
+  // Function to scroll to input when focused - simplified approach
+  const scrollToInput = (inputKey: string) => {
+    if (scrollViewRef.current) {
+      // Use a simple estimation approach to avoid native measurement issues
+      setTimeout(() => {
+        const estimatedInputPosition = getInputEstimatedPosition(inputKey);
+        const targetY = Math.max(0, estimatedInputPosition - 80); // 80px from top
+        
+        console.log('Scrolling to estimated position:', {
+          inputKey,
+          estimatedPosition: estimatedInputPosition,
+          scrollTarget: targetY,
+          keyboardHeight,
+        });
+        
+        scrollViewRef.current?.scrollTo({
+          y: targetY,
+          animated: true,
+        });
+      }, Platform.OS === 'ios' ? 200 : 150);
+    }
+  };
+
+  // Estimate input position based on form layout
+  const getInputEstimatedPosition = (inputKey: string): number => {
+    const positions = {
+      // Business Information section starts around 60px
+      'name': 60,        // First input in business info
+      'taxId': 200,      // After business name + business type + some spacing
+      
+      // Contact Information section starts around 400px
+      'phone': 480,      // First input in contact info section
+      'street': 580,     // After phone number
+      'city': 680,       // After street address
+      'state': 680,      // Same row as city
+      'zipCode': 780,    // After city/state row
+      'taxYear': 880,    // After zip code
+    };
+    
+    return positions[inputKey] || 0;
+  };
 
   const updateFormData = (field: string, value: any) => {
     if (field.startsWith('address.')) {
@@ -137,6 +217,9 @@ const CreateBusinessScreen: React.FC = () => {
       setFormData(prev => ({
         ...prev,
         settings: {
+          defaultCurrency: 'USD' as const,
+          taxYear: new Date().getFullYear(),
+          categories: [] as string[],
           ...prev.settings!,
           [settingsField]: value,
         },
@@ -169,9 +252,19 @@ const CreateBusinessScreen: React.FC = () => {
     setLoading(true);
 
     try {
+      // Ensure settings has proper structure for business creation/update
+      const businessData = {
+        ...formData,
+        settings: {
+          defaultCurrency: formData.settings?.defaultCurrency || 'USD',
+          taxYear: formData.settings?.taxYear || new Date().getFullYear(),
+          categories: formData.settings?.categories || [],
+        }
+      };
+
       if (isEditMode && businessId) {
         // Update existing business
-        await updateBusiness(businessId, formData);
+        await updateBusiness(businessId, businessData);
         showSuccess(
           'Success',
           'Business updated successfully!',
@@ -185,7 +278,7 @@ const CreateBusinessScreen: React.FC = () => {
         );
       } else {
         // Create new business
-        await createBusiness(formData);
+        await createBusiness(businessData);
         showSuccess(
           'Success',
           'Business created successfully!',
@@ -232,7 +325,6 @@ const CreateBusinessScreen: React.FC = () => {
   const handlePhoneNumberChange = (text: string) => {
     // Remove all non-digits from the new input
     const digits = text.replace(/\D/g, '');
-    const currentDigits = (formData.phone || '').replace(/\D/g, '');
     
     // If user is trying to add more than 10 digits, don't update at all
     if (digits.length > 10) {
@@ -276,14 +368,21 @@ const CreateBusinessScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
         <ScrollView
+          ref={scrollViewRef}
           style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: Math.max(40, keyboardHeight > 0 ? 20 : 40) }
+          ]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={16}
         >
           {/* Basic Information */}
           <View style={[styles.section, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
@@ -296,6 +395,7 @@ const CreateBusinessScreen: React.FC = () => {
                 Business Name *
               </Text>
               <TextInput
+                ref={(ref) => { inputRefs.current['name'] = ref; }}
                 style={[
                   styles.textInput,
                   {
@@ -306,6 +406,7 @@ const CreateBusinessScreen: React.FC = () => {
                 ]}
                 value={formData.name}
                 onChangeText={(text) => updateFormData('name', text)}
+                onFocus={() => scrollToInput('name')}
                 placeholder="Enter business name"
                 placeholderTextColor={theme.text.tertiary}
                 autoCapitalize="words"
@@ -326,7 +427,10 @@ const CreateBusinessScreen: React.FC = () => {
                 {Platform.OS === 'ios' ? (
                   <TouchableOpacity 
                     style={styles.iosPickerButton}
-                    onPress={() => setShowIOSPicker(true)}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setShowIOSPicker(true);
+                    }}
                   >
                     <Text style={[styles.iosPickerText, { color: theme.text.primary }]}>
                       {formData.type}
@@ -356,6 +460,7 @@ const CreateBusinessScreen: React.FC = () => {
                 Tax ID (EIN)
               </Text>
               <TextInput
+                ref={(ref) => { inputRefs.current['taxId'] = ref; }}
                 style={[
                   styles.textInput,
                   {
@@ -366,6 +471,7 @@ const CreateBusinessScreen: React.FC = () => {
                 ]}
                 value={formData.taxId}
                 onChangeText={handleTaxIdChange}
+                onFocus={() => scrollToInput('taxId')}
                 placeholder="XX-XXXXXXX"
                 placeholderTextColor={theme.text.tertiary}
                 keyboardType="numeric"
@@ -387,7 +493,10 @@ const CreateBusinessScreen: React.FC = () => {
                 {Platform.OS === 'ios' ? (
                   <TouchableOpacity 
                     style={styles.iosPickerButton}
-                    onPress={() => setShowIOSIndustryPicker(true)}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setShowIOSIndustryPicker(true);
+                    }}
                   >
                     <Text style={[styles.iosPickerText, { color: formData.industry ? theme.text.primary : theme.text.tertiary }]}>
                       {formData.industry || "Select industry..."}
@@ -425,6 +534,7 @@ const CreateBusinessScreen: React.FC = () => {
                 Phone Number
               </Text>
               <TextInput
+                ref={(ref) => { inputRefs.current['phone'] = ref; }}
                 style={[
                   styles.textInput,
                   {
@@ -435,6 +545,7 @@ const CreateBusinessScreen: React.FC = () => {
                 ]}
                 value={formData.phone || ''}
                 onChangeText={handlePhoneNumberChange}
+                onFocus={() => scrollToInput('phone')}
                 placeholder="(555) 123-4567"
                 placeholderTextColor={theme.text.tertiary}
                 keyboardType="phone-pad"
@@ -447,6 +558,7 @@ const CreateBusinessScreen: React.FC = () => {
                 Street Address
               </Text>
               <TextInput
+                ref={(ref) => { inputRefs.current['street'] = ref; }}
                 style={[
                   styles.textInput,
                   {
@@ -457,6 +569,7 @@ const CreateBusinessScreen: React.FC = () => {
                 ]}
                 value={formData.address?.street || ''}
                 onChangeText={(text) => updateFormData('address.street', text)}
+                onFocus={() => scrollToInput('street')}
                 placeholder="123 Main Street"
                 placeholderTextColor={theme.text.tertiary}
               />
@@ -468,6 +581,7 @@ const CreateBusinessScreen: React.FC = () => {
                   City
                 </Text>
                 <TextInput
+                  ref={(ref) => { inputRefs.current['city'] = ref; }}
                   style={[
                     styles.textInput,
                     {
@@ -478,6 +592,7 @@ const CreateBusinessScreen: React.FC = () => {
                   ]}
                   value={formData.address?.city || ''}
                   onChangeText={(text) => updateFormData('address.city', text)}
+                  onFocus={() => scrollToInput('city')}
                   placeholder="City"
                   placeholderTextColor={theme.text.tertiary}
                 />
@@ -488,6 +603,7 @@ const CreateBusinessScreen: React.FC = () => {
                   State
                 </Text>
                 <TextInput
+                  ref={(ref) => { inputRefs.current['state'] = ref; }}
                   style={[
                     styles.textInput,
                     {
@@ -498,6 +614,7 @@ const CreateBusinessScreen: React.FC = () => {
                   ]}
                   value={formData.address?.state || ''}
                   onChangeText={(text) => updateFormData('address.state', text.toUpperCase())}
+                  onFocus={() => scrollToInput('state')}
                   placeholder="CA"
                   placeholderTextColor={theme.text.tertiary}
                   maxLength={2}
@@ -511,6 +628,7 @@ const CreateBusinessScreen: React.FC = () => {
                 ZIP Code
               </Text>
               <TextInput
+                ref={(ref) => { inputRefs.current['zipCode'] = ref; }}
                 style={[
                   styles.textInput,
                   {
@@ -521,6 +639,7 @@ const CreateBusinessScreen: React.FC = () => {
                 ]}
                 value={formData.address?.zipCode || ''}
                 onChangeText={handleZipCodeChange}
+                onFocus={() => scrollToInput('zipCode')}
                 placeholder="12345 or 12345-6789"
                 placeholderTextColor={theme.text.tertiary}
                 keyboardType="numeric"
@@ -533,6 +652,7 @@ const CreateBusinessScreen: React.FC = () => {
                 Tax Year
               </Text>
               <TextInput
+                ref={(ref) => { inputRefs.current['taxYear'] = ref; }}
                 style={[
                   styles.textInput,
                   {
@@ -543,6 +663,7 @@ const CreateBusinessScreen: React.FC = () => {
                 ]}
                 value={formData.settings?.taxYear?.toString() || ''}
                 onChangeText={(text) => updateFormData('settings.taxYear', parseInt(text) || new Date().getFullYear())}
+                onFocus={() => scrollToInput('taxYear')}
                 placeholder="2024"
                 placeholderTextColor={theme.text.tertiary}
                 keyboardType="numeric"
@@ -570,8 +691,9 @@ const CreateBusinessScreen: React.FC = () => {
               </Text>
             )}
           </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </TouchableWithoutFeedback>
 
       {/* iOS Business Type Picker Modal */}
       {showIOSPicker && Platform.OS === 'ios' && (
