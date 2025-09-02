@@ -81,6 +81,13 @@ export const BankTransactionsScreen: React.FC = () => {
   const [pdfModalVisible, setPdfModalVisible] = useState(false);
   const [selectedPdfUri, setSelectedPdfUri] = useState<string | null>(null);
   
+  // PDF preview state - for the save/discard interface
+  const [previewingPdf, setPreviewingPdf] = useState<{
+    candidate: TransactionCandidate & { _id?: string };
+    candidateId: string;
+    generatedReceipt: GeneratedReceiptPDF;
+  } | null>(null);
+  
   // Alert deduplication state
   const recentAlerts = useRef<Map<string, number>>(new Map());
   const ALERT_DEDUP_WINDOW = 3000; // 3 seconds
@@ -234,35 +241,6 @@ export const BankTransactionsScreen: React.FC = () => {
   const bankReceiptService = BankReceiptService.getInstance();
   const plaidService = PlaidService.getInstance();
 
-  // Function to handle viewing PDF
-  const viewPDF = useCallback((generatedReceipt: any) => {
-    console.log("🔍 DEBUG: Attempting to view PDF. GeneratedReceipt object:", JSON.stringify(generatedReceipt, null, 2));
-    console.log("🔍 DEBUG: pdfUri:", generatedReceipt?.pdfUri);
-    console.log("🔍 DEBUG: All keys in generatedReceipt:", Object.keys(generatedReceipt || {}));
-    
-    // Try different possible URI field names based on actual structure
-    const pdfUri = generatedReceipt?.receiptPdfPath || 
-                   generatedReceipt?.receiptPdfUrl ||
-                   generatedReceipt?.pdfUri || 
-                   generatedReceipt?.pdfPath || 
-                   generatedReceipt?.filePath ||
-                   generatedReceipt?.uri ||
-                   generatedReceipt?.path;
-    
-    console.log("🔍 DEBUG: Final pdfUri to use:", pdfUri);
-    
-    if (pdfUri) {
-      setSelectedPdfUri(pdfUri);
-      setPdfModalVisible(true);
-    } else {
-      showNotification({
-        type: "error",
-        title: "PDF Not Available",
-        message: "PDF file could not be found or is corrupted.",
-      });
-    }
-  }, [showNotification]);
-
   // Function to handle PDF sharing
   const sharePDF = useCallback(async () => {
     if (!selectedPdfUri) return;
@@ -313,6 +291,12 @@ export const BankTransactionsScreen: React.FC = () => {
 
     return [...baseFilters, ...bankFilters];
   }, [bankConnections]);
+
+  // Helper function to get display name for filter keys
+  const getFilterDisplayName = useCallback((filterKey: string) => {
+    const option = quickFilterOptions.find(opt => opt.key === filterKey);
+    return option?.label || filterKey;
+  }, [quickFilterOptions]);
 
   // Filtered and sorted candidates
   const filteredAndSortedCandidates = useMemo(() => {
@@ -1420,31 +1404,6 @@ export const BankTransactionsScreen: React.FC = () => {
             )}
         </View>
 
-        {generatedReceipt && (
-          <View style={styles.generatedReceiptContainer}>
-            <Text style={styles.receiptTitle}>Generated PDF Receipt</Text>
-
-            <View style={styles.pdfPlaceholderContainer}>
-              <TouchableOpacity 
-                style={styles.pdfPlaceholder} 
-                onPress={() => viewPDF(generatedReceipt)}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="document-text" size={24} color={theme.text.secondary} />
-                <Text style={styles.pdfPlaceholderText}>PDF Generated</Text>
-                <Text style={styles.pdfPlaceholderSubtext}>
-                  {generatedReceipt.receiptData.businessName} • {generatedReceipt.receiptData.date}
-                </Text>
-                <Ionicons name="eye" size={16} color={theme.gold.primary} style={{ marginTop: 4 }} />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.receiptDetails}>
-              {generatedReceipt.receiptData.businessName} •{" "}
-              {generatedReceipt.receiptData.date}
-            </Text>
-          </View>
-        )}
 
         {!bulkMode && (
           <View style={styles.buttonContainer}>
@@ -1469,63 +1428,34 @@ export const BankTransactionsScreen: React.FC = () => {
               </>
             )}
 
-            {(isGenerating || generatedReceipt) && (
-              <>
-                <TouchableOpacity
-                  style={[
-                    styles.actionButton,
-                    styles.approveButton,
-                    !generatedReceipt && { opacity: 0.6 },
-                  ]}
-                  onPress={() => {
-                    if (generatedReceipt) {
-                      approveReceipt(candidate, docId, generatedReceipt);
-                    } else {
-                      // Receipt is still generating, but user wants to save it
-                      // We'll mark it for auto-save when generation completes
-                      showNotification({
-                        type: "info",
-                        title: "Will Save",
-                        message:
-                          "Receipt will be saved automatically when generation completes.",
-                      });
-                    }
-                  }}
-                  disabled={!generatedReceipt}
-                >
-                  <Text style={[styles.buttonText, styles.approveButtonText]}>
-                    {isGenerating ? (generatedReceipt ? "Saving..." : "Generating...") : "Save Receipt"}
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.actionButton, styles.rejectButton]}
-                  onPress={() => {
-                    if (isGenerating) {
-                      // Cancel generation - mark operation as cancelled
-                      cancelledOperations.current.add(docId);
-                      setGeneratingReceipt(null);
-                      showNotification({
-                        type: "info",
-                        title: "Cancelled",
-                        message: "Receipt generation cancelled.",
-                      });
-                    } else {
-                      // Discard generated receipt
-                      discardGeneratedReceipt(docId);
-                    }
-                  }}
-                >
-                  <Text style={[styles.buttonText, styles.rejectButtonText]}>
-                    {isGenerating ? "Cancel" : "Discard"}
-                  </Text>
-                </TouchableOpacity>
-              </>
+            {isGenerating && !generatedReceipt && (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.generateButton]}
+                disabled={true}
+              >
+                <ActivityIndicator size="small" color="white" />
+                <Text style={[styles.buttonText, styles.generateButtonText, { marginLeft: 8 }]}>
+                  Generating...
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {generatedReceipt && (
+              <TouchableOpacity
+                style={[styles.actionButton, styles.previewButton]}
+                onPress={() => setPreviewingPdf({ candidate, candidateId: docId, generatedReceipt })}
+              >
+                <Ionicons name="eye-outline" size={16} color="white" />
+                <Text style={[styles.buttonText, styles.previewButtonText, { marginLeft: 8 }]}>
+                  Preview PDF
+                </Text>
+              </TouchableOpacity>
             )}
           </View>
         )}
       </TouchableOpacity>
     );
-  }, [bulkMode, selectedItems, generatedReceipts, generatingReceipt, toggleItemSelection, generateReceipt, formatDate, formatCurrency, discardGeneratedReceipt, approveReceipt, theme]);
+  }, [bulkMode, selectedItems, generatedReceipts, generatingReceipt, toggleItemSelection, generateReceipt, formatDate, formatCurrency, discardGeneratedReceipt, approveReceipt, setPreviewingPdf, theme]);
 
   // Section header for bank groups
   const renderSectionHeader = useCallback(({ section }: { section: { title: string, data: any[], connection: any } }) => {
@@ -1711,6 +1641,9 @@ export const BankTransactionsScreen: React.FC = () => {
     approveButton: {
       backgroundColor: theme.status.success,
     },
+    previewButton: {
+      backgroundColor: theme.gold.primary,
+    },
     rejectButton: {
       backgroundColor: theme.background.primary,
       borderWidth: 1,
@@ -1725,6 +1658,9 @@ export const BankTransactionsScreen: React.FC = () => {
       color: theme.background.primary,
     },
     approveButtonText: {
+      color: theme.background.primary,
+    },
+    previewButtonText: {
       color: theme.background.primary,
     },
     rejectButtonText: {
@@ -2557,8 +2493,8 @@ export const BankTransactionsScreen: React.FC = () => {
       paddingVertical: 16,
       marginTop: 0,
       marginBottom: 8,
-      marginHorizontal: 16,
-      borderRadius: 12,
+      marginHorizontal: 0,
+      borderRadius: 0,
       minHeight: 56,
       elevation: 4,
       shadowColor: '#000',
@@ -2620,6 +2556,58 @@ export const BankTransactionsScreen: React.FC = () => {
       elevation: 8,
       borderWidth: 0.5,
       borderColor: 'rgba(255, 255, 255, 0.2)',
+    },
+
+    // Preview Modal Styles
+    previewHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      backgroundColor: theme.background.elevated,
+      borderBottomWidth: 1,
+      borderBottomColor: theme.border.primary,
+    },
+    previewBackButton: {
+      padding: 8,
+    },
+    previewTitle: {
+      fontSize: 18,
+      fontWeight: '600',
+      color: theme.text.primary,
+    },
+    previewActions: {
+      flexDirection: 'row',
+      paddingHorizontal: 16,
+      paddingVertical: 16,
+      backgroundColor: theme.background.elevated,
+      borderTopWidth: 1,
+      borderTopColor: theme.border.primary,
+      gap: 12,
+    },
+    previewActionButton: {
+      flex: 1,
+      paddingVertical: 16,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    previewSaveButton: {
+      backgroundColor: theme.status.success,
+    },
+    previewDiscardButton: {
+      backgroundColor: theme.status.error,
+    },
+    previewSaveButtonText: {
+      color: 'white',
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    previewDiscardButtonText: {
+      color: 'white',
+      fontSize: 16,
+      fontWeight: '600',
     },
   });
 
@@ -2839,7 +2827,7 @@ export const BankTransactionsScreen: React.FC = () => {
                   ]}
                   onPress={() => setSelectedQuickFilters(prev => prev.filter(f => f !== filter))}
                 >
-                  <Text style={styles.filterBadgeText}>{filter}</Text>
+                  <Text style={styles.filterBadgeText}>{getFilterDisplayName(filter)}</Text>
                   <View style={styles.filterBadgeClose}>
                     <Ionicons name="close" size={18} color="white" />
                   </View>
@@ -3190,7 +3178,7 @@ export const BankTransactionsScreen: React.FC = () => {
           <Text style={styles.emptyTitle}>No Transactions Found</Text>
           <Text style={styles.emptySubtitle}>
             {selectedQuickFilters.length > 0
-              ? `No transactions match the selected filters: ${selectedQuickFilters.join(', ')}.`
+              ? `No transactions match the selected filters: ${selectedQuickFilters.map(filter => getFilterDisplayName(filter)).join(', ')}.`
               : "Connect your bank account to see transactions here."}
           </Text>
           {selectedQuickFilters.length > 0 && (
@@ -3410,6 +3398,84 @@ export const BankTransactionsScreen: React.FC = () => {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+      
+      {/* PDF Preview Modal with Save/Discard Actions */}
+      <Modal
+        visible={previewingPdf !== null}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setPreviewingPdf(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: theme.background.primary }}>
+          {previewingPdf && (
+            <>
+              {/* Header */}
+              <SafeAreaView edges={['top']}>
+                <View style={styles.previewHeader}>
+                  <TouchableOpacity
+                    onPress={() => setPreviewingPdf(null)}
+                    style={styles.previewBackButton}
+                  >
+                    <Ionicons name="arrow-back" size={24} color={theme.text.primary} />
+                  </TouchableOpacity>
+                  <Text style={styles.previewTitle}>PDF Receipt</Text>
+                  <View style={{ width: 24 }} />
+                </View>
+              </SafeAreaView>
+
+              {/* PDF Content */}
+              <View style={{ flex: 1 }}>
+                {(previewingPdf.generatedReceipt.receiptPdfPath || previewingPdf.generatedReceipt.receiptPdfUrl) ? (
+                  <Pdf
+                    source={{ uri: previewingPdf.generatedReceipt.receiptPdfPath || previewingPdf.generatedReceipt.receiptPdfUrl }}
+                    style={{ flex: 1 }}
+                    onLoadComplete={(numberOfPages) => {
+                      console.log(`PDF loaded with ${numberOfPages} pages`);
+                    }}
+                    onError={(error) => {
+                      console.error('PDF error:', error);
+                    }}
+                  />
+                ) : (
+                  <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <ActivityIndicator size="large" color={theme.gold.primary} />
+                    <Text style={{ marginTop: 16, color: theme.text.secondary }}>Loading PDF...</Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Action Buttons */}
+              <SafeAreaView edges={['bottom']}>
+                <View style={styles.previewActions}>
+                  <TouchableOpacity
+                    style={[styles.previewActionButton, styles.previewSaveButton]}
+                    onPress={() => {
+                      if (previewingPdf) {
+                        approveReceipt(previewingPdf.candidate, previewingPdf.candidateId, previewingPdf.generatedReceipt);
+                        setPreviewingPdf(null);
+                      }
+                    }}
+                  >
+                    <Text style={styles.previewSaveButtonText}>Save Receipt</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.previewActionButton, styles.previewDiscardButton]}
+                    onPress={() => {
+                      if (previewingPdf) {
+                        discardGeneratedReceipt(previewingPdf.candidateId);
+                        setPreviewingPdf(null);
+                      }
+                    }}
+                  >
+                    <Text style={styles.previewDiscardButtonText}>Discard</Text>
+                  </TouchableOpacity>
+                </View>
+              </SafeAreaView>
+            </>
+          )}
         </View>
       </Modal>
     </SafeAreaView>
