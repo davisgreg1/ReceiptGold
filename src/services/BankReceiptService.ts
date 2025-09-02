@@ -47,8 +47,13 @@ export class BankReceiptService {
   private static BANK_CONNECTIONS_KEY = 'bank_connections';
   private static LAST_SYNC_KEY = 'last_transaction_sync';
   
-  // Transaction lookback period (12 months in milliseconds)
+  // Transaction lookback period (90 days in milliseconds)
   private static TRANSACTION_LOOKBACK_PERIOD = 90 * 24 * 60 * 60 * 1000;
+  
+  // Incremental sync settings
+  private static INCREMENTAL_SYNC_PERIOD = 7 * 24 * 60 * 60 * 1000; // 7 days for incremental
+  private static FULL_SYNC_INTERVAL = 24 * 60 * 60 * 1000; // Force full sync after 24 hours
+  private static QUICK_SYNC_INTERVAL = 10 * 60 * 1000; // 10 minutes for cache validity
 
   private constructor() {
     this.plaidService = PlaidService.getInstance();
@@ -62,6 +67,190 @@ export class BankReceiptService {
       BankReceiptService.instance = new BankReceiptService();
     }
     return BankReceiptService.instance;
+  }
+
+  /**
+   * Smart sync that determines the optimal sync strategy based on last sync time and data freshness
+   */
+  public async smartSync(
+    userId: string, 
+    statusCallback?: (status: string | null) => void,
+    forceFullSync = false
+  ): Promise<TransactionCandidate[]> {
+    try {
+      statusCallback?.('📊 Checking sync requirements...');
+
+      // Check if we have cached data
+      const cachedCandidates = await this.getCachedTransactionCandidates(userId);
+      const lastSyncTime = await this.getLastSyncTime(userId);
+      const now = Date.now();
+
+      // If forced full sync is requested
+      if (forceFullSync) {
+        statusCallback?.('🔄 Performing requested full sync...');
+        return await this.monitorTransactions(userId, statusCallback);
+      }
+
+      // If we have fresh cached data (within quick sync interval)
+      if (cachedCandidates.length > 0 && lastSyncTime && (now - lastSyncTime < BankReceiptService.QUICK_SYNC_INTERVAL)) {
+        statusCallback?.('⚡ Using cached data - recent sync detected');
+        statusCallback?.(null); // Clear status after 2 seconds
+        setTimeout(() => statusCallback?.(null), 2000);
+        return cachedCandidates;
+      }
+
+      // If we have data but it's getting stale (within full sync interval but beyond quick sync)
+      if (cachedCandidates.length > 0 && lastSyncTime && (now - lastSyncTime < BankReceiptService.FULL_SYNC_INTERVAL)) {
+        statusCallback?.('⚡ Using cached data with background refresh...');
+        
+        // Return cached data immediately for fast UX
+        const backgroundSync = async () => {
+          try {
+            await this.incrementalSync(userId, () => {}); // Background sync without UI updates
+            console.log('🔄 Background incremental sync completed');
+          } catch (error) {
+            console.error('Background sync failed:', error);
+          }
+        };
+        
+        // Start background sync but don't wait for it
+        backgroundSync();
+        
+        statusCallback?.(null);
+        return cachedCandidates;
+      }
+
+      // If it's been too long or no cache exists, do incremental sync first
+      if (lastSyncTime && (now - lastSyncTime < BankReceiptService.FULL_SYNC_INTERVAL)) {
+        statusCallback?.('⚡ Performing incremental sync...');
+        return await this.incrementalSync(userId, statusCallback);
+      }
+
+      // Otherwise, do a full sync
+      statusCallback?.('🔄 Performing full sync...');
+      return await this.monitorTransactions(userId, statusCallback);
+
+    } catch (error) {
+      console.error('Smart sync error:', error);
+      // Fallback to cached data if available
+      const cachedCandidates = await this.getCachedTransactionCandidates(userId);
+      if (cachedCandidates.length > 0) {
+        statusCallback?.('⚠️ Using cached data due to sync error');
+        return cachedCandidates;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Incremental sync - only fetch recent transactions (last 7 days)
+   */
+  private async incrementalSync(
+    userId: string,
+    statusCallback?: (status: string | null) => void
+  ): Promise<TransactionCandidate[]> {
+    try {
+      const bankConnections = await this.getBankConnections(userId);
+      const activeConnections = bankConnections.filter(conn => conn.isActive && conn.accessToken);
+
+      if (activeConnections.length === 0) {
+        console.log('ℹ️ No active connections for incremental sync');
+        return [];
+      }
+
+      statusCallback?.('⚡ Fetching recent transactions...');
+
+      const candidates: TransactionCandidate[] = [];
+      const startDate = new Date(Date.now() - BankReceiptService.INCREMENTAL_SYNC_PERIOD);
+      const endDate = new Date();
+
+      for (let i = 0; i < activeConnections.length; i++) {
+        const connection = activeConnections[i];
+        statusCallback?.(`⚡ Syncing ${connection.institutionName} (${i + 1}/${activeConnections.length})`);
+
+        try {
+          const transactions = await this.plaidService.fetchRecentTransactions(
+            connection.accessToken,
+            startDate.toISOString().split('T')[0], // YYYY-MM-DD format
+            endDate.toISOString().split('T')[0]
+          );
+
+          // Filter for potential receipt candidates (purchases, excluding transfers)
+          const receiptCandidates = transactions.filter((transaction: any) => {
+            return transaction.amount > 0 && // Purchases (positive amounts in Plaid)
+                   transaction.amount >= 1 && // Minimum $1
+                   transaction.amount <= 10000 && // Maximum $10,000
+                   !transaction.category?.includes('Transfer') &&
+                   !transaction.category?.includes('Deposit') &&
+                   !transaction.category?.includes('Payroll') &&
+                   !transaction.category?.includes('Interest');
+          });
+
+          // Convert to candidates
+          receiptCandidates.forEach((transaction: any) => {
+            candidates.push({
+              transaction,
+              status: 'pending' as const,
+              createdAt: new Date(),
+              userId,
+            });
+          });
+
+        } catch (error) {
+          console.error(`Error fetching incremental data for ${connection.institutionName}:`, error);
+          // Continue with other connections
+        }
+      }
+
+      // Update last sync time
+      await this.updateLastSyncTime(userId);
+      
+      // Merge with existing cached data, removing duplicates
+      const existingCandidates = await this.getCachedTransactionCandidates(userId);
+      const mergedCandidates = this.mergeCandidates(existingCandidates, candidates);
+
+      // Cache the merged result
+      await this.cacheTransactionCandidates(userId, mergedCandidates);
+
+      statusCallback?.(`✅ Found ${candidates.length} new transactions`);
+      statusCallback?.(null);
+
+      return mergedCandidates;
+
+    } catch (error) {
+      console.error('Incremental sync error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Merge candidates, removing duplicates based on transaction ID
+   */
+  private mergeCandidates(existing: TransactionCandidate[], newCandidates: TransactionCandidate[]): TransactionCandidate[] {
+    const existingIds = new Set(existing.map(c => c.transaction.transaction_id));
+    const uniqueNew = newCandidates.filter(c => !existingIds.has(c.transaction.transaction_id));
+    
+    // Combine and sort by date (newest first)
+    const merged = [...existing, ...uniqueNew].sort((a, b) => 
+      new Date(b.transaction.date).getTime() - new Date(a.transaction.date).getTime()
+    );
+
+    // Limit to reasonable number to prevent memory issues
+    const MAX_CANDIDATES = 1000;
+    return merged.slice(0, MAX_CANDIDATES);
+  }
+
+  /**
+   * Get last sync time for a user
+   */
+  private async getLastSyncTime(userId: string): Promise<number | null> {
+    try {
+      const timestamp = await AsyncStorage.getItem(`${BankReceiptService.LAST_SYNC_KEY}_${userId}`);
+      return timestamp ? new Date(timestamp).getTime() : null;
+    } catch (error) {
+      console.error('Error getting last sync time:', error);
+      return null;
+    }
   }
 
   /**
