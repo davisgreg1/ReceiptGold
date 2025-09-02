@@ -32,6 +32,13 @@ service cloud.firestore {
             allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
         }
 
+        // Plaid Items collection - users can only access their own plaid items
+        match /plaid_items/{itemId} {
+            allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+            allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+        }
+
         // Merchant Categories collection - shared data for categorizing merchants
         match /merchantCategories/{merchantId} {
             // Anyone authenticated can read merchant categories
@@ -78,19 +85,34 @@ service cloud.firestore {
             allow create: if isAuthenticated() && 
             request.auth.uid == userId &&
             hasValidEmail();
+
+            // Allow users to delete their own account
+            allow delete: if isOwner(userId);
         }
 
         // Subscriptions collection - read only for users, write only via Cloud Functions
         match /subscriptions/{userId} {
             allow read: if isOwner(userId);
 
-            // Only Cloud Functions can write to subscriptions
-            // This prevents users from upgrading themselves
+            // Allow users to initialize trial from free tier
+            allow update: if isOwner(userId) && 
+            // Only allow converting from free to trial
+            resource.data.currentTier == "free" &&
+            request.resource.data.currentTier == "trial" &&
+            // Ensure trial data is being added
+            request.resource.data.keys().hasAll(['trial']) &&
+            // Prevent users from upgrading to paid tiers
+            request.resource.data.currentTier in ["free", "trial"];
+
+            // Only Cloud Functions can write other subscription changes
+            // This prevents users from upgrading themselves to paid tiers
             allow write: if false;
 
-            // Allow creation during user initialization
-            allow create: if isOwner(userId) && 
-            resource == null; // Only if document doesn't exist
+            // Allow creation during user initialization and trial setup
+            allow create: if isOwner(userId);
+
+            // Allow users to delete their subscription during account deletion
+            allow delete: if isOwner(userId);
         }
 
         // Receipts collection - users can only access their own receipts
@@ -165,6 +187,10 @@ service cloud.firestore {
             allow create: if isAuthenticated() && 
             usageId.startsWith(request.auth.uid + '_') &&
             request.resource.data.userId == request.auth.uid;
+
+            // Allow users to delete their usage data during account deletion
+            allow delete: if isAuthenticated() && 
+            usageId.startsWith(request.auth.uid + '_');
         }
 
         // Categories collection - public read access, admin write only
@@ -192,6 +218,25 @@ service cloud.firestore {
             // Validate name length
             request.resource.data.name.size() >= 2 && 
             request.resource.data.name.size() <= 30;
+
+            allow update: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId &&
+            // Prevent changing userId
+            request.resource.data.userId == resource.data.userId;
+
+            allow delete: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+        }
+
+        // Budgets collection - users can only access their own budgets
+        match /budgets/{budgetId} {
+            allow read: if isAuthenticated() && 
+            request.auth.uid == resource.data.userId;
+
+            allow create: if isAuthenticated() && 
+            request.auth.uid == request.resource.data.userId &&
+            // Validate required fields
+            request.resource.data.keys().hasAll(['userId', 'name', 'amount']);
 
             allow update: if isAuthenticated() && 
             request.auth.uid == resource.data.userId &&
