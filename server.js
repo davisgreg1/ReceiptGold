@@ -276,6 +276,63 @@ app.post("/api/plaid/accounts", async (req, res) => {
   }
 });
 
+// Create update link token endpoint (for repairing existing connections)
+app.post("/api/plaid/create-update-link-token", async (req, res) => {
+  console.log("🔧 Creating update link token for repair flow");
+  
+  try {
+    const { user_id, access_token, update_mode, android_package_name, ios_bundle_id } = req.body;
+
+    if (!user_id) {
+      return res.status(400).json({ error: "user_id is required" });
+    }
+
+    if (!access_token) {
+      return res.status(400).json({ error: "access_token is required for update mode" });
+    }
+
+    const request = {
+      user: {
+        client_user_id: user_id,
+      },
+      client_name: "ReceiptGold",
+      products: ["transactions"],
+      country_codes: ["US"],
+      language: "en",
+      access_token: access_token, // Required for update mode
+      update: {
+        account_selection_enabled: true, // Allow user to select accounts to update
+      },
+    };
+
+    // Add platform-specific configuration
+    if (android_package_name) {
+      request.android_package_name = android_package_name;
+    }
+    
+    if (ios_bundle_id) {
+      request.redirect_uri = `${ios_bundle_id}://oauth`;
+    }
+
+    const response = await plaidClient.linkTokenCreate(request);
+    const linkToken = response.data.link_token;
+
+    console.log("✅ Update link token created successfully for user:", user_id);
+
+    res.json({
+      link_token: linkToken,
+    });
+  } catch (error) {
+    console.error("❌ Error creating update link token:", error);
+    res.status(500).json({
+      error: "Failed to create update link token",
+      details: error.response?.data || error.message,
+      error_code: error.error_code,
+      error_type: error.error_type,
+    });
+  }
+});
+
 // Remove item endpoint
 app.post("/api/plaid/remove-item", async (req, res) => {
   console.log('🔍 Remove-item endpoint called with body:', req.body);
@@ -331,6 +388,7 @@ app.listen(PORT, () => {
   console.log("Available endpoints:");
   console.log("  POST /api/plaid (consolidated)");
   console.log("  POST /api/plaid/create-link-token");
+  console.log("  POST /api/plaid/create-update-link-token");
   console.log("  POST /api/plaid/exchange-public-token");
   console.log("  POST /api/plaid/transactions");
   console.log("  POST /api/plaid/accounts");
