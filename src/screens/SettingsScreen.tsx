@@ -464,7 +464,109 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
+  // Helper function to determine if connection needs repair
+  const needsRepair = (connection: BankConnection) => {
+    return connection.isActive && !connection.accessToken;
+  };
+
   // Bank account handlers
+  const handleRepairBankAccount = async (connection: BankConnection) => {
+    if (!user) return;
+
+    console.log('🔧 Starting repair flow for:', connection.institutionName);
+    
+    try {
+      setIsLoading(true);
+      
+      // Create a link token - if no access token, use regular flow, otherwise use update mode
+      let token;
+      if (connection.accessToken) {
+        console.log('🔧 Using update mode with existing access token');
+        token = await plaidService.createLinkTokenForUpdate(user.uid, connection.accessToken);
+      } else {
+        console.log('🔧 No access token available, using regular link token for re-connection');
+        token = await plaidService.createLinkToken(user.uid);
+      }
+      
+      // Import Plaid SDK and open in update mode
+      const { create, open } = await import("react-native-plaid-link-sdk");
+      
+      console.log("🔧 Opening Plaid Link in update mode...");
+      
+      // Create Link with update token
+      create({ token });
+      
+      // Open Plaid Link
+      open({
+        onSuccess: (success: LinkSuccess) => handlePlaidRepairSuccess(success, connection),
+        onExit: (exit: LinkExit) => {
+          console.log("Plaid Link repair exited:", exit);
+          setIsLoading(false);
+          if (exit.error) {
+            showError(
+              "Repair Failed",
+              `Failed to repair ${connection.institutionName} connection. ${exit.error.error_message || 'Please try again.'}`
+            );
+          }
+        },
+      });
+      
+    } catch (error) {
+      console.error("Error starting repair flow:", error);
+      setIsLoading(false);
+      showError(
+        "Repair Error",
+        `Failed to start repair process for ${connection.institutionName}. Please try again.`
+      );
+    }
+  };
+
+  const handlePlaidRepairSuccess = async (success: LinkSuccess, connection: BankConnection) => {
+    if (!user) return;
+
+    try {
+      console.log('✅ Repair successful, updating connection...');
+      
+      // Get the new access token
+      const newAccessToken = await plaidService.exchangePublicToken(success.publicToken);
+      
+      // Update the existing connection with the new access token
+      const updatedConnection = {
+        ...connection,
+        accessToken: newAccessToken,
+        lastSyncAt: new Date(),
+        // Reset any error states
+        isActive: true,
+      };
+
+      // Save the updated connection locally
+      await bankReceiptService.saveBankConnectionLocally(updatedConnection);
+
+      // Update the UI state
+      setBankConnections(prev => 
+        prev.map(conn => 
+          conn.id === connection.id ? updatedConnection : conn
+        )
+      );
+
+      showSuccess(
+        `${connection.institutionName} Repaired`,
+        "Your bank connection has been successfully repaired and is now working normally."
+      );
+
+      console.log('✅ Bank connection repair completed successfully');
+      
+    } catch (error) {
+      console.error("Error completing repair:", error);
+      showError(
+        "Repair Failed",
+        `Failed to complete repair for ${connection.institutionName}. Please try again.`
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleDisconnectBankAccount = async (connection: BankConnection) => {
     const performDisconnect = async () => {
       if (!user) return;
@@ -1078,14 +1180,28 @@ export const SettingsScreen: React.FC = () => {
                           />
                         )}
                         <View style={styles.bankConnectionDetails}>
-                          <Text
-                            style={[
-                              styles.bankName,
-                              { color: theme.text.primary },
-                            ]}
-                          >
-                            {connection.institutionName}
-                          </Text>
+                          <View style={styles.bankNameContainer}>
+                            <Text
+                              style={[
+                                styles.bankName,
+                                { color: theme.text.primary },
+                              ]}
+                            >
+                              {connection.institutionName}
+                            </Text>
+                            {needsRepair(connection) && (
+                              <View style={styles.repairIndicator}>
+                                <Ionicons 
+                                  name="warning" 
+                                  size={16} 
+                                  color={theme.gold.primary}
+                                />
+                                <Text style={[styles.repairText, { color: theme.gold.primary }]}>
+                                  Needs Repair
+                                </Text>
+                              </View>
+                            )}
+                          </View>
                           <Text
                             style={[
                               styles.bankAccountsCount,
@@ -1112,27 +1228,30 @@ export const SettingsScreen: React.FC = () => {
                       style={[
                         styles.disconnectButton,
                         {
-                          borderColor: theme.status.error,
+                          borderColor: needsRepair(connection) ? theme.gold.primary : theme.status.error,
                           opacity:
                             disconnectingAccount === connection.id ? 0.6 : 1,
                         },
                       ]}
-                      onPress={() => handleDisconnectBankAccount(connection)}
+                      onPress={() => needsRepair(connection) 
+                        ? handleRepairBankAccount(connection)
+                        : handleDisconnectBankAccount(connection)
+                      }
                       disabled={disconnectingAccount === connection.id}
                     >
                       {disconnectingAccount === connection.id ? (
                         <ActivityIndicator
                           size="small"
-                          color={theme.status.error}
+                          color={needsRepair(connection) ? theme.gold.primary : theme.status.error}
                         />
                       ) : (
                         <Text
                           style={[
                             styles.disconnectButtonText,
-                            { color: theme.status.error },
+                            { color: needsRepair(connection) ? theme.gold.primary : theme.status.error },
                           ]}
                         >
-                          Disconnect
+                          {needsRepair(connection) ? "Repair" : "Disconnect"}
                         </Text>
                       )}
                     </TouchableOpacity>
@@ -2388,6 +2507,20 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     marginBottom: 2,
+  },
+  bankNameContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  repairIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  repairText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   bankAccountsCount: {
     fontSize: 14,

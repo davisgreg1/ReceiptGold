@@ -129,7 +129,53 @@ export class PlaidService {
       throw error;
     }
   }
-  
+
+  /**
+   * Create a link token for update mode (repairing existing connections)
+   */
+  public async createLinkTokenForUpdate(userId: string, accessToken: string): Promise<string> {
+    console.log("🔧 Creating link token for update mode for user:", userId);
+    try {
+      // Prepare platform-specific configuration for update mode
+      const requestBody: any = { 
+        user_id: userId,
+        access_token: accessToken,  // Include access token for update mode
+        update_mode: true,
+      };
+
+      if (Platform.OS === 'android') {
+        requestBody.android_package_name = 'com.receiptgold.app';
+        console.log('🤖 Android: Using package name for OAuth redirect in update mode');
+      } else {
+        requestBody.ios_bundle_id = 'com.receiptgold.app';
+        console.log('🍎 iOS: Using bundle ID for OAuth redirect in update mode');
+      }
+
+      const response = await fetch(`${API_BASE_URL}/api/plaid/create-update-link-token`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create update link token');
+      }
+      
+      if (!data.link_token) {
+        throw new Error('No update link token returned from server');
+      }
+      
+      console.log('✅ Update link token created successfully');
+      return data.link_token;
+    } catch (error: any) {
+      console.error('❌ Error creating update link token:', error);
+      throw error;
+    }
+  }
 
   /**
    * Open Plaid Link to connect bank account
