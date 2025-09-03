@@ -28,7 +28,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
+exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -1121,8 +1121,27 @@ async function createConnectionNotification(userId, itemId, institutionName, typ
             admin.firestore.Timestamp.fromDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)) :
             null,
     });
-    // Local notifications are now handled via UserNotificationMonitor in the app
-    // No need to send push notifications as notifications are created in user_notifications collection
+    // Also create user notification for push notification delivery
+    if (type === "reauth_required" || type === "pending_expiration") {
+        await db.collection("user_notifications").add({
+            userId,
+            title: notificationContent.title,
+            body: notificationContent.message,
+            data: {
+                type: "bank_connection",
+                connectionType: type,
+                institutionName,
+                itemId,
+                webhookCode,
+                actionRequired: notificationContent.actionRequired,
+                navigationScreen: "Settings"
+            },
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            isRead: false,
+            priority: notificationContent.priority || "normal"
+        });
+        console.log(`✅ Created user notification for ${type} - ${institutionName}`);
+    }
 }
 // Helper function to dismiss old notifications
 async function dismissOldNotifications(userId, itemId, typesToDismiss) {
@@ -1599,7 +1618,86 @@ async function handlePaymentFailed(invoice) {
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 }
-// 5. Monthly Usage Reset (updated for Firebase Functions v6)
+// 5. Proactive Bank Connection Health Monitoring
+exports.monitorBankConnections = functionsV1.pubsub
+    .schedule("0 */6 * * *") // Run every 6 hours
+    .onRun(async (context) => {
+    console.log("🔍 Starting proactive bank connection health check...");
+    try {
+        // Get all active Plaid items that haven't been checked recently
+        const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
+        const plaidItemsSnapshot = await db.collection("plaid_items")
+            .where("active", "==", true)
+            .where("status", "in", ["connected", "stale"])
+            .get();
+        console.log(`📊 Found ${plaidItemsSnapshot.docs.length} active bank connections to check`);
+        for (const itemDoc of plaidItemsSnapshot.docs) {
+            const itemData = itemDoc.data();
+            const { itemId, userId, institutionName, lastHealthCheck } = itemData;
+            // Skip if checked recently (within last 6 hours)
+            if (lastHealthCheck && lastHealthCheck.toDate() > sixHoursAgo) {
+                continue;
+            }
+            try {
+                // Simulate a health check by attempting to get accounts
+                // In production, this would use Plaid API
+                console.log(`🔍 Checking health for ${institutionName} (${itemId})`);
+                // Update last health check timestamp
+                await itemDoc.ref.update({
+                    lastHealthCheck: admin.firestore.FieldValue.serverTimestamp()
+                });
+                // If connection is stale or showing signs of issues, create notification
+                const needsAttention = await checkConnectionNeedsRepair(itemData);
+                if (needsAttention) {
+                    console.log(`⚠️ Connection needs repair: ${institutionName}`);
+                    // Update item status to indicate it needs repair
+                    await itemDoc.ref.update({
+                        status: "error",
+                        needsReauth: true,
+                        error: {
+                            errorType: "CONNECTION_HEALTH_CHECK",
+                            errorCode: "HEALTH_CHECK_FAILED",
+                            displayMessage: "Connection may need attention. Please reconnect to ensure continued service.",
+                            suggestedAction: "REAUTH"
+                        }
+                    });
+                    // Create notification
+                    await createConnectionNotification(userId, itemId, institutionName, "reauth_required", "HEALTH_CHECK");
+                    console.log(`📢 Created repair notification for ${institutionName}`);
+                }
+            }
+            catch (error) {
+                console.error(`❌ Error checking health for ${institutionName}:`, error);
+            }
+        }
+        console.log("✅ Bank connection health check completed");
+    }
+    catch (error) {
+        console.error("❌ Error in bank connection monitoring:", error);
+    }
+});
+// Helper function to determine if a connection needs repair
+async function checkConnectionNeedsRepair(itemData) {
+    const { status, lastSyncAt, accessToken, error } = itemData;
+    // Connection already marked as needing repair
+    if (status === "error" || !accessToken) {
+        return true;
+    }
+    // Connection hasn't synced in over 48 hours
+    if (lastSyncAt) {
+        const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
+        const lastSync = lastSyncAt.toDate ? lastSyncAt.toDate() : new Date(lastSyncAt);
+        if (lastSync < twoDaysAgo) {
+            return true;
+        }
+    }
+    // Has existing error
+    if (error && error.errorType) {
+        return true;
+    }
+    return false;
+}
+// 6. Monthly Usage Reset (updated for Firebase Functions v6)
 exports.resetMonthlyUsage = functionsV1.pubsub
     .schedule("0 * * * *") // Run every hour
     .onRun(async (context) => {
