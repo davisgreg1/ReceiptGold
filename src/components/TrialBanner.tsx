@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-nati
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../context/SubscriptionContext';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const { width } = Dimensions.get('window');
@@ -21,7 +21,21 @@ export const TrialBanner: React.FC = () => {
   }
 
   const handleUpgradePress = () => {
-    navigation.navigate('Subscription' as never);
+    // Navigate to the Home tab first, then to Subscription screen
+    // This works from any tab/stack
+    try {
+      navigation.navigate('HomeTab' as never, {
+        screen: 'Subscription'
+      } as never);
+    } catch (error) {
+      console.warn('Failed to navigate to Subscription screen:', error);
+      // Fallback: just try direct navigation
+      try {
+        navigation.navigate('Subscription' as never);
+      } catch (fallbackError) {
+        console.error('Both navigation attempts failed:', fallbackError);
+      }
+    }
   };
 
   const handleDismiss = () => {
