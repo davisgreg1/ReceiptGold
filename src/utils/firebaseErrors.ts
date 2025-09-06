@@ -233,12 +233,63 @@ export const getFirebaseErrorCode = (error: any): string | null => {
   return null;
 };
 
+// Parse Firebase Rules validation error messages
+const parseRulesValidationError = (errorMessage: string): { title: string; message: string } | null => {
+  const message = errorMessage.toLowerCase();
+  
+  // Text field size limit errors
+  if (message.includes('size') && message.includes('100')) {
+    return {
+      title: 'Text Too Long',
+      message: 'The text you entered is too long (maximum 100 characters). Please shorten it and try again.'
+    };
+  }
+  
+  if (message.includes('size') && message.includes('50')) {
+    return {
+      title: 'Text Too Long', 
+      message: 'The text you entered is too long (maximum 50 characters). Please shorten it and try again.'
+    };
+  }
+  
+  if (message.includes('size') && message.includes('200')) {
+    return {
+      title: 'Text Too Long',
+      message: 'The text you entered is too long (maximum 200 characters). Please shorten it and try again.'
+    };
+  }
+  
+  if (message.includes('size') && message.includes('30')) {
+    return {
+      title: 'Text Too Long',
+      message: 'The text you entered is too long (maximum 30 characters). Please shorten it and try again.'
+    };
+  }
+  
+  if (message.includes('size') && message.includes('128')) {
+    return {
+      title: 'Invalid Data',
+      message: 'The data you entered is invalid. Please check your input and try again.'
+    };
+  }
+  
+  return null;
+};
+
 // Get user-friendly error message from Firebase error
 export const getFirebaseErrorMessage = (error: any): { title: string; message: string } => {
   const errorCode = getFirebaseErrorCode(error);
   
   if (errorCode && firebaseErrorMessages[errorCode]) {
     return firebaseErrorMessages[errorCode];
+  }
+  
+  // Check for Firebase Rules validation errors
+  if (errorCode === 'firestore/failed-precondition' || errorCode === 'firestore/invalid-argument') {
+    const rulesError = parseRulesValidationError(error?.message || '');
+    if (rulesError) {
+      return rulesError;
+    }
   }
   
   // Default error message for unknown codes

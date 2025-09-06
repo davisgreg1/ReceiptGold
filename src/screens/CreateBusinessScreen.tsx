@@ -387,6 +387,7 @@ const CreateBusinessScreen: React.FC = () => {
                 ]}
                 value={formData.name}
                 onChangeText={(text) => updateFormData('name', text)}
+                maxLength={100}
                 onFocus={() => scrollToInput('name')}
                 placeholder="Enter business name"
                 placeholderTextColor={theme.text.tertiary}

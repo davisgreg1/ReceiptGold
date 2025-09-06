@@ -16,6 +16,10 @@ export class BusinessService {
       errors.push('Business name must be at least 2 characters');
     }
 
+    if (businessData.name && businessData.name.trim().length > 100) {
+      errors.push('Business name cannot exceed 100 characters');
+    }
+
     if (!businessData.type) {
       errors.push('Business type is required');
     }

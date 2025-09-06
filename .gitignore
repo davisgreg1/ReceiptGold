@@ -34,7 +34,8 @@ yarn-error.*
 
 # local env files
 .env*.local
-.env
+.env*
+!.env.example
 
 # typescript
 *.tsbuildinfo
@@ -151,5 +152,4 @@ GoogleService-Info.plist
 .env.production.local
 
 # Allow environment templates (with placeholder values)
-!.env.development
-!.env.production
+# Removed .env.development and .env.production from being tracked

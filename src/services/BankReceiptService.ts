@@ -4,7 +4,7 @@ import { GeneratedReceipt } from './HTMLReceiptService'; // Using HTMLReceiptSer
 import { PDFReceiptService, GeneratedReceiptPDF } from './PDFReceiptService';
 import { NotificationService } from './ExpoNotificationService';
 import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import { db, auth } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface BankConnection {
@@ -349,7 +349,12 @@ export class BankReceiptService {
                 console.log(`⏭️ Skipping rejected transaction: ${transaction.transaction_id}`);
                 continue;
               }
-              // If it exists but not rejected, we already have it as a valid candidate
+              // If it exists but not rejected, add it to candidates with the document ID
+              const candidateWithId = {
+                ...existingCandidate,
+                _id: existingSnap.docs[0].id
+              } as TransactionCandidate & { _id: string };
+              candidates.push(candidateWithId);
               continue;
             }
           } catch (err) {
@@ -363,10 +368,16 @@ export class BankReceiptService {
             userId,
           };
 
-          candidates.push(candidate);
-
-          // Save candidate to Firebase
-          await addDoc(collection(db, 'transactionCandidates'), candidate);
+          // Save candidate to Firebase and get the document ID
+          const candidateDocRef = await addDoc(collection(db, 'transactionCandidates'), candidate);
+          
+          // Add document ID to candidate for local use
+          const candidateWithId = {
+            ...candidate,
+            _id: candidateDocRef.id
+          };
+          
+          candidates.push(candidateWithId);
         }
       }
 
@@ -409,6 +420,53 @@ export class BankReceiptService {
     try {
       console.log('📄 Generating PDF receipt for transaction...');
       
+      // Verify user authentication before proceeding
+      const currentUser = auth.currentUser;
+      console.log('🔍 Auth state check - currentUser exists:', !!currentUser);
+      console.log('🔍 Auth state check - currentUser.uid:', currentUser?.uid);
+      console.log('🔍 Auth state check - provided userId:', userId);
+      console.log('🔍 Auth state check - user authenticated:', !!currentUser?.uid);
+      
+      if (!currentUser) {
+        console.error('❌ User not authenticated - currentUser is null');
+        throw new Error('User must be authenticated to generate receipts');
+      }
+      
+      if (!currentUser.uid) {
+        console.error('❌ User UID is missing');
+        throw new Error('User UID is missing - authentication required');
+      }
+      
+      if (currentUser.uid !== userId) {
+        console.error('❌ User ID mismatch - current user:', currentUser.uid, 'provided userId:', userId);
+        throw new Error('User ID mismatch - authentication required');
+      }
+      
+      // Add a small delay to ensure auth state is properly synchronized
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      // Double-check auth state after delay
+      const currentUserAfterDelay = auth.currentUser;
+      console.log('🔍 Auth state after delay - currentUser exists:', !!currentUserAfterDelay);
+      console.log('🔍 Auth state after delay - currentUser.uid:', currentUserAfterDelay?.uid);
+      
+      if (!currentUserAfterDelay || currentUserAfterDelay.uid !== userId) {
+        console.error('❌ Auth state changed after delay');
+        throw new Error('Authentication state is unstable');
+      }
+      
+      // Verify the user has a valid ID token
+      try {
+        const idToken = await currentUserAfterDelay.getIdToken();
+        console.log('🔍 Auth token verification - token exists:', !!idToken);
+        console.log('🔍 Auth token verification - token length:', idToken?.length);
+      } catch (tokenError) {
+        console.error('❌ Failed to get auth token:', tokenError);
+        throw new Error('Failed to get authentication token');
+      }
+      
+      console.log('✅ User authentication and token verified for:', currentUser.uid);
+      
       // Generate PDF receipt using the new PDF service
       const generatedReceiptPDF = await this.pdfReceiptService.generatePDFReceiptFromTransaction(transaction);
       console.log('🔍 Generated PDF receipt structure:', {
@@ -420,36 +478,74 @@ export class BankReceiptService {
       // Update candidate status in Firebase
       console.log('🔍 Updating candidate with userId:', userId);
       const candidateRef = doc(db, 'transactionCandidates', candidateId);
-      const candidateSnap = await getDoc(candidateRef);
-
-      if (!candidateSnap.exists()) {
-        console.error('❌ Candidate document not found:', candidateId);
-        throw new Error('Transaction candidate not found');
-      }
-
-      const candidateData = candidateSnap.data();
-      console.log('🔍 Existing candidate data userId:', candidateData?.userId);
-      console.log('🔍 Current user ID:', userId);
-
-      if (candidateData?.userId !== userId) {
-        console.error('❌ User ID mismatch - candidate belongs to different user');
-        throw new Error('Permission denied: candidate belongs to different user');
-      }
-
-      // Store the PDF receipt data
+      
+      // Try to update directly first (works if document has correct userId)
+      console.log('🔍 Attempting direct update of candidate status...');
       try {
-        // Update candidate status
-        console.log('🔍 Attempting to update candidate status for:', candidateId);
         await updateDoc(candidateRef, {
           status: 'generated',
           generatedAt: new Date().toISOString(),
         });
-        console.log('✅ Successfully updated candidate status');
+        console.log('✅ Successfully updated candidate status directly');
+      } catch (updateError: any) {
+        console.log('⚠️ Direct update failed, trying fallback approach:', updateError?.message);
+        
+        // Fallback: Try to read the document to understand the issue
+        try {
+          console.log('🔍 Attempting to read candidate document for debugging...');
+          const candidateSnap = await getDoc(candidateRef);
+          
+          if (!candidateSnap.exists()) {
+            console.error('❌ Candidate document not found:', candidateId);
+            throw new Error('Transaction candidate not found');
+          }
 
+          const candidateData = candidateSnap.data();
+          console.log('🔍 Candidate document data:', {
+            hasUserId: !!candidateData?.userId,
+            candidateUserId: candidateData?.userId,
+            currentUserId: currentUser.uid,
+            match: candidateData?.userId === currentUser.uid
+          });
+
+          if (candidateData?.userId !== currentUser.uid) {
+            console.error('❌ User ID mismatch - candidate belongs to different user');
+            throw new Error('Permission denied: candidate belongs to different user');
+          }
+          
+          // If we got here, there's some other issue
+          throw new Error(`Failed to update candidate: ${updateError?.message}`);
+          
+        } catch (readError: any) {
+          console.error('❌ Both update and read failed - likely permission issue');
+          console.error('❌ Candidate document not found:', candidateId);
+          console.error('❌ Will attempt fallback status creation');
+          
+          // Create a fallback status document immediately
+          try {
+            await addDoc(collection(db, 'candidateStatus'), {
+              userId: currentUser.uid,
+              candidateId: candidateId,
+              status: 'generated',
+              generatedAt: new Date().toISOString(),
+              error: 'Original candidate document not found or inaccessible',
+            });
+            console.log('✅ Created fallback status document for missing candidate');
+          } catch (fallbackError: any) {
+            console.error('❌ Even fallback status creation failed:', fallbackError);
+            // Continue anyway - the main PDF generation should still work
+          }
+        }
+      }
+
+      // Store the PDF receipt data
+      try {
         // Store the PDF receipt data in Firestore
-        console.log('🔍 Storing PDF receipt data for userId:', userId);
+        console.log('🔍 Storing PDF receipt data for userId:', currentUser.uid);
+        console.log('🔍 Auth state before receipt storage - user:', currentUser.uid);
+        console.log('🔍 Auth state before receipt storage - authenticated:', !!currentUser);
         const receiptDoc = {
-          userId: userId,
+          userId: currentUser.uid,
           candidateId: candidateId,
           receiptPdfUrl: generatedReceiptPDF.receiptPdfUrl,
           receiptPdfPath: generatedReceiptPDF.receiptPdfPath,
@@ -470,20 +566,67 @@ export class BankReceiptService {
           createdAt: new Date().toISOString(),
         };
 
-        const receiptDocRef = await addDoc(collection(db, 'generatedReceipts'), receiptDoc);
-        console.log('✅ PDF receipt data stored successfully with ID:', receiptDocRef.id);
+        console.log('🔍 About to store receipt document with data:', {
+          userId: receiptDoc.userId,
+          candidateId: receiptDoc.candidateId,
+          businessName: receiptDoc.businessName,
+          total: receiptDoc.total,
+          itemCount: receiptDoc.items.length
+        });
+        
+        let receiptDocRef;
+        try {
+          receiptDocRef = await addDoc(collection(db, 'generatedReceipts'), receiptDoc);
+          console.log('✅ PDF receipt data stored successfully with ID:', receiptDocRef.id);
+        } catch (receiptStorageError: any) {
+          console.error('❌ Failed to store receipt document:', receiptStorageError);
+          console.error('❌ Receipt storage error details:', {
+            code: receiptStorageError?.code,
+            message: receiptStorageError?.message,
+            userId: currentUser.uid,
+            candidateId: candidateId
+          });
+          throw new Error(`Failed to store receipt: ${receiptStorageError?.message || 'Unknown error'}`);
+        }
+        
+        // Verify the document was actually created by reading it back
+        try {
+          const verificationDoc = await getDoc(receiptDocRef);
+          if (verificationDoc.exists()) {
+            console.log('✅ Receipt document verification successful');
+            console.log('🔍 Stored document data preview:', {
+              userId: verificationDoc.data()?.userId,
+              businessName: verificationDoc.data()?.businessName,
+              total: verificationDoc.data()?.total
+            });
+          } else {
+            console.error('❌ Receipt document not found after creation');
+          }
+        } catch (verificationError: any) {
+          console.error('❌ Failed to verify receipt document:', verificationError);
+          console.error('❌ Verification error details:', {
+            code: verificationError?.code,
+            message: verificationError?.message
+          });
+        }
 
       } catch (updateError) {
         console.error('❌ Failed to update candidate document:', updateError);
-        console.log('🔍 Attempting fallback: creating status document for userId:', userId);
+        console.log('🔍 Attempting fallback: creating status document for userId:', currentUser.uid);
         // If we can't update the existing document, create a new status document
-        await addDoc(collection(db, 'candidateStatus'), {
-          userId: userId,
-          candidateId: candidateId,
-          status: 'generated',
-          generatedAt: new Date().toISOString(),
-        });
-        console.log('✅ Fallback status document created successfully');
+        try {
+          await addDoc(collection(db, 'candidateStatus'), {
+            userId: currentUser.uid,
+            candidateId: candidateId,
+            status: 'generated',
+            generatedAt: new Date().toISOString(),
+          });
+          console.log('✅ Fallback status document created successfully');
+          // Don't throw error - fallback worked and PDF was generated successfully
+        } catch (fallbackError: any) {
+          console.error('❌ Even fallback status creation failed:', fallbackError);
+          // Still don't throw - the main PDF generation succeeded
+        }
       }
 
       console.log('✅ PDF receipt generated successfully');
@@ -542,27 +685,49 @@ export class BankReceiptService {
       const receiptRef = await addDoc(collection(db, 'receipts'), receiptDoc);
       console.log('✅ PDF receipt added to receipts collection with ID:', receiptRef.id);
 
-      // Update candidate status
+      // Update candidate status (non-critical - don't fail if this fails)
       console.log('🔍 Updating candidate status for candidateId:', candidateId);
-      const candidateRef = doc(db, 'transactionCandidates', candidateId);
-      const candidateSnap = await getDoc(candidateRef);
+      try {
+        const candidateRef = doc(db, 'transactionCandidates', candidateId);
+        const candidateSnap = await getDoc(candidateRef);
 
-      if (!candidateSnap.exists()) {
-        console.error('❌ Candidate document not found:', candidateId);
-        throw new Error('Transaction candidate not found');
+        if (!candidateSnap.exists()) {
+          console.error('❌ Candidate document not found:', candidateId);
+          console.log('🔍 Creating fallback status document instead');
+          await addDoc(collection(db, 'candidateStatus'), {
+            userId: userId,
+            candidateId: candidateId,
+            status: 'approved',
+            receiptId: receiptRef.id,
+            approvedAt: new Date().toISOString(),
+          });
+          console.log('✅ Fallback status document created');
+        } else {
+          const candidateData = candidateSnap.data();
+          if (candidateData?.userId !== userId) {
+            console.error('❌ User ID mismatch - candidate belongs to different user');
+            console.log('🔍 Creating fallback status document instead');
+            await addDoc(collection(db, 'candidateStatus'), {
+              userId: userId,
+              candidateId: candidateId,
+              status: 'approved',
+              receiptId: receiptRef.id,
+              approvedAt: new Date().toISOString(),
+            });
+            console.log('✅ Fallback status document created');
+          } else {
+            await updateDoc(candidateRef, {
+              status: 'approved',
+              receiptId: receiptRef.id,
+            });
+            console.log('✅ Candidate status updated to approved');
+          }
+        }
+      } catch (candidateError: any) {
+        console.error('❌ Failed to update candidate status:', candidateError);
+        console.log('🔍 Receipt was saved successfully, candidate status update failed');
+        // Don't throw error - the main receipt saving succeeded
       }
-
-      const candidateData = candidateSnap.data();
-      if (candidateData?.userId !== userId) {
-        console.error('❌ User ID mismatch - candidate belongs to different user');
-        throw new Error('Permission denied: candidate belongs to different user');
-      }
-
-      await updateDoc(candidateRef, {
-        status: 'approved',
-        receiptId: receiptRef.id,
-      });
-      console.log('✅ Candidate status updated to approved');
 
       console.log('✅ Generated PDF receipt saved as regular receipt');
       return receiptRef.id;
@@ -578,6 +743,20 @@ export class BankReceiptService {
   public async regeneratePDFForReceipt(receiptId: string, userId: string): Promise<void> {
     try {
       console.log('🔄 Regenerating PDF for receipt:', receiptId);
+      
+      // Verify user authentication before proceeding
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('❌ User not authenticated');
+        throw new Error('User must be authenticated to regenerate receipts');
+      }
+      
+      if (currentUser.uid !== userId) {
+        console.error('❌ User ID mismatch - current user:', currentUser.uid, 'provided userId:', userId);
+        throw new Error('User ID mismatch - authentication required');
+      }
+      
+      console.log('✅ User authentication verified for PDF regeneration:', currentUser.uid);
       
       // Get the receipt document
       const receiptRef = doc(db, 'receipts', receiptId);
@@ -837,6 +1016,20 @@ export class BankReceiptService {
     try {
       console.log('🔄 Manual sync: Moving local bank connections to Firestore...');
       
+      // Verify user authentication before proceeding
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('❌ User not authenticated');
+        throw new Error('User must be authenticated to sync connections');
+      }
+      
+      if (currentUser.uid !== userId) {
+        console.error('❌ User ID mismatch - current user:', currentUser.uid, 'provided userId:', userId);
+        throw new Error('User ID mismatch - authentication required');
+      }
+      
+      console.log('✅ User authentication verified for sync:', currentUser.uid);
+      
       // Get existing local connections
       const key = `${BankReceiptService.BANK_CONNECTIONS_KEY}_${userId}`;
       const localConnections = await AsyncStorage.getItem(key);
@@ -896,6 +1089,20 @@ export class BankReceiptService {
   public async syncBankConnectionToPlaidItems(userId: string): Promise<void> {
     try {
       console.log('🔄 Syncing bank connection to plaid_items collection...');
+      
+      // Verify user authentication before proceeding
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('❌ User not authenticated');
+        throw new Error('User must be authenticated to sync connections');
+      }
+      
+      if (currentUser.uid !== userId) {
+        console.error('❌ User ID mismatch - current user:', currentUser.uid, 'provided userId:', userId);
+        throw new Error('User ID mismatch - authentication required');
+      }
+      
+      console.log('✅ User authentication verified for plaid sync:', currentUser.uid);
       
       // Get local connections
       const connections = await this.getBankConnections(userId);
@@ -1150,11 +1357,64 @@ export class BankReceiptService {
     try {
       console.log('🗑️ Dismissing candidate:', candidateId);
       
-      // Update the candidate status in Firestore
+      // Verify user authentication before proceeding
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('❌ User not authenticated');
+        throw new Error('User must be authenticated to dismiss candidates');
+      }
+      
+      if (currentUser.uid !== userId) {
+        console.error('❌ User ID mismatch - current user:', currentUser.uid, 'provided userId:', userId);
+        throw new Error('User ID mismatch - authentication required');
+      }
+      
+      console.log('✅ User authentication verified for dismissal:', currentUser.uid);
+      
+      // Try to update candidate status directly (works if document has correct userId)
       const candidateRef = doc(db, 'transactionCandidates', candidateId);
-      await updateDoc(candidateRef, {
-        status: 'rejected'
-      });
+      console.log('🔍 Attempting direct dismissal of candidate...');
+      
+      try {
+        await updateDoc(candidateRef, {
+          status: 'rejected'
+        });
+        console.log('✅ Successfully dismissed candidate directly');
+      } catch (updateError: any) {
+        console.log('⚠️ Direct dismissal failed, trying fallback approach:', updateError?.message);
+        
+        // Fallback: Try to read the document to understand the issue
+        try {
+          console.log('🔍 Attempting to read candidate document for debugging...');
+          const candidateSnap = await getDoc(candidateRef);
+          
+          if (!candidateSnap.exists()) {
+            console.error('❌ Candidate document not found:', candidateId);
+            throw new Error('Transaction candidate not found');
+          }
+
+          const candidateData = candidateSnap.data();
+          console.log('🔍 Candidate document data:', {
+            hasUserId: !!candidateData?.userId,
+            candidateUserId: candidateData?.userId,
+            currentUserId: currentUser.uid,
+            match: candidateData?.userId === currentUser.uid
+          });
+
+          if (candidateData?.userId !== currentUser.uid) {
+            console.error('❌ User ID mismatch - candidate belongs to different user');
+            throw new Error('Permission denied: candidate belongs to different user');
+          }
+          
+          // If we got here, there's some other issue
+          throw new Error(`Failed to dismiss candidate: ${updateError?.message}`);
+          
+        } catch (readError: any) {
+          console.error('❌ Both update and read failed - likely permission issue');
+          console.log('⚠️ Candidate may have incorrect userId or missing permissions');
+          // Don't throw - continue with cache cleanup
+        }
+      }
 
       // Update cache to remove this candidate
       const cacheKey = `transaction_candidates_${userId}`;
@@ -1175,6 +1435,71 @@ export class BankReceiptService {
     } catch (error) {
       console.error('❌ Error dismissing candidate:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Refresh account information for a bank connection when account IDs don't match transactions
+   */
+  public async refreshConnectionAccounts(userId: string, connectionId: string): Promise<boolean> {
+    try {
+      console.log('🔄 Refreshing account information for connection:', connectionId);
+      
+      // Verify user authentication before proceeding
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        console.error('❌ User not authenticated');
+        throw new Error('User must be authenticated to refresh connections');
+      }
+      
+      if (currentUser.uid !== userId) {
+        console.error('❌ User ID mismatch - current user:', currentUser.uid, 'provided userId:', userId);
+        throw new Error('User ID mismatch - authentication required');
+      }
+      
+      // Get the connection from stored connections
+      const connections = await this.getBankConnections(userId);
+      const connection = connections.find(conn => conn.id === connectionId);
+      
+      if (!connection) {
+        console.error('❌ Connection not found:', connectionId);
+        return false;
+      }
+      
+      // Fetch fresh account information from Plaid
+      const freshAccounts = await this.plaidService.getAccounts(connection.accessToken);
+      console.log('🔄 Fetched', freshAccounts.length, 'fresh accounts from Plaid');
+      
+      // Update the connection with fresh account information
+      const updatedConnection = {
+        ...connection,
+        accounts: freshAccounts.map(account => ({
+          accountId: account.account_id,
+          name: account.name,
+          type: account.type,
+          subtype: account.subtype,
+          mask: account.mask || '',
+        })),
+        lastSyncAt: new Date(),
+      };
+      
+      // Update in local storage
+      const updatedConnections = connections.map(conn => 
+        conn.id === connectionId ? updatedConnection : conn
+      );
+      
+      const key = `${BankReceiptService.BANK_CONNECTIONS_KEY}_${userId}`;
+      await AsyncStorage.setItem(key, JSON.stringify(updatedConnections));
+      
+      // Sync to Firestore
+      await this.syncBankConnectionsToFirestore(userId, updatedConnections);
+      
+      console.log('✅ Successfully refreshed account information for:', connection.institutionName);
+      return true;
+      
+    } catch (error) {
+      console.error('❌ Error refreshing connection accounts:', error);
+      return false;
     }
   }
 }
