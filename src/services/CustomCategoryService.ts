@@ -49,6 +49,10 @@ export class CustomCategoryService {
                 throw new Error('Category name cannot exceed 30 characters');
             }
 
+            if (icon && icon.length > 50) {
+                throw new Error('Category icon cannot exceed 50 characters');
+            }
+
             // Check if category already exists for this user
             const existingCategories = await this.getCustomCategories(userId);
             const categoryExists = existingCategories.some(

@@ -5,16 +5,15 @@ service cloud.firestore {
     match /databases/{database}/documents {
         // Transaction Candidates collection - users can only access their own candidates
         match /transactionCandidates/{candidateId} {
-            allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow read: if isAuthenticated() && (resource == null || request.auth.uid == resource.data.userId);
             allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
-            allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
         }
 
         // Generated Receipts collection - users can only access their own generated receipts
         match /generatedReceipts/{receiptId} {
             allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
-            allow list: if isAuthenticated();
-            allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
+            allow list: if isAuthenticated() && request.auth.uid == resource.data.userId;            allow create: if isAuthenticated() && request.auth.uid == request.resource.data.userId;
             allow update, delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
         }
 
@@ -49,9 +48,11 @@ service cloud.firestore {
             allow create, update: if isAuthenticated() &&
             // Validate required fields
             request.resource.data.keys().hasAll(['merchantName', 'category', 'confidence']) &&
-            // Validate data types
+            // Validate data types and sizes
             request.resource.data.merchantName is string &&
+            request.resource.data.merchantName.size() <= 100 &&
             request.resource.data.category is string &&
+            request.resource.data.category.size() <= 50 &&
             request.resource.data.confidence is number &&
             // Validate confidence is between 0 and 1
             request.resource.data.confidence >= 0 && request.resource.data.confidence <= 1;
@@ -122,9 +123,10 @@ service cloud.firestore {
             // Simplified: Only require userId for creation
             allow create: if isAuthenticated() && 
             request.auth.uid == request.resource.data.userId &&
-            // Validate userId is present and is a string
+            // Validate userId is present, is a string, and has reasonable length
             request.resource.data.keys().hasAll(['userId']) &&
-            request.resource.data.userId is string;
+            request.resource.data.userId is string &&
+            request.resource.data.userId.size() <= 128;
 
             allow update: if isAuthenticated() && 
             request.auth.uid == resource.data.userId &&
@@ -143,8 +145,10 @@ service cloud.firestore {
             request.auth.uid == request.resource.data.userId &&
             // Validate required fields
             request.resource.data.keys().hasAll(['userId', 'name']) &&
-            // Validate business name is not empty
-            request.resource.data.name.size() > 0;
+            // Validate business name length
+            request.resource.data.name is string &&
+            request.resource.data.name.size() > 0 &&
+            request.resource.data.name.size() <= 100;
 
             allow update: if isAuthenticated() && 
             request.auth.uid == resource.data.userId &&
@@ -162,8 +166,12 @@ service cloud.firestore {
 
             allow create: if isAuthenticated() && 
             request.auth.uid == request.resource.data.userId &&
-            // Validate required fields
-            request.resource.data.keys().hasAll(['userId', 'type', 'title']);
+            // Validate required fields and sizes
+            request.resource.data.keys().hasAll(['userId', 'type', 'title']) &&
+            request.resource.data.type is string &&
+            request.resource.data.type.size() <= 50 &&
+            request.resource.data.title is string &&
+            request.resource.data.title.size() <= 200;
 
             allow update: if isAuthenticated() && 
             request.auth.uid == resource.data.userId &&
@@ -212,9 +220,10 @@ service cloud.firestore {
             request.auth.uid == request.resource.data.userId &&
             // Validate required fields
             request.resource.data.keys().hasAll(['userId', 'name', 'icon']) &&
-            // Validate data types
+            // Validate data types and sizes
             request.resource.data.name is string &&
             request.resource.data.icon is string &&
+            request.resource.data.icon.size() <= 50 &&
             // Validate name length
             request.resource.data.name.size() >= 2 && 
             request.resource.data.name.size() <= 30;
@@ -235,8 +244,11 @@ service cloud.firestore {
 
             allow create: if isAuthenticated() && 
             request.auth.uid == request.resource.data.userId &&
-            // Validate required fields
-            request.resource.data.keys().hasAll(['userId', 'name', 'amount']);
+            // Validate required fields and sizes
+            request.resource.data.keys().hasAll(['userId', 'name', 'amount']) &&
+            request.resource.data.name is string &&
+            request.resource.data.name.size() > 0 &&
+            request.resource.data.name.size() <= 100;
 
             allow update: if isAuthenticated() && 
             request.auth.uid == resource.data.userId &&

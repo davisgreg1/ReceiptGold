@@ -450,6 +450,10 @@ export const BankTransactionsScreen: React.FC = () => {
       console.log("🏦 DEBUG: Processing connection:", connection.institutionName);
       console.log("🏦 DEBUG: Connection account IDs:", connection.accounts?.map(acc => acc.accountId || acc.account_id));
       
+      // Debug: Show sample transaction account IDs for comparison
+      const sampleTransactionAccountIds = filteredAndSortedCandidates.slice(0, 3).map(c => c.transaction.account_id);
+      console.log("🔍 DEBUG: Sample transaction account IDs:", sampleTransactionAccountIds);
+      
       const bankTransactions = filteredAndSortedCandidates.filter(candidate => {
         const hasMatch = connection.accounts?.some((account: any) => {
           // Try both accountId and account_id fields
@@ -475,6 +479,13 @@ export const BankTransactionsScreen: React.FC = () => {
       };
       
       console.log("📊 DEBUG: Section for", section.title, "has", section.data.length, "transactions");
+      
+      // If no transactions match and we have transactions to match, try to refresh account IDs
+      if (section.data.length === 0 && filteredAndSortedCandidates.length > 0) {
+        console.log("🔄 DEBUG: No transactions matched for", section.title, "- accounts may need refresh");
+        // Note: Could implement automatic account refresh here if needed
+      }
+      
       return section;
     }).filter(section => section.data.length > 0); // Only show sections with transactions
 
@@ -638,9 +649,40 @@ export const BankTransactionsScreen: React.FC = () => {
   const handleRefresh = async () => {
     setRefreshing(true);
 
-    // Use smart sync for refresh (will do incremental or return cache as appropriate)
-    await loadTransactionCandidates();
-    await loadBankConnections();
+    try {
+      // Use smart sync for refresh (will do incremental or return cache as appropriate)
+      await loadTransactionCandidates();
+      await loadBankConnections();
+      
+      // Check if we still have account ID mismatches and attempt to refresh connections
+      if (user && candidates.length > 0 && groupedTransactions.length === 0) {
+        console.log('🔄 Detected account ID mismatches, attempting to refresh bank connections...');
+        
+        const connections = await bankReceiptService.getBankConnections(user.uid);
+        let refreshAttempted = false;
+        
+        for (const connection of connections) {
+          console.log(`🔄 Attempting to refresh accounts for ${connection.institutionName}...`);
+          try {
+            const success = await bankReceiptService.refreshConnectionAccounts(user.uid, connection.id);
+            if (success) {
+              console.log(`✅ Successfully refreshed accounts for ${connection.institutionName}`);
+              refreshAttempted = true;
+            }
+          } catch (error) {
+            console.log(`⚠️ Failed to refresh ${connection.institutionName}:`, error);
+          }
+        }
+        
+        if (refreshAttempted) {
+          console.log('🔄 Reloading bank connections after account refresh...');
+          await loadBankConnections();
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error during refresh:', error);
+    }
+    
     setRefreshing(false);
   };
 
