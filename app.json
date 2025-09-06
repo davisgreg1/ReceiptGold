@@ -29,14 +29,17 @@
         "CFBundleURLTypes": [
           {
             "CFBundleURLName": "receiptgold",
-            "CFBundleURLSchemes": ["receiptgold"]
+            "CFBundleURLSchemes": [
+              "receiptgold"
+            ]
           }
         ]
       },
       "entitlements": {
         "aps-environment": "development"
       },
-      "googleServicesFile": "./GoogleService-Info.plist"
+      "googleServicesFile": "./GoogleService-Info.plist",
+      "appleTeamId": "UGZ3U996YX"
     },
     "android": {
       "package": "com.receiptgold.app",
@@ -59,7 +62,10 @@
               "scheme": "receiptgold"
             }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "config": {},
