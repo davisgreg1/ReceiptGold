@@ -495,10 +495,13 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           };
 
           const trialData = calculateTrialData();
-          const effectiveTier = trialData.isActive ? "trial" : currentTier;
+          const effectiveTier = trialData.isActive ? "trial" : (currentTier === "trial" ? "free" : currentTier);
           
           console.log("Subscription updated:", {
             currentTier,
+            effectiveTier,
+            trialIsActive: trialData.isActive,
+            trialExpiresAt: trialData.expiresAt,
             status: data.status,
           });
 

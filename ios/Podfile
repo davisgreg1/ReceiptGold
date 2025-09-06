@@ -66,14 +66,5 @@ target 'ReceiptGold' do
         end
       end
     end
-
-    # Fix for Firebase and Google dependencies requiring modular headers
-    installer.pods_project.targets.each do |target|
-      if ['GoogleUtilities', 'FirebaseCoreInternal'].include?(target.name)
-        target.build_configurations.each do |config|
-          config.build_settings['DEFINES_MODULE'] = 'YES'
-        end
-      end
-    end
   end
 end

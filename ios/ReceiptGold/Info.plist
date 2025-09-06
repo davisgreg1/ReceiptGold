@@ -25,22 +25,17 @@
     <key>CFBundleURLTypes</key>
     <array>
       <dict>
+        <key>CFBundleURLName</key>
+        <string>receiptgold</string>
         <key>CFBundleURLSchemes</key>
         <array>
           <string>receiptgold</string>
-          <string>com.receiptgold.app</string>
         </array>
       </dict>
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
           <string>exp+receiptgold</string>
-        </array>
-      </dict>
-      <dict>
-        <key>CFBundleURLSchemes</key>
-        <array>
-          <string>receiptgold.stripe</string>
         </array>
       </dict>
     </array>

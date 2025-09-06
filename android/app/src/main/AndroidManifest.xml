@@ -28,18 +28,14 @@
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="receiptgold"/>
-      </intent-filter>
-      <intent-filter>
-        <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
-        <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="exp+receiptgold"/>
       </intent-filter>
-      <intent-filter>
+      <intent-filter data-generated="true">
         <action android:name="android.intent.action.VIEW"/>
-        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:scheme="receiptgold"/>
+        <data android:scheme="exp+receiptgold"/>
         <category android:name="android.intent.category.BROWSABLE"/>
-        <data android:scheme="receiptgold.stripe"/>
+        <category android:name="android.intent.category.DEFAULT"/>
       </intent-filter>
     </activity>
   </application>

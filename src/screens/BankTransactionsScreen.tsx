@@ -3216,17 +3216,8 @@ export const BankTransactionsScreen: React.FC = () => {
               tintColor={theme.gold.primary}
             />
           }
-          onScroll={undefined}
-          scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContainer}
-          initialNumToRender={5}
-          maxToRenderPerBatch={3}
-          windowSize={3}
-          removeClippedSubviews={true}
-          updateCellsBatchingPeriod={200}
-          legacyImplementation={false}
-          ItemSeparatorComponent={null}
         />
       ) : (
         <FlatList
@@ -3243,21 +3234,8 @@ export const BankTransactionsScreen: React.FC = () => {
               tintColor={theme.gold.primary}
             />
           }
-          onScroll={undefined}
-          scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.listContainer}
-          initialNumToRender={5}
-          maxToRenderPerBatch={3}
-          windowSize={3}
-          removeClippedSubviews={true}
-          updateCellsBatchingPeriod={200}
-          legacyImplementation={false}
-          getItemLayout={(data, index) => ({
-            length: 180, // Reduced height since PDF placeholder is smaller
-            offset: 180 * index,
-            index,
-          })}
         />
       )}
 

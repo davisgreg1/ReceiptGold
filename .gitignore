@@ -142,4 +142,14 @@ serviceAccountKey.json
 !tsconfig.json
 !google-services.json
 GoogleService-Info.plist
-.env*
+
+# Environment files - keep secrets secure
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Allow environment templates (with placeholder values)
+!.env.development
+!.env.production

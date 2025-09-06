@@ -1,8 +1,7 @@
 import React, { useEffect, useRef } from "react";
-import { StyleSheet, Animated, Dimensions, Easing } from "react-native";
+import { StyleSheet, Animated, Dimensions, Easing, Image } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as SplashScreen from "expo-splash-screen";
-import Svg, { Circle, Rect, Text, Polygon, Defs, LinearGradient, Stop } from "react-native-svg";
 import { useTheme } from "../theme/ThemeProvider";
 import { BrandText, BodyText } from '../components/Typography';
 
@@ -129,8 +128,7 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
       outputRange: ['0deg', '360deg'],
     });
 
-
-    const AnimatedSvg = Animated.createAnimatedComponent(Svg);
+    const AnimatedImage = Animated.createAnimatedComponent(Image);
 
     return (
       <Animated.View
@@ -141,159 +139,15 @@ export const AppSplashScreen: React.FC<SplashScreenProps> = ({ onFinish }) => {
           ],
         }}
       >
-        <AnimatedSvg width="220" height="220" viewBox="0 0 220 220">
-          <Defs>
-            {/* Premium gold gradient */}
-            <LinearGradient id="goldGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-              <Stop offset="0%" stopColor="#FFD700" stopOpacity="1" />
-              <Stop offset="30%" stopColor="#FFA500" stopOpacity="1" />
-              <Stop offset="70%" stopColor="#FF8C00" stopOpacity="1" />
-              <Stop offset="100%" stopColor="#DAA520" stopOpacity="1" />
-            </LinearGradient>
-            
-
-            {/* Radial glow */}
-            <LinearGradient id="glowGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-              <Stop offset="0%" stopColor="#FFD700" stopOpacity="0.8" />
-              <Stop offset="50%" stopColor="#FFA500" stopOpacity="0.4" />
-              <Stop offset="100%" stopColor="transparent" stopOpacity="0" />
-            </LinearGradient>
-          </Defs>
-
-          {/* Outer glow rings */}
-          <Circle
-            cx="110"
-            cy="110"
-            r="105"
-            fill="none"
-            stroke="url(#goldGradient)"
-            strokeWidth="2"
-            opacity="0.3"
-          />
-          <Circle
-            cx="110"
-            cy="110"
-            r="100"
-            fill="none"
-            stroke="url(#goldGradient)"
-            strokeWidth="3"
-            opacity="0.5"
-          />
-
-          {/* Main circular background */}
-          <Circle
-            cx="110"
-            cy="110"
-            r="90"
-            fill={theme.background.primary}
-            stroke="url(#goldGradient)"
-            strokeWidth="4"
-          />
-
-          {/* Inner depth circles */}
-          <Circle
-            cx="110"
-            cy="110"
-            r="75"
-            fill="none"
-            stroke={theme.gold.primary}
-            strokeWidth="1"
-            opacity="0.6"
-          />
-          <Circle
-            cx="110"
-            cy="110"
-            r="60"
-            fill="none"
-            stroke={theme.gold.rich}
-            strokeWidth="1"
-            opacity="0.4"
-          />
-
-          {/* Enhanced receipt icon */}
-          <Rect
-            x="75"
-            y="50"
-            width="70"
-            height="95"
-            rx="10"
-            ry="10"
-            fill={theme.text.inverse}
-            stroke="url(#goldGradient)"
-            strokeWidth="3"
-          />
-
-          {/* Receipt header with gradient */}
-          <Rect
-            x="75"
-            y="50"
-            width="70"
-            height="18"
-            rx="10"
-            ry="10"
-            fill="url(#goldGradient)"
-          />
-
-          {/* Receipt text lines */}
-          <Rect x="85" y="75" width="50" height="3" rx="1.5" fill={theme.background.primary} />
-          <Rect x="85" y="83" width="40" height="3" rx="1.5" fill={theme.background.primary} />
-          <Rect x="85" y="91" width="45" height="3" rx="1.5" fill={theme.background.primary} />
-          <Rect x="85" y="99" width="35" height="3" rx="1.5" fill={theme.background.primary} />
-          <Rect x="85" y="107" width="42" height="3" rx="1.5" fill={theme.background.primary} />
-
-          {/* Total line (emphasized with gold) */}
-          <Rect
-            x="85"
-            y="120"
-            width="50"
-            height="5"
-            rx="2.5"
-            fill="url(#goldGradient)"
-          />
-
-          {/* Enhanced gold coin */}
-          <Circle
-            cx="125"
-            cy="75"
-            r="10"
-            fill="url(#goldGradient)"
-            stroke={theme.gold.rich}
-            strokeWidth="2"
-          />
-          <Circle
-            cx="125"
-            cy="75"
-            r="7"
-            fill="none"
-            stroke="#ffffff"
-            strokeWidth="1"
-            opacity="0.6"
-          />
-          <Text
-            x="125"
-            y="80"
-            textAnchor="middle"
-            fontFamily="serif"
-            fontSize="11"
-            fontWeight="bold"
-            fill={theme.text.inverse}
-          >
-            $
-          </Text>
-
-          {/* Geometric accents */}
-          <Polygon points="110,20 118,35 102,35" fill="url(#goldGradient)" />
-          <Polygon points="110,200 118,185 102,185" fill="url(#goldGradient)" />
-          <Polygon points="20,110 35,102 35,118" fill="url(#goldGradient)" />
-          <Polygon points="200,110 185,102 185,118" fill="url(#goldGradient)" />
-
-          {/* Decorative corner elements */}
-          <Circle cx="85" cy="85" r="2.5" fill="url(#goldGradient)" opacity="0.8" />
-          <Circle cx="135" cy="85" r="2.5" fill="url(#goldGradient)" opacity="0.8" />
-          <Circle cx="85" cy="135" r="2.5" fill="url(#goldGradient)" opacity="0.8" />
-          <Circle cx="135" cy="135" r="2.5" fill="url(#goldGradient)" opacity="0.8" />
-        </AnimatedSvg>
-
+        <AnimatedImage
+          source={require("../../assets/splash.png")}
+          style={{
+            width: 220,
+            height: 220,
+            backgroundColor: 'transparent',
+          }}
+          resizeMode="contain"
+        />
       </Animated.View>
     );
   };
