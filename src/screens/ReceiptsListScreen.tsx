@@ -673,7 +673,6 @@ export const ReceiptsListScreen: React.FC = () => {
       // For team members, count receipts under the account holder's ID
       console.log('🔍 Monthly count parameters:', {
         userId: user.uid,
-        accountHolderId,
         isTeamMember,
         effectiveAccountHolderId: accountHolderId || user.uid
       });
@@ -811,6 +810,18 @@ export const ReceiptsListScreen: React.FC = () => {
       setRefreshing(false);
     }
   }, [user?.uid, isTeamMember, currentMembership?.role, accountHolderId]);
+
+  // Refresh subscription context receipt count when team membership is established
+  useEffect(() => {
+    if (user?.uid && isTeamMember && accountHolderId) {
+      console.log("🔄 Refreshing subscription receipt count for team member context");
+      const timeoutId = setTimeout(() => {
+        refreshReceiptCount(accountHolderId);
+      }, 100); // Small delay to avoid immediate re-renders
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [user?.uid, isTeamMember, accountHolderId]); // Only depend on stable values
 
   // Focus effect to fetch receipts when screen is focused
   useFocusEffect(

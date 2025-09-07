@@ -143,7 +143,7 @@ export const ScanReceiptScreen = () => {
   useFocusEffect(
     useCallback(() => {
       if (user?.uid) {
-        refreshReceiptCount();
+        refreshReceiptCount(currentMembership?.accountHolderId);
       }
     }, [user?.uid, refreshReceiptCount])
   );
@@ -207,7 +207,7 @@ export const ScanReceiptScreen = () => {
 
         try {
           // Get monthly usage count using the unified counting method
-          await refreshReceiptCount();
+          await refreshReceiptCount(currentMembership?.accountHolderId);
 
           // Check receipt limit
           const maxReceipts = subscription?.limits?.maxReceipts || 10;
@@ -266,7 +266,7 @@ export const ScanReceiptScreen = () => {
     }
 
     // Get the monthly count using our utility that properly handles excluded receipts
-    await refreshReceiptCount();
+    await refreshReceiptCount(currentMembership?.accountHolderId);
     
     // Professional tier has maxReceipts = -1, indicating unlimited
     const maxReceipts = subscription?.limits.maxReceipts;
@@ -548,7 +548,7 @@ export const ScanReceiptScreen = () => {
         startOfMonth.setHours(0, 0, 0, 0);
 
         // Refresh receipt count after upload
-        await refreshReceiptCount();
+        await refreshReceiptCount(currentMembership?.accountHolderId);
         
         // Verify the count is correct by checking Firestore directly
         console.log("🚀 Verifying receipt count after upload...");
@@ -867,7 +867,7 @@ export const ScanReceiptScreen = () => {
       }
 
       // Refresh receipt count after upload
-      await refreshReceiptCount();
+      await refreshReceiptCount(currentMembership?.accountHolderId);
       
       // Verify the count is correct by checking Firestore directly
       console.log("🚀 Verifying receipt count after upload...");
