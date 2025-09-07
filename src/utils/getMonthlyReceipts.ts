@@ -1,13 +1,20 @@
 import { collection, query, where, getDocs, getDoc, doc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 
-export async function getMonthlyReceiptCount(userId: string): Promise<number> {
+export async function getMonthlyReceiptCount(userId: string, accountHolderId?: string): Promise<number> {
   try {
+    // Use accountHolderId if provided (for team members), otherwise use userId (for account holders)
+    const effectiveUserId = accountHolderId || userId;
+    
+    console.log("🚀 ~ getMonthlyReceiptCount ~ userId:", userId);
+    console.log("🚀 ~ getMonthlyReceiptCount ~ accountHolderId:", accountHolderId);
+    console.log("🚀 ~ getMonthlyReceiptCount ~ effectiveUserId:", effectiveUserId);
 
-    // First, get the subscription info
+    // Get the subscription info (use the logged-in user's subscription for billing period calculation)
+    // Team members will use their own subscription for period calculation but count account holder's receipts
     const subscriptionDoc = await getDoc(doc(db, 'subscriptions', userId));
     const subscriptionData = subscriptionDoc.data();
-    console.log("🚀 ~ getMonthlyReceiptCount ~ subscriptionData:", subscriptionData)
+    console.log("🚀 ~ getMonthlyReceiptCount ~ subscriptionData for userId:", userId, subscriptionData)
 
     // Get the most recent monthly count reset date
     const lastMonthlyCountResetAt = subscriptionData?.lastMonthlyCountResetAt?.toDate(); // July 1, 2025
@@ -29,9 +36,10 @@ export async function getMonthlyReceiptCount(userId: string): Promise<number> {
     }
 
     // Query all receipts created since the counting start date
+    // Use effectiveUserId (account holder's ID) for both account holders and team members
     const monthlyUsageQuery = query(
       collection(db, 'receipts'),
-      where('userId', '==', userId),
+      where('userId', '==', effectiveUserId),
       where('createdAt', '>=', countFromDate)
     );
 
@@ -65,7 +73,7 @@ export async function getMonthlyReceiptCount(userId: string): Promise<number> {
     console.log("🚀 ~ getMonthlyReceiptCount ~ Valid (non-excluded) receipts:", validReceipts.length);
     
     // Log all receipt documents for debugging
-    console.log("🚀 ~ All receipts in Firestore for user:", userId);
+    console.log("🚀 ~ All receipts in Firestore for effectiveUserId:", effectiveUserId);
     monthlyUsageSnapshot.docs.forEach((doc, index) => {
       const data = doc.data();
       console.log(`Receipt ${index + 1}:`, {

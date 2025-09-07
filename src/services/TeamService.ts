@@ -229,6 +229,8 @@ export class TeamService {
   // Team Member Methods
   static async getTeamMembers(accountHolderId: string): Promise<TeamMember[]> {
     try {
+      console.log('🔍 TeamService.getTeamMembers called with accountHolderId:', accountHolderId);
+      
       const q = query(
         collection(db, this.COLLECTIONS.MEMBERS),
         where('accountHolderId', '==', accountHolderId),
@@ -237,6 +239,9 @@ export class TeamService {
       );
 
       const snapshot = await getDocs(q);
+      console.log('🔍 TeamService.getTeamMembers snapshot.size:', snapshot.size);
+      console.log('🔍 TeamService.getTeamMembers snapshot.empty:', snapshot.empty);
+      
       const members: TeamMember[] = [];
 
       snapshot.forEach((doc) => {
@@ -258,6 +263,8 @@ export class TeamService {
         });
       });
 
+      console.log('🔍 TeamService.getTeamMembers returning members:', members.length, 'members');
+      console.log('🔍 TeamService.getTeamMembers members details:', members);
       return members;
     } catch (error) {
       console.error('❌ Error getting team members:', error);

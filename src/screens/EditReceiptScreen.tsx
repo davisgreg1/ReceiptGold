@@ -681,15 +681,15 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
 
       // Create updated receipt data
       const updatedReceiptBase = {
-        vendor: formData.vendor,
-        businessName: formData.vendor, // Ensure businessName matches vendor for consistency
+        vendor: formData.vendor.trim(),
+        businessName: formData.vendor.trim(), // Ensure businessName matches vendor for consistency
         amount: parseFloat(formData.amount),
         date: formData.date,
         description: formData.description,
         category: formData.category, // Use the main category from Basic Information
         currency: formData.currency,
         extractedData: {
-          vendor: formData.vendor,
+          vendor: formData.vendor.trim(),
           amount: parseFloat(formData.amount),
           date: formData.date.toISOString(),
           items: formData.items.map((item: FormItem) => ({
@@ -944,7 +944,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 style={[styles.input, { color: theme.text.primary }]}
                 value={formData.vendor}
                 onChangeText={(text) => {
-                  setFormData(prev => ({ ...prev, vendor: text.trim() }));
+                  setFormData(prev => ({ ...prev, vendor: text }));
                   // Clear validation error when user starts typing
                   if (validationErrors.vendor) {
                     setValidationErrors(prev => ({ ...prev, vendor: false }));
