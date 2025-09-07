@@ -17,6 +17,7 @@ import {
 import { db } from '../config/firebase';
 import { getMonthlyReceiptCount } from '../utils/getMonthlyReceipts';
 import { SubscriptionTier } from '../context/SubscriptionContext';
+import { TeamService } from './TeamService';
 import Constants from 'expo-constants';
 
 // Types
@@ -187,12 +188,30 @@ export const userService = {
 export const receiptService = {
   async getReceipts(userId: string, limitCount: number = 50): Promise<Receipt[]> {
     try {
-      const q = query(
-        collection(db, 'receipts'),
-        where('userId', '==', userId),
-        orderBy('createdAt', 'desc'),
-        limit(limitCount)
-      );
+      // Check if user is a team member
+      const teamMembership = await TeamService.getTeamMembershipByUserId(userId);
+      
+      let q;
+      if (teamMembership) {
+        // Team member - only get receipts for their assigned business
+        // Receipts are stored under the account holder's ID with teamAttribution
+        q = query(
+          collection(db, 'receipts'),
+          where('userId', '==', teamMembership.accountHolderId),
+          where('businessId', '==', teamMembership.businessId),
+          where('teamAttribution.createdByUserId', '==', userId),
+          orderBy('createdAt', 'desc'),
+          limit(limitCount)
+        );
+      } else {
+        // Account holder - get all their receipts
+        q = query(
+          collection(db, 'receipts'),
+          where('userId', '==', userId),
+          orderBy('createdAt', 'desc'),
+          limit(limitCount)
+        );
+      }
 
       const querySnapshot = await getDocs(q);
       return querySnapshot.docs.map(doc => ({

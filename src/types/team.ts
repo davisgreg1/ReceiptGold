@@ -7,6 +7,8 @@ export interface TeamInvitation {
   accountHolderId: string; // Professional user who sent invite
   accountHolderEmail: string; // For easy identification
   accountHolderName: string; // Display name of account holder
+  businessId: string; // Business this team member will be associated with
+  businessName: string; // For easy identification
   inviteEmail: string;
   status: InvitationStatus;
   token: string; // Secure invitation token
@@ -21,6 +23,8 @@ export interface TeamMember {
   id?: string;
   accountHolderId: string; // Professional user who owns the account
   accountHolderEmail: string; // For easy identification
+  businessId: string; // Business this team member is associated with
+  businessName: string; // For easy identification
   userId: string; // Firebase Auth UID of the team member
   email: string;
   displayName?: string;
@@ -49,6 +53,8 @@ export interface CreateTeamInvitationRequest {
   inviteEmail: string;
   role: TeamMemberRole;
   accountHolderName: string;
+  businessId: string;
+  businessName: string;
 }
 
 export interface AcceptTeamInvitationRequest {

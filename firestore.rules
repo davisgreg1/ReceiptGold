@@ -116,11 +116,15 @@ service cloud.firestore {
             allow delete: if isOwner(userId);
         }
 
+        // Note: Business-level access control for team members is enforced at the application level
+        // due to Firestore security rule limitations with complex team member queries
+
         // Receipts collection - users can access their own receipts or receipts they created as team members
         match /receipts/{receiptId} {
             allow read, list: if isAuthenticated() && (
                 request.auth.uid == resource.data.userId ||
                 // Allow team members to read receipts they created
+                // Business-level filtering is enforced at the application level
                 (resource.data.teamAttribution != null && 
                  resource.data.teamAttribution.createdByUserId == request.auth.uid)
             );
@@ -129,6 +133,7 @@ service cloud.firestore {
             // Account holders can create receipts for themselves
             (request.auth.uid == request.resource.data.userId ||
              // Team members can create receipts (stored under account holder's userId)
+             // Business-level validation is enforced at the application level
              (request.resource.data.teamAttribution != null && 
               request.resource.data.teamAttribution.createdByUserId == request.auth.uid)) &&
             // Validate userId is present, is a string, and has reasonable length
@@ -140,6 +145,7 @@ service cloud.firestore {
                 // Account holders can update their receipts
                 request.auth.uid == resource.data.userId ||
                 // Team members can only update receipts they created
+                // Business-level validation is enforced at the application level
                 (resource.data.teamAttribution != null && 
                  resource.data.teamAttribution.createdByUserId == request.auth.uid)
             ) &&
@@ -150,6 +156,7 @@ service cloud.firestore {
                 // Account holders can delete their receipts
                 request.auth.uid == resource.data.userId ||
                 // Team members can only delete receipts they created
+                // Business-level validation is enforced at the application level
                 (resource.data.teamAttribution != null && 
                  resource.data.teamAttribution.createdByUserId == request.auth.uid)
             );
@@ -329,8 +336,8 @@ service cloud.firestore {
             // Account holders can create invitations
             allow create: if isAuthenticated() && 
             request.auth.uid == request.resource.data.accountHolderId &&
-            // Validate required fields
-            request.resource.data.keys().hasAll(['accountHolderId', 'inviteEmail', 'status', 'token', 'expiresAt', 'createdAt', 'role']) &&
+            // Validate required fields including business association
+            request.resource.data.keys().hasAll(['accountHolderId', 'businessId', 'inviteEmail', 'status', 'token', 'expiresAt', 'createdAt', 'role']) &&
             // Validate field types and sizes
             request.resource.data.inviteEmail is string &&
             request.resource.data.inviteEmail.size() <= 254 &&
@@ -368,8 +375,8 @@ service cloud.firestore {
             // Only allow creation during invitation acceptance (Cloud Functions preferred)
             allow create: if isAuthenticated() && 
             request.auth.uid == request.resource.data.userId &&
-            // Validate required fields
-            request.resource.data.keys().hasAll(['accountHolderId', 'userId', 'email', 'role', 'status', 'joinedAt']) &&
+            // Validate required fields including business association
+            request.resource.data.keys().hasAll(['accountHolderId', 'businessId', 'userId', 'email', 'role', 'status', 'joinedAt']) &&
             // Validate field types
             request.resource.data.status == 'active' &&
             request.resource.data.role in ['teammate', 'admin'];

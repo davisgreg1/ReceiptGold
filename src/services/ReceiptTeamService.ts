@@ -61,8 +61,15 @@ export class ReceiptTeamService {
           createdByUserId: userId,
           createdByEmail: teamMember.email,
           createdByName: teamMember.displayName,
+          businessId: teamMember.businessId,
+          businessName: teamMember.businessName,
           isTeamReceipt: true,
         };
+        
+        // Ensure receipt is associated with the team member's business
+        if (!receiptData.businessId) {
+          receiptData.businessId = teamMember.businessId;
+        }
       }
 
       // Create the receipt with team attribution
@@ -96,6 +103,8 @@ export class ReceiptTeamService {
         createdByUserId: userId,
         createdByEmail: teamMember.email,
         createdByName: teamMember.displayName,
+        businessId: teamMember.businessId,
+        businessName: teamMember.businessName,
         isTeamReceipt: true,
       };
     } catch (error) {
