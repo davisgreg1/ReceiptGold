@@ -50,7 +50,7 @@ export const HomeScreen: React.FC = () => {
   const { theme } = useTheme();
   const { user } = useAuth();
   const { subscription } = useSubscription();
-  const { isTeamMember } = useTeam();
+  const { isTeamMember, currentMembership, accountHolderId } = useTeam();
   const homeNavigation = useHomeNavigation();
   const tabNavigation = useTabNavigation();
 
@@ -91,12 +91,21 @@ export const HomeScreen: React.FC = () => {
         setLoading(true);
       }
       
-      // Get all receipts from Firebase
+      // Get all receipts from Firebase with team member support
+      const effectiveAccountHolderId = accountHolderId || user.uid;
+      console.log('🏠 HomeScreen receipt query:', {
+        userId: user.uid,
+        isTeamMember,
+        accountHolderId,
+        effectiveAccountHolderId,
+        memberRole: currentMembership?.role
+      });
+
       let receiptDocs;
       try {
         const receiptsQuery = query(
           collection(db, "receipts"),
-          where("userId", "==", user.uid),
+          where("userId", "==", effectiveAccountHolderId), // Use account holder ID for team members
           where("status", "!=", "deleted"),
           orderBy("createdAt", "desc")
         );
@@ -106,7 +115,7 @@ export const HomeScreen: React.FC = () => {
         // Fallback to basic query if index is not ready
         const basicQuery = query(
           collection(db, "receipts"),
-          where("userId", "==", user.uid)
+          where("userId", "==", effectiveAccountHolderId) // Use account holder ID for team members
         );
         const basicSnapshot = await getDocs(basicQuery);
         receiptDocs = basicSnapshot.docs
@@ -116,6 +125,33 @@ export const HomeScreen: React.FC = () => {
             const bDate = b.data().createdAt?.toDate?.() || new Date(0);
             return bDate.getTime() - aDate.getTime();
           });
+      }
+
+      // Filter receipts for regular team members (same logic as ReceiptsListScreen)
+      if (isTeamMember && currentMembership?.role !== 'admin') {
+        console.log('🏠 Filtering receipts for regular team member - before:', receiptDocs.length);
+        receiptDocs = receiptDocs.filter(doc => {
+          const data = doc.data();
+          // Show receipts they created in two ways:
+          // 1. Receipts with teamAttribution.createdByUserId matching their userId (preferred)
+          // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
+          const matchesTeamAttribution = data.teamAttribution?.createdByUserId === user.uid;
+          const matchesDirectUserId = !data.teamAttribution && data.userId === user.uid;
+          const shouldInclude = matchesTeamAttribution || matchesDirectUserId;
+          
+          console.log('🏠 Receipt filter check:', {
+            receiptId: data.receiptId || doc.id,
+            vendor: data.vendor,
+            hasTeamAttribution: !!data.teamAttribution,
+            createdByUserId: data.teamAttribution?.createdByUserId,
+            storedUserId: data.userId,
+            currentUserId: user.uid,
+            shouldInclude
+          });
+          
+          return shouldInclude;
+        });
+        console.log('🏠 Filtering receipts for regular team member - after:', receiptDocs.length);
       }
 
       // Convert Firestore docs to receipt objects

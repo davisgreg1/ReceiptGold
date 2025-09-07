@@ -552,7 +552,7 @@ export const ScanReceiptScreen = () => {
         
         // Verify the count is correct by checking Firestore directly
         console.log("🚀 Verifying receipt count after upload...");
-        const manualCount = await getMonthlyReceiptCount(user.uid);
+        const manualCount = await getMonthlyReceiptCount(user.uid, currentMembership?.accountHolderId);
         console.log("🚀 Manual count check result:", manualCount);
         console.log("🚀 Context count:", currentReceiptCount);
 
@@ -871,7 +871,7 @@ export const ScanReceiptScreen = () => {
       
       // Verify the count is correct by checking Firestore directly
       console.log("🚀 Verifying receipt count after upload...");
-      const manualCount = await getMonthlyReceiptCount(user!.uid);
+      const manualCount = await getMonthlyReceiptCount(user!.uid, currentMembership?.accountHolderId);
       console.log("🚀 Manual count check result:", manualCount);
       console.log("🚀 Context count:", currentReceiptCount);
 
