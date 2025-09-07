@@ -40,7 +40,7 @@ const TeamContext = createContext<TeamContextType | undefined>(undefined);
 
 export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const { subscription, canAccessFeature } = useSubscription();
+  const { subscription, canAccessFeature, loading: subscriptionLoading } = useSubscription();
   
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [teamInvitations, setTeamInvitations] = useState<TeamInvitation[]>([]);
@@ -61,7 +61,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Clear data when user logs out or loses team access
       clearTeamData();
     }
-  }, [user, canAccessFeature]);
+  }, [user, canAccessFeature, subscription.currentTier, subscriptionLoading]);
 
   const clearTeamData = useCallback(() => {
     setTeamMembers([]);
@@ -123,7 +123,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       throw new Error('User must be authenticated');
     }
 
-    if (!canInviteMembers()) {
+    // Check invitation permissions directly to avoid stale closures
+    if (!(!subscriptionLoading && canAccessFeature('teamManagement') && !isTeamMember)) {
       throw new Error('Cannot invite team members with current subscription');
     }
 
@@ -143,7 +144,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Error inviting teammate:', error);
       throw error;
     }
-  }, [user, canInviteMembers, hasReachedMemberLimit]);
+  }, [user, hasReachedMemberLimit, canAccessFeature, isTeamMember, subscriptionLoading]);
 
   const revokeInvitation = useCallback(async (invitationId: string): Promise<void> => {
     try {
@@ -204,8 +205,12 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // Utility functions
   const canInviteMembers = useCallback((): boolean => {
+    if (subscriptionLoading) {
+      return false;
+    }
+    
     return canAccessFeature('teamManagement') && !isTeamMember;
-  }, [canAccessFeature, isTeamMember]);
+  }, [canAccessFeature, isTeamMember, subscriptionLoading]);
 
   const canManageTeam = useCallback((): boolean => {
     return canAccessFeature('teamManagement') && !isTeamMember;

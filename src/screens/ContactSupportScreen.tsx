@@ -226,7 +226,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
                 placeholder="Brief description of your issue"
                 placeholderTextColor={theme.text.tertiary}
                 value={subject}
-                onChangeText={setSubject}
+                onChangeText={(text) => setSubject(text.trim())}
                 maxLength={100}
                 onFocus={() => {
                   setTimeout(() => {

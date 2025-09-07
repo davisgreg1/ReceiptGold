@@ -223,7 +223,6 @@ export const TeamManagementScreen: React.FC = () => {
           try {
             if (invitation.id) {
               await revokeInvitation(invitation.id);
-              showSuccess('Invitation Revoked', 'The invitation has been successfully revoked.');
             }
           } catch (error) {
             showError('Error', 'Failed to revoke invitation. Please try again.');

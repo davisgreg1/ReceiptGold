@@ -386,7 +386,7 @@ const CreateBusinessScreen: React.FC = () => {
                   },
                 ]}
                 value={formData.name}
-                onChangeText={(text) => updateFormData('name', text)}
+                onChangeText={(text) => updateFormData('name', text.trim())}
                 maxLength={100}
                 onFocus={() => scrollToInput('name')}
                 placeholder="Enter business name"
@@ -550,7 +550,7 @@ const CreateBusinessScreen: React.FC = () => {
                   },
                 ]}
                 value={formData.address?.street || ''}
-                onChangeText={(text) => updateFormData('address.street', text)}
+                onChangeText={(text) => updateFormData('address.street', text.trim())}
                 onFocus={() => scrollToInput('street')}
                 placeholder="123 Main Street"
                 placeholderTextColor={theme.text.tertiary}
@@ -573,7 +573,7 @@ const CreateBusinessScreen: React.FC = () => {
                     },
                   ]}
                   value={formData.address?.city || ''}
-                  onChangeText={(text) => updateFormData('address.city', text)}
+                  onChangeText={(text) => updateFormData('address.city', text.trim())}
                   onFocus={() => scrollToInput('city')}
                   placeholder="City"
                   placeholderTextColor={theme.text.tertiary}

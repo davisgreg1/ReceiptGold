@@ -7,6 +7,7 @@ import * as admin from "firebase-admin";
 import Stripe from "stripe";
 import { onCall, HttpsError, CallableRequest, onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
+import * as sgMail from "@sendgrid/mail";
 
 // Split-tender interfaces
 interface SplitTenderPayment {
@@ -3243,7 +3244,7 @@ export const sendTeamInvitationEmail = functionsV1.firestore
   .onCreate(async (snapshot, context) => {
     try {
       const invitation = snapshot.data();
-      const invitationId = context.params.invitationId;
+      // const invitationId = context.params.invitationId;
 
       // Get account holder information
       const accountHolderDoc = await db.collection('users').doc(invitation.accountHolderId).get();
@@ -3266,6 +3267,7 @@ export const sendTeamInvitationEmail = functionsV1.firestore
 
       // Email content
       const subject = `${accountHolderName} invited you to join their ReceiptGold team`;
+      
       const htmlContent = `
         <!DOCTYPE html>
         <html>
@@ -3276,7 +3278,7 @@ export const sendTeamInvitationEmail = functionsV1.firestore
         </head>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="text-align: center; margin-bottom: 30px;">
-            <img src="https://receiptgold.com/logo.png" alt="ReceiptGold" style="height: 50px;">
+            <h1 style="color: #DAA520;">ReceiptGold</h1>
           </div>
           
           <h2 style="color: #DAA520; text-align: center;">You've been invited to join a team!</h2>
@@ -3316,30 +3318,7 @@ export const sendTeamInvitationEmail = functionsV1.firestore
         </html>
       `;
 
-      const textContent = `
-${accountHolderName} invited you to join their ReceiptGold team
-
-Hello,
-
-${accountHolderName} (${accountHolderEmail}) has invited you to join their team on ReceiptGold.
-
-ReceiptGold is a professional receipt management and expense tracking platform that helps businesses organize, categorize, and track their receipts for tax preparation and financial reporting.
-
-As a team member, you'll be able to:
-• Add receipts to ${accountHolderName}'s account
-• Edit and manage your own receipts  
-• Help organize business expenses
-• Access the ReceiptGold mobile and web apps
-
-Accept your invitation: ${invitationLink}
-
-This invitation will expire on ${new Date(invitation.expiresAt.toDate()).toLocaleDateString()}.
-
-If you didn't expect this invitation, you can safely ignore this email.
-This invitation was sent to ${invitation.inviteEmail}.
-      `;
-
-      // Log the invitation details (in production, you'd send the actual email)
+      // Send email using SendGrid
       console.log('📧 Team invitation email details:');
       console.log('To:', invitation.inviteEmail);
       console.log('From:', accountHolderEmail);
@@ -3347,8 +3326,28 @@ This invitation was sent to ${invitation.inviteEmail}.
       console.log('Invitation Link:', invitationLink);
       console.log('Expires:', invitation.expiresAt.toDate());
 
-      // TODO: Integrate with email service (SendGrid, AWS SES, etc.)
-      // For now, we'll just log the email content
+      // Get SendGrid API key from environment
+      const sendgridApiKey = process.env.SENDGRID_API_KEY;
+      if (!sendgridApiKey) {
+        console.error('❌ SENDGRID_API_KEY environment variable not set');
+        throw new Error('SendGrid API key not configured');
+      }
+
+      // Configure SendGrid
+      sgMail.setApiKey(sendgridApiKey);
+
+      const msg = {
+        to: invitation.inviteEmail,
+        from: accountHolderEmail, // Use account holder email as verified sender for now
+        replyTo: accountHolderEmail,
+        subject: subject,
+        html: htmlContent,
+        text: `${accountHolderName} invited you to join their ReceiptGold team\n\nAccept your invitation: ${invitationLink}\n\nThis invitation will expire on ${new Date(invitation.expiresAt.toDate()).toLocaleDateString()}.`
+      };
+
+      // Send the email
+      await sgMail.send(msg);
+      console.log('✅ Team invitation email sent successfully to:', invitation.inviteEmail);
       
       // Mark invitation as email sent (optional status tracking)
       await snapshot.ref.update({
@@ -3422,7 +3421,7 @@ export const onTeamMemberRemoved = functionsV1.firestore
 
       // Check if member status changed to suspended
       if (before.status === 'active' && after.status === 'suspended') {
-        const memberId = context.params.memberId;
+        // const memberId = context.params.memberId;
         const userId = after.userId;
 
         console.log(`🔄 Team member ${userId} was removed/suspended, cleaning up access...`);
