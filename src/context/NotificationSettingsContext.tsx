@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { useAuth } from './AuthContext';
-import { NotificationService } from '../services/ExpoNotificationService';
+import { NotificationService } from '../services/NotificationService';
 
 // Notification setting keys
 export const NOTIFICATION_SETTINGS_KEY = 'notification_settings';

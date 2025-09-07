@@ -6,6 +6,7 @@ import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { SubscriptionProvider } from './src/context/SubscriptionContext';
 import { BusinessProvider } from './src/context/BusinessContext';
+import { TeamProvider } from './src/context/TeamContext';
 import { StripeWrapper } from './src/components/StripeWrapper';
 import { AppSplashScreen } from './src/screens/SplashScreen';
 import { AppNavigator } from './src/navigation/AppNavigator';
@@ -14,7 +15,7 @@ import { CustomAlertProvider } from './src/components/CustomAlert';
 import { InAppNotificationProvider } from './src/components/InAppNotificationProvider';
 import { NotificationSettingsProvider } from './src/context/NotificationSettingsContext';
 import { useNotificationSettings } from './src/context/NotificationSettingsContext';
-import { NotificationService } from './src/services/ExpoNotificationService';
+import { NotificationService } from './src/services/NotificationService';
 import { useUserNotificationMonitor } from './src/services/UserNotificationMonitor';
 import { useReceiptSync } from './src/services/ReceiptSyncService';
 import { useNavigationIntent } from './src/hooks/useNavigationIntent';
@@ -183,13 +184,15 @@ export default function App() {
           <AuthProvider>
             <SubscriptionProvider>
               <BusinessProvider>
-                <CustomAlertProvider>
-                  <NotificationSettingsProvider>
-                    <InAppNotificationProvider>
-                      <AppContent />
-                    </InAppNotificationProvider>
-                  </NotificationSettingsProvider>
-                </CustomAlertProvider>
+                <TeamProvider>
+                  <CustomAlertProvider>
+                    <NotificationSettingsProvider>
+                      <InAppNotificationProvider>
+                        <AppContent />
+                      </InAppNotificationProvider>
+                    </NotificationSettingsProvider>
+                  </CustomAlertProvider>
+                </TeamProvider>
               </BusinessProvider>
             </SubscriptionProvider>
           </AuthProvider>

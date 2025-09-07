@@ -2,7 +2,8 @@ import { PlaidService, PlaidTransaction } from './PlaidService';
 import ReceiptServiceFactory, { ReceiptService } from './ReceiptServiceFactory';
 import { GeneratedReceipt } from './HTMLReceiptService'; // Using HTMLReceiptService as the common interface
 import { PDFReceiptService, GeneratedReceiptPDF } from './PDFReceiptService';
-import { NotificationService } from './ExpoNotificationService';
+import { NotificationService } from './NotificationService';
+import { TeamService } from './TeamService';
 import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -648,9 +649,23 @@ export class BankReceiptService {
     business?: any
   ): Promise<string> {
     try {
+      // Check if the current user is a team member and get team attribution
+      const teamMember = await TeamService.getTeamMemberByUserId('', userId);
+      let teamAttribution = undefined;
+      
+      if (teamMember) {
+        teamAttribution = {
+          accountHolderId: teamMember.accountHolderId,
+          createdByUserId: userId,
+          createdByEmail: teamMember.email,
+          createdByName: teamMember.displayName,
+          isTeamReceipt: true,
+        };
+      }
+
       // Create receipt document for Firebase with PDF data
       const receiptDoc = {
-        userId,
+        userId: teamMember?.accountHolderId || userId, // Store under account holder's userId
         pdfUrl: generatedReceiptPDF.receiptPdfUrl,
         pdfPath: generatedReceiptPDF.receiptPdfPath,
         vendor: generatedReceiptPDF.receiptData.businessName || 'Unknown Business', // Merchant/vendor name (Amazon, Starbucks, etc.)
@@ -676,6 +691,7 @@ export class BankReceiptService {
           generatedAt: new Date(),
           type: 'pdf',
         },
+        ...(teamAttribution && { teamAttribution }), // Add team attribution if applicable
         type: 'pdf', // Mark as PDF receipt
         createdAt: new Date(),
         updatedAt: new Date(),

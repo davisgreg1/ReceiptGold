@@ -146,6 +146,13 @@ interface ReceiptDocument {
   tax: TaxInfo;
   status: 'uploaded' | 'processing' | 'processed' | 'error' | 'deleted';
   processingErrors: string[];
+  teamAttribution?: {
+    accountHolderId: string;
+    createdByUserId: string;
+    createdByEmail: string;
+    createdByName?: string;
+    isTeamReceipt: boolean;
+  };
   createdAt: Timestamp;
   updatedAt: Timestamp;
 }
@@ -380,7 +387,14 @@ export const createSubscriptionDocument = async (userId: string): Promise<Docume
 // Create receipt document
 export const createReceiptDocument = async (
   userId: string, 
-  receiptData: ReceiptData
+  receiptData: ReceiptData,
+  teamAttribution?: {
+    accountHolderId: string;
+    createdByUserId: string;
+    createdByEmail: string;
+    createdByName?: string;
+    isTeamReceipt: boolean;
+  }
 ): Promise<DocumentReference> => {
   const receiptsRef = collection(db, collections.receipts);
 
@@ -420,6 +434,9 @@ export const createReceiptDocument = async (
       taxYear: receiptData.tax?.taxYear ?? new Date().getFullYear(),
       category: receiptData.tax?.category || "business_expense",
     },
+
+    // Team Attribution (if applicable)
+    ...(teamAttribution && { teamAttribution }),
 
     // Status
     status: "uploaded",

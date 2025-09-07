@@ -22,6 +22,8 @@ import { TrialBanner } from "../components/TrialBanner";
 import { TermsOfServiceScreen } from "../screens/TermsOfServiceScreen";
 import BusinessManagementScreen from "../screens/BusinessManagementScreen";
 import CreateBusinessScreen from "../screens/CreateBusinessScreen";
+import { TeamManagementScreen } from "../screens/TeamManagementScreen";
+import { InviteTeammateScreen } from "../screens/InviteTeammateScreen";
 import { Receipt } from "../types/receipt";
 
 // Tab Navigator Types
@@ -64,6 +66,8 @@ export type SettingsStackParamList = {
   TermsOfService: undefined;
   BusinessManagement: undefined;
   CreateBusiness: undefined;
+  TeamManagement: undefined;
+  InviteTeammate: undefined;
 };
 
 const Tab = createBottomTabNavigator<BottomTabParamList>();
@@ -328,6 +332,16 @@ const SettingsStackNavigator = () => {
         name="CreateBusiness"
         component={CreateBusinessScreen}
         options={{ title: "Create Business" }}
+      />
+      <SettingsStack.Screen
+        name="TeamManagement"
+        component={TeamManagementScreen}
+        options={{ title: "Team Management" }}
+      />
+      <SettingsStack.Screen
+        name="InviteTeammate"
+        component={InviteTeammateScreen}
+        options={{ title: "Invite Teammate" }}
       />
     </SettingsStack.Navigator>
   );

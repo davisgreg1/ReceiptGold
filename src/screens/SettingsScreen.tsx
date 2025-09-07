@@ -23,6 +23,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useAuth } from "../context/AuthContext";
 import { useBusiness } from "../context/BusinessContext";
+import { useTeam } from "../context/TeamContext";
 import { useStripePayments } from "../hooks/useStripePayments";
 import { Ionicons } from "@expo/vector-icons";
 import {
@@ -56,7 +57,7 @@ import { LinkSuccess, LinkExit } from "react-native-plaid-link-sdk";
 import { BrandText, HeadingText, BodyText, ButtonText } from '../components/Typography';
 import { Signature } from '../components/Signature';
 import { useInAppNotifications } from '../components/InAppNotificationProvider';
-import { NotificationService } from '../services/ExpoNotificationService';
+import { NotificationService } from '../services/NotificationService';
 import { useNotifications } from '../hooks/useNotifications';
 import { useTabNavigation, navigationHelpers } from "../navigation/navigationHelpers";
 import { CustomCategoryService, CustomCategory } from '../services/CustomCategoryService';
@@ -188,6 +189,7 @@ export const SettingsScreen: React.FC = () => {
   console.log("🚀 ~ SettingsScreen ~ subscription:", subscription);
   const { user, logout, refreshUser } = useAuth();
   const { businesses, selectedBusiness } = useBusiness();
+  const { teamMembers, teamInvitations, canInviteMembers } = useTeam();
   const { handleSubscriptionWithCloudFunction, SUBSCRIPTION_TIERS } =
     useStripePayments();
   const navigation =
@@ -1148,6 +1150,50 @@ export const SettingsScreen: React.FC = () => {
             }
           />
         </SettingsSection>
+
+        {/* Team Management Section */}
+        {canAccessFeature("teamManagement") && (
+          <SettingsSection title="Team Management">
+            <SettingsRow
+              label="Manage Team"
+              value={
+                teamMembers.length === 0
+                  ? "Invite teammates"
+                  : `${teamMembers.length} team member${
+                      teamMembers.length !== 1 ? "s" : ""
+                    }`
+              }
+              onPress={() => navigation.navigate("TeamManagement" as any)}
+              rightElement={
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={theme.text.secondary}
+                />
+              }
+              description={
+                canInviteMembers()
+                  ? "Invite colleagues to help manage receipts and collaborate on your account"
+                  : "View and manage your team members"
+              }
+            />
+            {teamInvitations.length > 0 && (
+              <SettingsRow
+                label="Pending Invitations"
+                value={`${teamInvitations.length} pending`}
+                onPress={() => navigation.navigate("TeamManagement" as any)}
+                rightElement={
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color={theme.text.secondary}
+                  />
+                }
+                description="Review and manage pending team invitations"
+              />
+            )}
+          </SettingsSection>
+        )}
 
         {/* Bank Accounts Section */}
         {canUseBankConnection && (

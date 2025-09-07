@@ -18,6 +18,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useBusiness } from '../context/BusinessContext';
 import { BusinessData } from '../types/business';
 import { useSubscription } from '../context/SubscriptionContext';
+import { useTeam } from '../context/TeamContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { useStripePayments } from '../hooks/useStripePayments';
 import { useAuth } from '../context/AuthContext';
@@ -152,6 +153,7 @@ const BusinessManagementScreen: React.FC = () => {
     isBusinessAccessible,
   } = useBusiness();
   const { subscription, canAccessFeature } = useSubscription();
+  const { teamMembers, canInviteMembers } = useTeam();
   const { showError, showSuccess, showWarning, showInfo, hideAlert } = useCustomAlert();
   const { handleSubscriptionWithCloudFunction } = useStripePayments();
   const { user } = useAuth();
@@ -466,6 +468,25 @@ const BusinessManagementScreen: React.FC = () => {
           </TouchableOpacity>
         )}
 
+        {/* Team Management Button */}
+        {canAccessFeature("teamManagement") && (
+          <TouchableOpacity
+            style={[styles.teamButton, { 
+              backgroundColor: theme.background.secondary,
+              borderColor: theme.gold.primary 
+            }]}
+            onPress={() => navigation.navigate('TeamManagement' as any)}
+          >
+            <Ionicons name="people" size={20} color={theme.gold.primary} />
+            <Text style={[styles.teamButtonText, { color: theme.gold.primary }]}>
+              {teamMembers.length > 0 
+                ? `Manage Team (${teamMembers.length})` 
+                : 'Invite Team Members'
+              }
+            </Text>
+          </TouchableOpacity>
+        )}
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -663,6 +684,21 @@ const styles = StyleSheet.create({
   },
   createButtonText: {
     color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  teamButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    marginTop: 12,
+    marginHorizontal: 20,
+    borderWidth: 2,
+  },
+  teamButtonText: {
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,

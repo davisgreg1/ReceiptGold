@@ -116,24 +116,43 @@ service cloud.firestore {
             allow delete: if isOwner(userId);
         }
 
-        // Receipts collection - users can only access their own receipts
+        // Receipts collection - users can access their own receipts or receipts they created as team members
         match /receipts/{receiptId} {
-            allow read: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow read, list: if isAuthenticated() && (
+                request.auth.uid == resource.data.userId ||
+                // Allow team members to read receipts they created
+                (resource.data.teamAttribution != null && 
+                 resource.data.teamAttribution.createdByUserId == request.auth.uid)
+            );
 
-            // Simplified: Only require userId for creation
             allow create: if isAuthenticated() && 
-            request.auth.uid == request.resource.data.userId &&
+            // Account holders can create receipts for themselves
+            (request.auth.uid == request.resource.data.userId ||
+             // Team members can create receipts (stored under account holder's userId)
+             (request.resource.data.teamAttribution != null && 
+              request.resource.data.teamAttribution.createdByUserId == request.auth.uid)) &&
             // Validate userId is present, is a string, and has reasonable length
             request.resource.data.keys().hasAll(['userId']) &&
             request.resource.data.userId is string &&
             request.resource.data.userId.size() <= 128;
 
-            allow update: if isAuthenticated() && 
-            request.auth.uid == resource.data.userId &&
-            // Prevent changing userId
+            allow update: if isAuthenticated() && (
+                // Account holders can update their receipts
+                request.auth.uid == resource.data.userId ||
+                // Team members can only update receipts they created
+                (resource.data.teamAttribution != null && 
+                 resource.data.teamAttribution.createdByUserId == request.auth.uid)
+            ) &&
+            // Prevent changing userId (must remain the same)
             request.resource.data.userId == resource.data.userId;
 
-            allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+            allow delete: if isAuthenticated() && (
+                // Account holders can delete their receipts
+                request.auth.uid == resource.data.userId ||
+                // Team members can only delete receipts they created
+                (resource.data.teamAttribution != null && 
+                 resource.data.teamAttribution.createdByUserId == request.auth.uid)
+            );
         }
 
         // Businesses collection - users can only access their own businesses
@@ -299,6 +318,82 @@ service cloud.firestore {
 
             // Only Cloud Functions can write audit logs
             allow write: if false;
+        }
+
+        // Team Invitations collection - account holders can manage their invitations
+        match /teamInvitations/{invitationId} {
+            // Account holders can read and list their own invitations
+            allow read, list: if isAuthenticated() && 
+            request.auth.uid == resource.data.accountHolderId;
+
+            // Account holders can create invitations
+            allow create: if isAuthenticated() && 
+            request.auth.uid == request.resource.data.accountHolderId &&
+            // Validate required fields
+            request.resource.data.keys().hasAll(['accountHolderId', 'inviteEmail', 'status', 'token', 'expiresAt', 'createdAt', 'role']) &&
+            // Validate field types and sizes
+            request.resource.data.inviteEmail is string &&
+            request.resource.data.inviteEmail.size() <= 254 &&
+            request.resource.data.status == 'pending' &&
+            request.resource.data.token is string &&
+            request.resource.data.role in ['teammate', 'admin'];
+
+            // Account holders can update (revoke) their invitations
+            allow update: if isAuthenticated() && 
+            request.auth.uid == resource.data.accountHolderId &&
+            // Prevent changing core fields, only allow status updates
+            request.resource.data.accountHolderId == resource.data.accountHolderId &&
+            request.resource.data.inviteEmail == resource.data.inviteEmail &&
+            request.resource.data.token == resource.data.token;
+
+            // Account holders can delete their invitations
+            allow delete: if isAuthenticated() && 
+            request.auth.uid == resource.data.accountHolderId;
+
+            // Allow invited users to read invitations by token (for accepting invitations)
+            allow read, list: if isAuthenticated() && 
+            resource.data.inviteEmail.lower() == request.auth.token.email.lower() &&
+            resource.data.status == 'pending';
+        }
+
+        // Team Members collection - account holders and team members can read, limited write access
+        match /teamMembers/{memberId} {
+            // Account holders can read and list all their team members
+            // Team members can read their own membership record
+            allow read, list: if isAuthenticated() && (
+                request.auth.uid == resource.data.accountHolderId ||
+                request.auth.uid == resource.data.userId
+            );
+
+            // Only allow creation during invitation acceptance (Cloud Functions preferred)
+            allow create: if isAuthenticated() && 
+            request.auth.uid == request.resource.data.userId &&
+            // Validate required fields
+            request.resource.data.keys().hasAll(['accountHolderId', 'userId', 'email', 'role', 'status', 'joinedAt']) &&
+            // Validate field types
+            request.resource.data.status == 'active' &&
+            request.resource.data.role in ['teammate', 'admin'];
+
+            // Account holders can update team member status (suspend/activate)
+            // Team members can update their own display name and last active time
+            allow update: if isAuthenticated() && (
+                (request.auth.uid == resource.data.accountHolderId &&
+                 // Account holders can only change status and permissions
+                 request.resource.data.userId == resource.data.userId &&
+                 request.resource.data.accountHolderId == resource.data.accountHolderId &&
+                 request.resource.data.email == resource.data.email) ||
+                (request.auth.uid == resource.data.userId &&
+                 // Team members can only update their display name and last active time
+                 request.resource.data.userId == resource.data.userId &&
+                 request.resource.data.accountHolderId == resource.data.accountHolderId &&
+                 request.resource.data.email == resource.data.email &&
+                 request.resource.data.role == resource.data.role &&
+                 request.resource.data.status == resource.data.status)
+            );
+
+            // Account holders can delete (remove) team members
+            allow delete: if isAuthenticated() && 
+            request.auth.uid == resource.data.accountHolderId;
         }
     }
 }
