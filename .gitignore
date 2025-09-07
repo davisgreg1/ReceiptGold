@@ -153,3 +153,4 @@ GoogleService-Info.plist
 
 # Allow environment templates (with placeholder values)
 # Removed .env.development and .env.production from being tracked
+functions/.env.production

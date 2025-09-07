@@ -441,43 +441,8 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
           const currentTier = (data.currentTier || "free") as SubscriptionTier;
           
-          // Calculate trial information
+          // Calculate trial information - simplified without async updates
           const calculateTrialData = () => {
-            // Check if this is a free user without trial data - they should get trial access
-            if (!data.trial && currentTier === "free") {
-              console.log("🔄 Converting free user to trial:", user.uid);
-              const now = new Date();
-              const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
-              
-              // Update the document with trial data
-              const updateTrialData = async () => {
-                try {
-                  const { updateDoc } = await import('firebase/firestore');
-                  await updateDoc(doc(db, "subscriptions", user.uid), {
-                    trial: {
-                      isActive: true,
-                      startedAt: now,
-                      expiresAt: trialExpires,
-                    },
-                    currentTier: "trial",
-                    features: getFeaturesByTier("trial"),
-                  });
-                  console.log("✅ Successfully converted free user to trial");
-                } catch (error) {
-                  console.error("❌ Error updating trial data:", error);
-                }
-              };
-              
-              updateTrialData();
-              
-              return {
-                isActive: true,
-                startedAt: now,
-                expiresAt: trialExpires,
-                daysRemaining: 3,
-              };
-            }
-            
             if (!data.trial) {
               return {
                 isActive: false,
@@ -506,13 +471,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           const trialData = calculateTrialData();
           const effectiveTier = trialData.isActive ? "trial" : (currentTier === "trial" ? "free" : currentTier);
           
-          console.log("Subscription updated:", {
-            currentTier,
-            effectiveTier,
-            trialIsActive: trialData.isActive,
-            trialExpiresAt: trialData.expiresAt,
-            status: data.status,
-          });
 
           // Always compute the limits based on the effective tier (trial acts like professional)
           const receiptLimits = getReceiptLimits();
@@ -549,7 +507,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
                 : 0, // No team members for lower tiers
           };
 
-          setSubscription({
+          const newSubscriptionState = {
             currentTier: effectiveTier,
             features: getFeaturesByTier(effectiveTier),
             limits,
@@ -573,7 +531,9 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               trialEnd: data.billing?.trialEnd?.toDate() || null,
             },
             trial: trialData,
-          });
+          };
+
+          setSubscription(newSubscriptionState);
 
           // Refresh receipt count when subscription changes
           // This will trigger after Cloud Function updates

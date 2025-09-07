@@ -944,7 +944,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 style={[styles.input, { color: theme.text.primary }]}
                 value={formData.vendor}
                 onChangeText={(text) => {
-                  setFormData(prev => ({ ...prev, vendor: text }));
+                  setFormData(prev => ({ ...prev, vendor: text.trim() }));
                   // Clear validation error when user starts typing
                   if (validationErrors.vendor) {
                     setValidationErrors(prev => ({ ...prev, vendor: false }));

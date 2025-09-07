@@ -25,7 +25,7 @@ export const InviteTeammateScreen: React.FC = () => {
   const navigation = useNavigation();
   const { theme } = useTheme();
   const { user } = useAuth();
-  const { inviteTeammate, hasReachedMemberLimit } = useTeam();
+  const { inviteTeammate, hasReachedMemberLimit, isTeamMember, currentMembership, accountHolderId } = useTeam();
   const { subscription, canAccessFeature } = useSubscription();
   const { showError, showSuccess } = useCustomAlert();
 
@@ -59,6 +59,9 @@ export const InviteTeammateScreen: React.FC = () => {
     console.log('- Subscription tier:', subscription.currentTier);
     console.log('- Can access team management:', canAccessFeature('teamManagement'));
     console.log('- Team management feature enabled:', subscription.features.teamManagement);
+    console.log('- Is team member:', isTeamMember);
+    console.log('- Current membership:', currentMembership);
+    console.log('- Account holder ID:', accountHolderId);
 
     setLoading(true);
     try {
@@ -132,7 +135,7 @@ export const InviteTeammateScreen: React.FC = () => {
               placeholder="teammate@company.com"
               placeholderTextColor={theme.text.tertiary}
               value={email}
-              onChangeText={setEmail}
+              onChangeText={(text) => setEmail(text.trim())}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}

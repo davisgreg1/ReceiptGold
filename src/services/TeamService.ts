@@ -133,7 +133,12 @@ export class TeamService {
         });
       });
 
-      return invitations;
+      // Filter to only show pending invitations that haven't expired
+      const activeInvitations = invitations.filter(invitation => 
+        invitation.status === 'pending' && invitation.expiresAt > new Date()
+      );
+      
+      return activeInvitations;
     } catch (error) {
       console.error('❌ Error getting invitations for account:', error);
       throw new Error('Failed to get team invitations');

@@ -28,12 +28,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
+exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const stripe_1 = __importDefault(require("stripe"));
 const https_1 = require("firebase-functions/v2/https");
+const sgMail = __importStar(require("@sendgrid/mail"));
 // Initialize Firebase Admin SDK for production
 admin.initializeApp();
 const db = admin.firestore();
@@ -2549,6 +2550,191 @@ exports.initializeTestUser = (0, https_1.onCall)(async (request) => {
     catch (error) {
         console.error('Error initializing test user:', error);
         throw new https_1.HttpsError('internal', 'Failed to initialize user');
+    }
+});
+// =====================================================
+// TEAM MANAGEMENT FUNCTIONS
+// =====================================================
+/**
+ * Cloud Function to send team invitation emails
+ * Triggered when a team invitation is created
+ */
+exports.sendTeamInvitationEmail = functionsV1.firestore
+    .document('teamInvitations/{invitationId}')
+    .onCreate(async (snapshot, context) => {
+    try {
+        const invitation = snapshot.data();
+        // const invitationId = context.params.invitationId;
+        // Get account holder information
+        const accountHolderDoc = await db.collection('users').doc(invitation.accountHolderId).get();
+        if (!accountHolderDoc.exists) {
+            console.error('Account holder not found:', invitation.accountHolderId);
+            return;
+        }
+        const accountHolder = accountHolderDoc.data();
+        const accountHolderEmail = accountHolder.email;
+        const accountHolderName = accountHolder.displayName || accountHolderEmail;
+        // Update invitation with account holder email
+        await snapshot.ref.update({
+            accountHolderEmail: accountHolderEmail,
+        });
+        // Create invitation link
+        const invitationLink = `https://receiptgold.com/team/accept?token=${invitation.token}`;
+        // Email content
+        const subject = `${accountHolderName} invited you to join their ReceiptGold team`;
+        const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Team Invitation - ReceiptGold</title>
+        </head>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #DAA520;">ReceiptGold</h1>
+          </div>
+          
+          <h2 style="color: #DAA520; text-align: center;">You've been invited to join a team!</h2>
+          
+          <p>Hello,</p>
+          
+          <p><strong>${accountHolderName}</strong> (${accountHolderEmail}) has invited you to join their team on ReceiptGold.</p>
+          
+          <div style="background-color: #f9f9f9; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #DAA520;">What is ReceiptGold?</h3>
+            <p>ReceiptGold is a professional receipt management and expense tracking platform that helps businesses organize, categorize, and track their receipts for tax preparation and financial reporting.</p>
+          </div>
+          
+          <div style="background-color: #f0f8ff; padding: 20px; border-radius: 8px; margin: 20px 0;">
+            <h3 style="margin-top: 0; color: #2E5BBA;">As a team member, you'll be able to:</h3>
+            <ul>
+              <li>Add receipts to ${accountHolderName}'s account</li>
+              <li>Edit and manage your own receipts</li>
+              <li>Help organize business expenses</li>
+              <li>Access the ReceiptGold mobile and web apps</li>
+            </ul>
+          </div>
+          
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${invitationLink}" style="background-color: #DAA520; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Accept Invitation</a>
+          </div>
+          
+          <p><small>This invitation will expire on ${new Date(invitation.expiresAt.toDate()).toLocaleDateString()}.</small></p>
+          
+          <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
+          
+          <p style="font-size: 12px; color: #666; text-align: center;">
+            If you didn't expect this invitation, you can safely ignore this email.<br>
+            This invitation was sent to ${invitation.inviteEmail}.
+          </p>
+        </body>
+        </html>
+      `;
+        // Send email using SendGrid
+        console.log('📧 Team invitation email details:');
+        console.log('To:', invitation.inviteEmail);
+        console.log('From:', accountHolderEmail);
+        console.log('Subject:', subject);
+        console.log('Invitation Link:', invitationLink);
+        console.log('Expires:', invitation.expiresAt.toDate());
+        // Get SendGrid API key from environment
+        const sendgridApiKey = process.env.SENDGRID_API_KEY;
+        if (!sendgridApiKey) {
+            console.error('❌ SENDGRID_API_KEY environment variable not set');
+            throw new Error('SendGrid API key not configured');
+        }
+        // Configure SendGrid
+        sgMail.setApiKey(sendgridApiKey);
+        const msg = {
+            to: invitation.inviteEmail,
+            from: accountHolderEmail,
+            replyTo: accountHolderEmail,
+            subject: subject,
+            html: htmlContent,
+            text: `${accountHolderName} invited you to join their ReceiptGold team\n\nAccept your invitation: ${invitationLink}\n\nThis invitation will expire on ${new Date(invitation.expiresAt.toDate()).toLocaleDateString()}.`
+        };
+        // Send the email
+        await sgMail.send(msg);
+        console.log('✅ Team invitation email sent successfully to:', invitation.inviteEmail);
+        // Mark invitation as email sent (optional status tracking)
+        await snapshot.ref.update({
+            emailSent: true,
+            emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log('✅ Team invitation email processed for:', invitation.inviteEmail);
+    }
+    catch (error) {
+        console.error('❌ Error sending team invitation email:', error);
+        // Update invitation with error status
+        await snapshot.ref.update({
+            emailError: error.message,
+            emailSent: false,
+        });
+    }
+});
+/**
+ * Clean up expired team invitations
+ * Runs daily to remove expired invitations
+ */
+exports.cleanupExpiredInvitations = functionsV1.pubsub
+    .schedule('every 24 hours')
+    .timeZone('America/New_York')
+    .onRun(async (context) => {
+    try {
+        const now = admin.firestore.Timestamp.now();
+        const expiredInvitationsQuery = db.collection('teamInvitations')
+            .where('expiresAt', '<', now)
+            .where('status', '==', 'pending');
+        const expiredInvitations = await expiredInvitationsQuery.get();
+        if (expiredInvitations.empty) {
+            console.log('No expired invitations to clean up');
+            return;
+        }
+        const batch = db.batch();
+        let count = 0;
+        expiredInvitations.forEach((doc) => {
+            batch.update(doc.ref, {
+                status: 'expired',
+                expiredAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            count++;
+        });
+        await batch.commit();
+        console.log(`✅ Cleaned up ${count} expired team invitations`);
+    }
+    catch (error) {
+        console.error('❌ Error cleaning up expired invitations:', error);
+    }
+});
+/**
+ * Handle team member removal
+ * Clean up data when a team member is removed
+ */
+exports.onTeamMemberRemoved = functionsV1.firestore
+    .document('teamMembers/{memberId}')
+    .onUpdate(async (change, context) => {
+    try {
+        const before = change.before.data();
+        const after = change.after.data();
+        // Check if member status changed to suspended
+        if (before.status === 'active' && after.status === 'suspended') {
+            // const memberId = context.params.memberId;
+            const userId = after.userId;
+            console.log(`🔄 Team member ${userId} was removed/suspended, cleaning up access...`);
+            // Here you could add additional cleanup logic:
+            // - Revoke any active sessions
+            // - Send notification to removed member
+            // - Log the removal in audit logs
+            // Update last active time to track when they were removed
+            await change.after.ref.update({
+                removedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            console.log(`✅ Team member ${userId} removal cleanup completed`);
+        }
+    }
+    catch (error) {
+        console.error('❌ Error handling team member removal:', error);
     }
 });
 //# sourceMappingURL=index.js.map
