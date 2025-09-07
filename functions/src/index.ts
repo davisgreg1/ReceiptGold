@@ -3422,22 +3422,66 @@ export const onTeamMemberRemoved = functionsV1.firestore
 
       // Check if member status changed to suspended
       if (before.status === 'active' && after.status === 'suspended') {
-        // const memberId = context.params.memberId;
+        const memberId = context.params.memberId;
         const userId = after.userId;
+        const memberEmail = after.email;
 
-        console.log(`🔄 Team member ${userId} was removed/suspended, cleaning up access...`);
+        console.log(`🔄 Team member ${userId} (${memberEmail}) was removed/suspended, performing complete account deletion...`);
 
-        // Here you could add additional cleanup logic:
-        // - Revoke any active sessions
-        // - Send notification to removed member
-        // - Log the removal in audit logs
-        
-        // Update last active time to track when they were removed
-        await change.after.ref.update({
-          removedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
+        try {
+          // 1. Delete the Firebase Auth user account completely
+          await admin.auth().deleteUser(userId);
+          console.log(`🔥 Deleted Firebase Auth account for user ${userId}`);
 
-        console.log(`✅ Team member ${userId} removal cleanup completed`);
+          // 2. Delete user's Firestore document
+          await db.collection('users').doc(userId).delete();
+          console.log(`📄 Deleted user document for ${userId}`);
+
+          // 3. Delete all user's receipts
+          const receiptsQuery = db.collection('receipts').where('userId', '==', userId);
+          const receiptsSnapshot = await receiptsQuery.get();
+          const receiptBatch = db.batch();
+          
+          receiptsSnapshot.docs.forEach(doc => {
+            receiptBatch.delete(doc.ref);
+          });
+          
+          if (!receiptsSnapshot.empty) {
+            await receiptBatch.commit();
+            console.log(`🧾 Deleted ${receiptsSnapshot.size} receipts for user ${userId}`);
+          }
+
+          // 4. Delete all user's budgets
+          const budgetsQuery = db.collection('budgets').where('userId', '==', userId);
+          const budgetsSnapshot = await budgetsQuery.get();
+          const budgetBatch = db.batch();
+          
+          budgetsSnapshot.docs.forEach(doc => {
+            budgetBatch.delete(doc.ref);
+          });
+          
+          if (!budgetsSnapshot.empty) {
+            await budgetBatch.commit();
+            console.log(`💰 Deleted ${budgetsSnapshot.size} budgets for user ${userId}`);
+          }
+
+          // 5. Finally delete the team member document
+          await change.after.ref.delete();
+          console.log(`👥 Deleted team member document ${memberId}`);
+
+          console.log(`✅ COMPLETE ACCOUNT DELETION: User ${userId} (${memberEmail}) has been permanently removed`);
+          
+        } catch (deleteError) {
+          console.error(`❌ Error during complete account deletion for user ${userId}:`, deleteError);
+          
+          // Still update the removal timestamp even if deletion fails
+          await change.after.ref.update({
+            removedAt: admin.firestore.FieldValue.serverTimestamp(),
+            deletionError: deleteError instanceof Error ? deleteError.message : String(deleteError),
+          });
+          
+          throw deleteError; // Re-throw to trigger function retry
+        }
       }
 
     } catch (error) {

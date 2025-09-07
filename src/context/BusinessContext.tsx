@@ -246,57 +246,93 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setLoading(true);
     setError(null);
 
-    const businessesQuery = query(
+    // Function to load businesses from snapshot
+    const processBusinessSnapshot = (snapshot: any) => {
+      const businessList: BusinessData[] = [];
+      
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        businessList.push({
+          id: doc.id,
+          userId: data.userId,
+          name: data.name,
+          type: data.type,
+          taxId: data.taxId,
+          industry: data.industry,
+          phone: data.phone,
+          address: data.address,
+          settings: data.settings,
+          stats: {
+            totalReceipts: data.stats?.totalReceipts || 0,
+            totalAmount: data.stats?.totalAmount || 0,
+            lastReceiptDate: data.stats?.lastReceiptDate && typeof data.stats.lastReceiptDate.toDate === 'function' 
+              ? data.stats.lastReceiptDate.toDate() 
+              : null,
+          },
+          isActive: data.isActive,
+          createdAt: data.createdAt?.toDate() || new Date(),
+          updatedAt: data.updatedAt?.toDate() || new Date(),
+        });
+      });
+      
+      return businessList;
+    };
+
+    // Load businesses the user owns
+    const ownedBusinessesQuery = query(
       collection(db, 'businesses'),
       where('userId', '==', user.uid),
       where('isActive', '==', true)
     );
 
-    const unsubscribe = onSnapshot(
-      businessesQuery,
-      (snapshot) => {
-        const businessList: BusinessData[] = [];
-        
-        snapshot.forEach((doc) => {
-          const data = doc.data();
-          businessList.push({
-            id: doc.id,
-            userId: data.userId,
-            name: data.name,
-            type: data.type,
-            taxId: data.taxId,
-            industry: data.industry,
-            phone: data.phone,
-            address: data.address,
-            settings: data.settings,
-            stats: {
-              totalReceipts: data.stats?.totalReceipts || 0,
-              totalAmount: data.stats?.totalAmount || 0,
-              lastReceiptDate: data.stats?.lastReceiptDate && typeof data.stats.lastReceiptDate.toDate === 'function' 
-                ? data.stats.lastReceiptDate.toDate() 
-                : null,
-            },
-            isActive: data.isActive,
-            createdAt: data.createdAt?.toDate() || new Date(),
-            updatedAt: data.updatedAt?.toDate() || new Date(),
-          });
-        });
+    // Load team membership to get associated businesses
+    const teamMembersQuery = query(
+      collection(db, 'teamMembers'),
+      where('userId', '==', user.uid),
+      where('status', '==', 'active')
+    );
 
-        console.log('🏢 BusinessContext: Loaded businesses:', businessList.map(b => ({ id: b.id, name: b.name })));
-        setBusinesses(businessList);
+    let allBusinesses: BusinessData[] = [];
+    let businessesFromOwned: BusinessData[] = [];
+    let businessesFromTeam: BusinessData[] = [];
+    let businessUnsubscribe: (() => void) | null = null;
+    let teamUnsubscribe: (() => void) | null = null;
 
-        // Restore selected business from AsyncStorage with access restrictions
-        const restoreSelectedBusiness = async () => {
+    const updateBusinessList = async () => {
+      // Combine owned businesses and team-associated businesses
+      const businessIds = new Set();
+      allBusinesses = [];
+      
+      // Add owned businesses
+      businessesFromOwned.forEach(business => {
+        if (!businessIds.has(business.id)) {
+          businessIds.add(business.id);
+          allBusinesses.push(business);
+        }
+      });
+      
+      // Add team-associated businesses
+      businessesFromTeam.forEach(business => {
+        if (!businessIds.has(business.id)) {
+          businessIds.add(business.id);
+          allBusinesses.push(business);
+        }
+      });
+      console.log('🏢 BusinessContext: Loaded businesses:', allBusinesses.map(b => ({ id: b.id, name: b.name, userId: b.userId })));
+      setBusinesses(allBusinesses);
+
+      // Restore selected business from AsyncStorage with access restrictions
+      const restoreSelectedBusiness = async () => {
           try {
             const savedBusinessId = await AsyncStorage.getItem('selectedBusinessId');
             
             // Get accessible businesses for current tier
-            const tempAccessibleBusinesses = !canAccessFeature('multiBusinessManagement') && businessList.length > 1
-              ? [businessList.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]]
-              : businessList;
+            const tempAccessibleBusinesses = !canAccessFeature('multiBusinessManagement') && allBusinesses.length > 1
+              ? [allBusinesses.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]]
+              : allBusinesses;
             
             if (savedBusinessId) {
-              const savedBusiness = businessList.find(b => b.id === savedBusinessId);
+              const savedBusiness = allBusinesses.find(b => b.id === savedBusinessId);
               const isAccessible = tempAccessibleBusinesses.some(b => b.id === savedBusinessId);
               
               if (savedBusiness && isAccessible) {
@@ -327,16 +363,95 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           setLoading(false);
         };
 
-        restoreSelectedBusiness();
+        await restoreSelectedBusiness();
+      };
+
+    // Subscribe to owned businesses
+    businessUnsubscribe = onSnapshot(
+      ownedBusinessesQuery,
+      (snapshot) => {
+        businessesFromOwned = processBusinessSnapshot(snapshot);
+        updateBusinessList();
       },
       (err) => {
-        console.error('Error listening to businesses:', err);
+        console.error('Error listening to owned businesses:', err);
         setError(err.message);
         setLoading(false);
       }
     );
 
-    return unsubscribe;
+    // Subscribe to team memberships to get associated businesses
+    teamUnsubscribe = onSnapshot(
+      teamMembersQuery,
+      async (snapshot) => {
+        const teamMemberships: any[] = [];
+        snapshot.forEach((doc) => {
+          teamMemberships.push({ id: doc.id, ...doc.data() });
+        });
+
+        console.log('👥 BusinessContext: Found team memberships:', teamMemberships);
+
+        // Load businesses associated with team memberships
+        if (teamMemberships.length > 0) {
+          const businessIds = teamMemberships.map(membership => membership.businessId).filter(Boolean);
+          
+          if (businessIds.length > 0) {
+            // Load businesses by IDs
+            const businessPromises = businessIds.map(async (businessId) => {
+              try {
+                const businessDoc = await getDoc(doc(db, 'businesses', businessId));
+                if (businessDoc.exists() && businessDoc.data().isActive) {
+                  const data = businessDoc.data();
+                  return {
+                    id: businessDoc.id,
+                    userId: data.userId,
+                    name: data.name,
+                    type: data.type,
+                    taxId: data.taxId,
+                    industry: data.industry,
+                    phone: data.phone,
+                    address: data.address,
+                    settings: data.settings,
+                    stats: {
+                      totalReceipts: data.stats?.totalReceipts || 0,
+                      totalAmount: data.stats?.totalAmount || 0,
+                      lastReceiptDate: data.stats?.lastReceiptDate && typeof data.stats.lastReceiptDate.toDate === 'function' 
+                        ? data.stats.lastReceiptDate.toDate() 
+                        : null,
+                    },
+                    isActive: data.isActive,
+                    createdAt: data.createdAt?.toDate() || new Date(),
+                    updatedAt: data.updatedAt?.toDate() || new Date(),
+                  };
+                }
+                return null;
+              } catch (error) {
+                console.error(`Error fetching business ${businessId}:`, error);
+                return null;
+              }
+            });
+
+            const teamBusinesses = await Promise.all(businessPromises);
+            businessesFromTeam = teamBusinesses.filter(Boolean) as BusinessData[];
+          } else {
+            businessesFromTeam = [];
+          }
+        } else {
+          businessesFromTeam = [];
+        }
+
+        updateBusinessList();
+      },
+      (err) => {
+        console.error('Error listening to team memberships:', err);
+        // Don't set error for team memberships, continue with owned businesses
+      }
+    );
+
+    return () => {
+      if (businessUnsubscribe) businessUnsubscribe();
+      if (teamUnsubscribe) teamUnsubscribe();
+    };
   }, [user]);
 
   const contextValue: BusinessContextType = {

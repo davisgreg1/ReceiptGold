@@ -13,6 +13,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
 import { useSubscription } from "../context/SubscriptionContext";
+import { useTeam } from "../context/TeamContext";
 import { useHomeNavigation, useTabNavigation, navigationHelpers } from "../navigation/navigationHelpers";
 import { BrandText, HeadingText, BodyText, ButtonText } from '../components/Typography';
 import { Signature } from '../components/Signature';
@@ -49,6 +50,7 @@ export const HomeScreen: React.FC = () => {
   const { theme } = useTheme();
   const { user } = useAuth();
   const { subscription } = useSubscription();
+  const { isTeamMember } = useTeam();
   const homeNavigation = useHomeNavigation();
   const tabNavigation = useTabNavigation();
 
@@ -579,48 +581,50 @@ export const HomeScreen: React.FC = () => {
           </View>
         )}
 
-        {/* Subscription Card */}
-        <View style={styles.subscriptionSection}>
-          <View style={[styles.subscriptionCard, { 
-            backgroundColor: theme.background.secondary,
-            borderColor: theme.gold.primary,
-          }]}>
-            <View style={styles.subscriptionIcon}>
-              <Text style={styles.subscriptionEmoji}>
-                {subscription.currentTier === 'starter' ? '📄' : 
-                 subscription.currentTier === 'growth' ? '📈' : 
-                 subscription.currentTier === 'professional' || subscription.trial.isActive ? '💼' : '🆓'}
-              </Text>
+        {/* Subscription Card - Only for account holders */}
+        {!isTeamMember && (
+          <View style={styles.subscriptionSection}>
+            <View style={[styles.subscriptionCard, { 
+              backgroundColor: theme.background.secondary,
+              borderColor: theme.gold.primary,
+            }]}>
+              <View style={styles.subscriptionIcon}>
+                <Text style={styles.subscriptionEmoji}>
+                  {subscription.currentTier === 'starter' ? '📄' : 
+                   subscription.currentTier === 'growth' ? '📈' : 
+                   subscription.currentTier === 'professional' || subscription.trial.isActive ? '💼' : '🆓'}
+                </Text>
+              </View>
+              <View style={styles.subscriptionDetails}>
+                <HeadingText size="medium" color="gold">
+                  {subscription.currentTier === 'starter' ? 'Starter Plan' : 
+                   subscription.currentTier === 'growth' ? 'Growth Plan' : 
+                   subscription.currentTier === 'professional' || subscription.trial.isActive ? 'Professional Plan' : 'Free Plan'}
+                </HeadingText>
+                <BodyText size="small" color="secondary">
+                  {subscription.currentTier === 'starter' && '50 receipts/mo • Basic categorization'}
+                  {subscription.currentTier === 'growth' && '150 receipts/mo • Advanced reporting'}
+                  {(subscription.currentTier === 'professional' || subscription.trial.isActive) && 'Unlimited receipts • Multi-business • Bank sync'}
+                  {subscription.currentTier === 'free' && !subscription.trial.isActive && 'Limited features • Upgrade for more'}
+                </BodyText>
+                <BodyText size="small" color="tertiary" style={{ marginTop: 4 }}>
+                  {subscription.currentTier === 'starter' && '$9.99/month'}
+                  {subscription.currentTier === 'growth' && '$19.99/month'}
+                  {(subscription.currentTier === 'professional' || subscription.trial.isActive) && (subscription.trial.isActive ? 'Trial Active' : '$39.99/month')}
+                  {subscription.currentTier === 'free' && !subscription.trial.isActive && 'Try premium features'}
+                </BodyText>
+              </View>
+              <TouchableOpacity
+                style={[styles.subscriptionButton, { backgroundColor: theme.gold.primary }]}
+                onPress={() => homeNavigation.navigate('Subscription')}
+              >
+                <ButtonText size="small" color="inverse">
+                  {subscription.currentTier === 'free' ? 'Upgrade' : 'Manage'}
+                </ButtonText>
+              </TouchableOpacity>
             </View>
-            <View style={styles.subscriptionDetails}>
-              <HeadingText size="medium" color="gold">
-                {subscription.currentTier === 'starter' ? 'Starter Plan' : 
-                 subscription.currentTier === 'growth' ? 'Growth Plan' : 
-                 subscription.currentTier === 'professional' || subscription.trial.isActive ? 'Professional Plan' : 'Free Plan'}
-              </HeadingText>
-              <BodyText size="small" color="secondary">
-                {subscription.currentTier === 'starter' && '50 receipts/mo • Basic categorization'}
-                {subscription.currentTier === 'growth' && '150 receipts/mo • Advanced reporting'}
-                {(subscription.currentTier === 'professional' || subscription.trial.isActive) && 'Unlimited receipts • Multi-business • Bank sync'}
-                {subscription.currentTier === 'free' && !subscription.trial.isActive && 'Limited features • Upgrade for more'}
-              </BodyText>
-              <BodyText size="small" color="tertiary" style={{ marginTop: 4 }}>
-                {subscription.currentTier === 'starter' && '$9.99/month'}
-                {subscription.currentTier === 'growth' && '$19.99/month'}
-                {(subscription.currentTier === 'professional' || subscription.trial.isActive) && (subscription.trial.isActive ? 'Trial Active' : '$39.99/month')}
-                {subscription.currentTier === 'free' && !subscription.trial.isActive && 'Try premium features'}
-              </BodyText>
-            </View>
-            <TouchableOpacity
-              style={[styles.subscriptionButton, { backgroundColor: theme.gold.primary }]}
-              onPress={() => homeNavigation.navigate('Subscription')}
-            >
-              <ButtonText size="small" color="inverse">
-                {subscription.currentTier === 'free' ? 'Upgrade' : 'Manage'}
-              </ButtonText>
-            </TouchableOpacity>
           </View>
-        </View>
+        )}
 
         {/* Signature */}
         <Signature variant="default" />

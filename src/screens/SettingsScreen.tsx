@@ -183,13 +183,46 @@ const formatConnectionDate = (dateValue: any): string => {
   return isNaN(date.getTime()) ? 'Unknown' : date.toLocaleDateString();
 };
 
+// Helper function to format Firestore timestamps
+const formatFirestoreDate = (dateValue: any): string => {
+  if (!dateValue) {
+    return 'Unknown';
+  }
+  
+  try {
+    // Handle Firestore timestamp with toDate() method
+    if (typeof dateValue === 'object' && 'toDate' in dateValue) {
+      return dateValue.toDate().toLocaleDateString();
+    }
+    
+    // Handle JavaScript Date object
+    if (dateValue instanceof Date) {
+      return dateValue.toLocaleDateString();
+    }
+    
+    // Handle string or number timestamp
+    const date = new Date(dateValue);
+    return isNaN(date.getTime()) ? 'Unknown' : date.toLocaleDateString();
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return 'Unknown';
+  }
+};
+
 export const SettingsScreen: React.FC = () => {
   const { theme, themeMode, toggleTheme } = useTheme();
   const { subscription, canAccessFeature } = useSubscription();
   console.log("🚀 ~ SettingsScreen ~ subscription:", subscription);
   const { user, logout, refreshUser } = useAuth();
   const { businesses, selectedBusiness } = useBusiness();
-  const { teamMembers, teamInvitations, canInviteMembers } = useTeam();
+  const { teamMembers, teamInvitations, canInviteMembers, isTeamMember, currentMembership } = useTeam();
+  console.log("🚀 ~ SettingsScreen ~ isTeamMember:", isTeamMember);
+  console.log("🚀 ~ SettingsScreen ~ currentMembership:", currentMembership);
+  console.log("🚀 ~ SettingsScreen ~ currentMembership role:", currentMembership?.role);
+  console.log("🚀 ~ SettingsScreen ~ canAccessFeature teamManagement:", canAccessFeature("teamManagement"));
+  console.log("🚀 ~ SettingsScreen ~ should show team management:", 
+    ((canAccessFeature("teamManagement") && !isTeamMember) || 
+     (isTeamMember && currentMembership?.role === 'admin')));
   const { handleSubscriptionWithCloudFunction, SUBSCRIPTION_TIERS } =
     useStripePayments();
   const navigation =
@@ -516,7 +549,7 @@ export const SettingsScreen: React.FC = () => {
           if (exit.error) {
             showError(
               "Repair Failed",
-              `Failed to repair ${connection.institutionName} connection. ${exit.error.error_message || 'Please try again.'}`
+              `Failed to repair ${connection.institutionName} connection. ${exit.error.errorMessage || 'Please try again.'}`
             );
           }
         },
@@ -1125,24 +1158,30 @@ export const SettingsScreen: React.FC = () => {
         {/* Business Management Section */}
         <SettingsSection title="Business Management">
           <SettingsRow
-            label="Manage Businesses"
+            label={isTeamMember ? "Business Information" : "Manage Businesses"}
             value={
-              businesses.length === 0
+              isTeamMember
+                ? currentMembership?.businessName || "Business"
+                : businesses.length === 0
                 ? "Get started"
                 : `${businesses.length} business${
                     businesses.length !== 1 ? "es" : ""
                   }`
             }
-            onPress={() => navigation.navigate("BusinessManagement")}
+            onPress={isTeamMember ? undefined : () => navigation.navigate("BusinessManagement")}
             rightElement={
-              <Ionicons
-                name="chevron-forward"
-                size={20}
-                color={theme.text.secondary}
-              />
+              isTeamMember ? null : (
+                <Ionicons
+                  name="chevron-forward"
+                  size={20}
+                  color={theme.text.secondary}
+                />
+              )
             }
             description={
-              businesses.length === 0
+              isTeamMember
+                ? "You have read-only access to this business information"
+                : businesses.length === 0
                 ? "Set up your business profile to start tracking receipts"
                 : canAccessFeature("multiBusinessManagement")
                 ? "Create and manage multiple business entities"
@@ -1151,8 +1190,9 @@ export const SettingsScreen: React.FC = () => {
           />
         </SettingsSection>
 
-        {/* Team Management Section */}
-        {canAccessFeature("teamManagement") && (
+        {/* Team Management Section - For account holders and admin team members */}
+        {((canAccessFeature("teamManagement") && !isTeamMember) || 
+          (isTeamMember && currentMembership?.role === 'admin')) && (
           <SettingsSection title="Team Management">
             <SettingsRow
               label="Manage Team"
@@ -1173,7 +1213,7 @@ export const SettingsScreen: React.FC = () => {
               }
               description={
                 canInviteMembers()
-                  ? "Invite colleagues to help manage receipts and collaborate on your account"
+                  ? "Invite colleagues to help manage receipts and collaborate on the account"
                   : "View and manage your team members"
               }
             />
@@ -1581,7 +1621,81 @@ export const SettingsScreen: React.FC = () => {
           )}
         </SettingsSection>
 
-        {/* Subscription Section */}
+        {/* Team Member Status Section - Only for team members */}
+        {isTeamMember && currentMembership && (
+          <SettingsSection title="Team Member Status">
+            <View style={[styles.teamMemberCard, { backgroundColor: theme.gold.background, borderColor: theme.gold.primary }]}>
+              <View style={styles.teamMemberHeader}>
+                <View style={[styles.roleIcon, { backgroundColor: theme.gold.primary }]}>
+                  <Ionicons 
+                    name={currentMembership.role === 'admin' ? 'shield' : 'people'} 
+                    size={24} 
+                    color="white" 
+                  />
+                </View>
+                <View style={styles.teamMemberInfo}>
+                  <Text style={[styles.roleTitle, { color: theme.text.primary }]}>
+                    {currentMembership.role === 'admin' ? 'Team Admin' : 'Team Member'}
+                  </Text>
+                  <Text style={[styles.businessName, { color: theme.text.secondary }]}>
+                    {currentMembership.businessName}
+                  </Text>
+                </View>
+                <View style={[styles.statusBadge, { backgroundColor: theme.status.success }]}>
+                  <Text style={styles.statusText}>Active</Text>
+                </View>
+              </View>
+              
+              <Text style={[styles.roleDescription, { color: theme.text.secondary }]}>
+                {currentMembership.role === 'admin' 
+                  ? 'You have administrative privileges and can manage team members.'
+                  : 'You have access to create and manage receipts for this business with Professional features.'
+                }
+              </Text>
+              
+              <View style={styles.memberDetails}>
+                <View style={styles.detailRow}>
+                  <Ionicons name="mail" size={16} color={theme.text.tertiary} />
+                  <Text style={[styles.detailLabel, { color: theme.text.tertiary }]}>Account Holder:</Text>
+                  <Text style={[styles.detailValue, { color: theme.text.secondary }]}>
+                    {currentMembership.accountHolderEmail}
+                  </Text>
+                </View>
+                <View style={styles.detailRow}>
+                  <Ionicons name="calendar" size={16} color={theme.text.tertiary} />
+                  <Text style={[styles.detailLabel, { color: theme.text.tertiary }]}>Joined:</Text>
+                  <Text style={[styles.detailValue, { color: theme.text.secondary }]}>
+                    {formatFirestoreDate(currentMembership.joinedAt)}
+                  </Text>
+                </View>
+              </View>
+              
+              <View style={[styles.featuresInfo, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
+                <Text style={[styles.featuresTitle, { color: theme.gold.primary }]}>✨ Professional Features Available</Text>
+                <Text style={[styles.featuresText, { color: theme.text.secondary }]}>
+                  • Unlimited receipt storage{'\n'}
+                  • Advanced categorization and tagging{'\n'}
+                  • Export and reporting features{'\n'}
+                  • Team collaboration tools
+                </Text>
+              </View>
+              
+              {currentMembership.role === 'teammate' && (
+                <View style={[styles.contactInfo, { borderTopColor: theme.border.primary }]}>
+                  <Text style={[styles.contactText, { color: theme.text.tertiary }]}>
+                    Need changes to your account or have questions? Contact your account holder at{' '}
+                    <Text style={[styles.contactEmail, { color: theme.text.secondary }]}>
+                      {currentMembership.accountHolderEmail}
+                    </Text>
+                  </Text>
+                </View>
+              )}
+            </View>
+          </SettingsSection>
+        )}
+
+        {/* Subscription Section - Only for account holders */}
+        {!isTeamMember && (
         <SettingsSection title="Subscription">
           <SettingsRow
             label="Current Plan"
@@ -1689,6 +1803,7 @@ export const SettingsScreen: React.FC = () => {
             </View>
           )}
         </SettingsSection>
+        )}
 
         {/* Support Section */}
         <SettingsSection title="Support">
@@ -2789,5 +2904,95 @@ const styles = StyleSheet.create({
   },
   iconText: {
     fontSize: 20,
+  },
+  // Team Member Card Styles
+  teamMemberCard: {
+    borderRadius: 12,
+    borderWidth: 2,
+    padding: 16,
+    margin: 16,
+  },
+  teamMemberHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  roleIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  teamMemberInfo: {
+    flex: 1,
+  },
+  roleTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  businessName: {
+    fontSize: 14,
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  roleDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 16,
+  },
+  memberDetails: {
+    marginBottom: 16,
+  },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  detailLabel: {
+    fontSize: 12,
+    marginLeft: 8,
+    marginRight: 4,
+  },
+  detailValue: {
+    fontSize: 12,
+    fontWeight: '500',
+    flex: 1,
+  },
+  featuresInfo: {
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 12,
+    marginBottom: 16,
+  },
+  featuresTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  featuresText: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  contactInfo: {
+    borderTopWidth: 1,
+    paddingTop: 12,
+  },
+  contactText: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  contactEmail: {
+    fontWeight: '500',
   },
 });

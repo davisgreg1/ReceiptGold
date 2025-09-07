@@ -249,6 +249,10 @@ export const TeamManagementScreen: React.FC = () => {
     inv => inv.status === 'pending' && new Date(inv.expiresAt) > new Date()
   );
 
+  console.log('🚀 ~ TeamManagementScreen ~ teamInvitations:', teamInvitations);
+  console.log('🚀 ~ TeamManagementScreen ~ pendingInvitations:', pendingInvitations);
+  console.log('🚀 ~ TeamManagementScreen ~ teamMembers:', teamMembers);
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
       {/* Header Stats */}
@@ -325,7 +329,7 @@ export const TeamManagementScreen: React.FC = () => {
                 No Team Members Yet
               </Text>
               <Text style={[styles.emptyDescription, { color: theme.text.secondary }]}>
-                Invite team members to help manage receipts and collaborate on your account.
+                Invite team members to help manage receipts and collaborate on the account.
               </Text>
             </View>
           ) : (
