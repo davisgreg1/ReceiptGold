@@ -459,17 +459,17 @@ export const ReceiptsListScreen: React.FC = () => {
 
   // Fetch custom categories
   const fetchCustomCategories = useCallback(async () => {
-    if (!user?.uid) return;
+    if (!user?.uid || !accountHolderId) return;
     
     try {
-      const categories = await CustomCategoryService.getCustomCategories(user.uid);
+      const categories = await CustomCategoryService.getCustomCategories(accountHolderId, user.uid);
       setCustomCategories(categories);
       console.log('✅ Fetched custom categories for filters:', categories.length);
     } catch (error) {
       console.error('❌ Error fetching custom categories for filters:', error);
       setCustomCategories([]);
     }
-  }, [user?.uid]);
+  }, [user?.uid, accountHolderId]);
 
   const fetchReceipts = useCallback(async () => {
     if (!user?.uid) {
@@ -536,8 +536,11 @@ export const ReceiptsListScreen: React.FC = () => {
         if (isTeamMember && currentMembership?.role !== 'admin') {
           receiptDocs = receiptDocs.filter(doc => {
             const data = doc.data();
-            // Show receipts they created (teamAttribution.createdByUserId matches their userId)
-            return data.teamAttribution?.createdByUserId === user.uid;
+            // Show receipts they created in two ways:
+            // 1. Receipts with teamAttribution.createdByUserId matching their userId (preferred)
+            // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
+            return data.teamAttribution?.createdByUserId === user.uid || 
+                   (!data.teamAttribution && data.userId === user.uid);
           });
         }
 
@@ -575,7 +578,11 @@ export const ReceiptsListScreen: React.FC = () => {
               
               // For regular team members, only show receipts they created
               if (isTeamMember && currentMembership?.role !== 'admin') {
-                return data.teamAttribution?.createdByUserId === user.uid;
+                // Show receipts they created in two ways:
+                // 1. Receipts with teamAttribution.createdByUserId matching their userId (preferred)
+                // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
+                return data.teamAttribution?.createdByUserId === user.uid || 
+                       (!data.teamAttribution && data.userId === user.uid);
               }
               
               return true;
@@ -681,7 +688,11 @@ export const ReceiptsListScreen: React.FC = () => {
               
               // For regular team members, only show receipts they created
               if (isTeamMember && currentMembership?.role !== 'admin') {
-                return data.teamAttribution?.createdByUserId === user.uid;
+                // Show receipts they created in two ways:
+                // 1. Receipts with teamAttribution.createdByUserId matching their userId (preferred)
+                // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
+                return data.teamAttribution?.createdByUserId === user.uid || 
+                       (!data.teamAttribution && data.userId === user.uid);
               }
               
               return true;
@@ -754,16 +765,7 @@ export const ReceiptsListScreen: React.FC = () => {
       console.log("📱 ReceiptsListScreen focused, fetching receipts...");
       fetchReceipts();
       fetchCustomCategories();
-      
-      // Refresh receipt count with the correct accountHolderId for team members
-      if (isTeamMember && accountHolderId) {
-        console.log("📱 ReceiptsListScreen: Refreshing receipt count for team member with accountHolderId:", accountHolderId);
-        refreshReceiptCount(accountHolderId);
-      } else {
-        console.log("📱 ReceiptsListScreen: Refreshing receipt count for account holder");
-        refreshReceiptCount();
-      }
-    }, [fetchReceipts, fetchCustomCategories, refreshReceiptCount, isTeamMember, accountHolderId])
+    }, [fetchReceipts, fetchCustomCategories])
   );
 
   // Comprehensive filter function that applies all filters

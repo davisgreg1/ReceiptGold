@@ -259,10 +259,10 @@ export default function ReportsScreen() {
 
   // Fetch custom categories
   const fetchCustomCategories = async () => {
-    if (!user) return;
+    if (!user || !accountHolderId) return;
     
     try {
-      const categories = await CustomCategoryService.getCustomCategories(user.uid);
+      const categories = await CustomCategoryService.getCustomCategories(accountHolderId, user.uid);
       setCustomCategories(categories);
       console.log('✅ Fetched custom categories:', categories.length);
     } catch (error) {

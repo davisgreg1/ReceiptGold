@@ -5,6 +5,7 @@ import { createStackNavigator } from "@react-navigation/stack";
 import { Text, View } from "react-native";
 import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription } from "../context/SubscriptionContext";
+import { useTeam } from "../context/TeamContext";
 import { PremiumGate } from "../components/PremiumGate";
 import { HomeScreen } from "../screens/HomeScreen";
 import { ReceiptsListScreen } from "../screens/ReceiptsListScreen";
@@ -260,6 +261,7 @@ const ReportsStackNavigator = () => {
   );
 };
 
+
 const SettingsStackNavigator = () => {
   const { theme } = useTheme();
   
@@ -365,7 +367,7 @@ const linking: LinkingOptions<BottomTabParamList> = {
         },
       },
       ReceiptsTab: 'receipts',
-      ReportsTab: 'reports', 
+      ReportsTab: 'reports',
       SettingsTab: 'settings',
     },
   },
@@ -373,6 +375,7 @@ const linking: LinkingOptions<BottomTabParamList> = {
 
 const BaseAppNavigator: React.FC = () => {
   const { theme } = useTheme();
+  const { isTeamMember } = useTeam();
 
   return (
     <NavigationContainer 
@@ -431,16 +434,19 @@ const BaseAppNavigator: React.FC = () => {
             ),
           }}
         />
-        <Tab.Screen
-          name="ReportsTab"
-          component={ReportsStackNavigator}
-          options={{
-            tabBarLabel: "Reports",
-            tabBarIcon: ({ color }) => (
-              <Text style={{ fontSize: 24, color }}>📊</Text>
-            ),
-          }}
-        />
+        {/* Only show Reports tab for account holders (not team members) */}
+        {!isTeamMember && (
+          <Tab.Screen
+            name="ReportsTab"
+            component={ReportsStackNavigator}
+            options={{
+              tabBarLabel: "Reports",
+              tabBarIcon: ({ color }) => (
+                <Text style={{ fontSize: 24, color }}>📊</Text>
+              ),
+            }}
+          />
+        )}
         <Tab.Screen
           name="SettingsTab"
           component={SettingsStackNavigator}

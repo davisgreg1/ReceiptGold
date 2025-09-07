@@ -215,7 +215,7 @@ export const SettingsScreen: React.FC = () => {
   console.log("🚀 ~ SettingsScreen ~ subscription:", subscription);
   const { user, logout, refreshUser } = useAuth();
   const { businesses, selectedBusiness } = useBusiness();
-  const { teamMembers, teamInvitations, canInviteMembers, isTeamMember, currentMembership } = useTeam();
+  const { teamMembers, teamInvitations, canInviteMembers, isTeamMember, currentMembership, accountHolderId } = useTeam();
   console.log("🚀 ~ SettingsScreen ~ isTeamMember:", isTeamMember);
   console.log("🚀 ~ SettingsScreen ~ currentMembership:", currentMembership);
   console.log("🚀 ~ SettingsScreen ~ currentMembership role:", currentMembership?.role);
@@ -688,11 +688,11 @@ export const SettingsScreen: React.FC = () => {
 
   // Load custom categories
   const loadCustomCategories = async () => {
-    if (!user) return;
+    if (!user || !accountHolderId) return;
 
     try {
       setLoadingCustomCategories(true);
-      const categories = await CustomCategoryService.getCustomCategories(user.uid);
+      const categories = await CustomCategoryService.getCustomCategories(accountHolderId, user.uid);
       setCustomCategories(categories);
     } catch (error) {
       console.error("Error loading custom categories:", error);
@@ -745,7 +745,7 @@ export const SettingsScreen: React.FC = () => {
 
       try {
         hideAlert();
-        const success = await CustomCategoryService.deleteCustomCategory(user.uid, category.id);
+        const success = await CustomCategoryService.deleteCustomCategory(accountHolderId!, category.id, user.uid);
         
         if (success) {
           // Update local state
@@ -1675,7 +1675,6 @@ export const SettingsScreen: React.FC = () => {
                 <Text style={[styles.featuresText, { color: theme.text.secondary }]}>
                   • Unlimited receipt storage{'\n'}
                   • Advanced categorization and tagging{'\n'}
-                  • Export and reporting features{'\n'}
                   • Team collaboration tools
                 </Text>
               </View>

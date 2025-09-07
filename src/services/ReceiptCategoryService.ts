@@ -140,7 +140,7 @@ export class ReceiptCategoryService {
         await this.saveMerchantCategory(merchantName, category, confidence);
     }
 
-    static async getAvailableCategories(userId?: string): Promise<ReceiptCategory[]> {
+    static async getAvailableCategories(accountHolderId?: string, currentUserId?: string): Promise<ReceiptCategory[]> {
         const baseCategories: ReceiptCategory[] = [
             'groceries',
             'restaurant', 
@@ -156,9 +156,9 @@ export class ReceiptCategoryService {
             'other'
         ];
 
-        if (userId) {
+        if (accountHolderId && currentUserId) {
             try {
-                const customCategories = await CustomCategoryService.getCustomCategories(userId);
+                const customCategories = await CustomCategoryService.getCustomCategories(accountHolderId, currentUserId);
                 const customCategoryNames = customCategories.map(cat => cat.name as ReceiptCategory);
                 return [...baseCategories, ...customCategoryNames];
             } catch (error) {

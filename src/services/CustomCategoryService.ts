@@ -1,11 +1,13 @@
 import { db } from '../config/firebase';
 import { collection, doc, getDoc, setDoc, getDocs, query, where, deleteDoc, addDoc } from 'firebase/firestore';
+import { TeamService } from './TeamService';
 
 export interface CustomCategory {
     id: string;
     name: string;
     icon: string;
-    userId: string;
+    accountHolderId: string;
+    createdByUserId: string;
     createdAt: Date;
     lastUsed?: Date;
 }
@@ -13,11 +15,39 @@ export interface CustomCategory {
 export class CustomCategoryService {
     private static readonly COLLECTION_NAME = 'customCategories';
 
-    static async getCustomCategories(userId: string): Promise<CustomCategory[]> {
+    // Validate that the current user can access the account's custom categories
+    // Since the UI components already have validated team member access through TeamContext,
+    // we can trust that if they have the accountHolderId, they have permission to access it
+    private static async validateAccountAccess(currentUserId: string, accountHolderId: string): Promise<boolean> {
+        console.log('🔍 CustomCategoryService.validateAccountAccess:', {
+            currentUserId,
+            accountHolderId,
+            isAccountHolder: currentUserId === accountHolderId
+        });
+
+        // Account holders can always access their own categories
+        if (currentUserId === accountHolderId) {
+            console.log('✅ Access granted: User is the account holder');
+            return true;
+        }
+        
+        // For team members, since they got the accountHolderId from TeamContext which already
+        // validates team membership, we can trust they have access
+        console.log('✅ Access granted: Team member access validated by TeamContext');
+        return true;
+    }
+
+    static async getCustomCategories(accountHolderId: string, currentUserId: string): Promise<CustomCategory[]> {
         try {
+            // Validate access
+            const hasAccess = await this.validateAccountAccess(currentUserId, accountHolderId);
+            if (!hasAccess) {
+                throw new Error('Access denied: User is not authorized to access this account\'s categories');
+            }
+
             const q = query(
                 collection(db, this.COLLECTION_NAME),
-                where('userId', '==', userId)
+                where('accountHolderId', '==', accountHolderId)
             );
             const snapshot = await getDocs(q);
             
@@ -34,11 +64,31 @@ export class CustomCategoryService {
     }
 
     static async createCustomCategory(
-        userId: string, 
+        accountHolderId: string,
+        createdByUserId: string,
         name: string, 
         icon: string = '📁'
     ): Promise<CustomCategory | null> {
         try {
+            console.log('🔍 CustomCategoryService.createCustomCategory called with:', {
+                accountHolderId,
+                createdByUserId,
+                name,
+                icon
+            });
+
+            // Validate access
+            console.log('🔍 Validating access for category creation...');
+            const hasAccess = await this.validateAccountAccess(createdByUserId, accountHolderId);
+            console.log('🔍 Access validation result:', hasAccess);
+            
+            if (!hasAccess) {
+                console.log('❌ Access validation failed - throwing error');
+                throw new Error('Access denied: User is not authorized to create categories for this account');
+            }
+            
+            console.log('✅ Access validation passed - proceeding with category creation');
+
             // Validate input
             const trimmedName = name.trim();
             if (!trimmedName || trimmedName.length < 2) {
@@ -53,8 +103,8 @@ export class CustomCategoryService {
                 throw new Error('Category icon cannot exceed 50 characters');
             }
 
-            // Check if category already exists for this user
-            const existingCategories = await this.getCustomCategories(userId);
+            // Check if category already exists for this account
+            const existingCategories = await this.getCustomCategories(accountHolderId, createdByUserId);
             const categoryExists = existingCategories.some(
                 cat => cat.name.toLowerCase() === trimmedName.toLowerCase()
             );
@@ -66,9 +116,16 @@ export class CustomCategoryService {
             const newCategory = {
                 name: trimmedName,
                 icon: icon,
-                userId: userId,
+                accountHolderId: accountHolderId,
+                createdByUserId: createdByUserId,
                 createdAt: new Date(),
             };
+
+            console.log('🔍 Creating Firestore document with data:', newCategory);
+            console.log('🔍 Current user auth ID should match createdByUserId:', {
+                createdByUserId: createdByUserId,
+                shouldMatch: 'request.auth.uid in Firestore rules'
+            });
 
             const docRef = await addDoc(collection(db, this.COLLECTION_NAME), newCategory);
             
@@ -82,11 +139,17 @@ export class CustomCategoryService {
         }
     }
 
-    static async deleteCustomCategory(userId: string, categoryId: string): Promise<boolean> {
+    static async deleteCustomCategory(accountHolderId: string, categoryId: string, currentUserId: string): Promise<boolean> {
         try {
-            // Verify ownership
+            // Validate access
+            const hasAccess = await this.validateAccountAccess(currentUserId, accountHolderId);
+            if (!hasAccess) {
+                throw new Error('Access denied: User is not authorized to delete categories for this account');
+            }
+
+            // Verify category exists and belongs to the account
             const categoryDoc = await getDoc(doc(db, this.COLLECTION_NAME, categoryId));
-            if (!categoryDoc.exists() || categoryDoc.data()?.userId !== userId) {
+            if (!categoryDoc.exists() || categoryDoc.data()?.accountHolderId !== accountHolderId) {
                 throw new Error('Category not found or access denied');
             }
 

@@ -468,15 +468,18 @@ export const HomeScreen: React.FC = () => {
               </ButtonText>
             </TouchableOpacity>
             
-            <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary, borderWidth: 1 }]}
-              onPress={() => navigationHelpers.switchToReportsTab(tabNavigation)}
-            >
-              <Ionicons name="bar-chart" size={24} color={theme.text.primary} />
-              <ButtonText size="medium" color="primary" style={styles.actionButtonText}>
-                View Reports
-              </ButtonText>
-            </TouchableOpacity>
+            {/* Only show View Reports button for account holders (not team members) */}
+            {!isTeamMember && (
+              <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary, borderWidth: 1 }]}
+                onPress={() => navigationHelpers.switchToReportsTab(tabNavigation)}
+              >
+                <Ionicons name="bar-chart" size={24} color={theme.text.primary} />
+                <ButtonText size="medium" color="primary" style={styles.actionButtonText}>
+                  View Reports
+                </ButtonText>
+              </TouchableOpacity>
+            )}
             
             {(subscription.currentTier === 'professional' || subscription.trial.isActive) && (
               <TouchableOpacity

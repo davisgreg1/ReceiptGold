@@ -48,7 +48,7 @@ export class ReceiptTeamService {
   ) {
     try {
       // Check if the current user is a team member
-      const teamMember = await TeamService.getTeamMemberByUserId('', userId);
+      const teamMember = await TeamService.getTeamMembershipByUserId(userId);
       
       let teamAttribution = undefined;
       let effectiveUserId = userId;
@@ -92,7 +92,7 @@ export class ReceiptTeamService {
    */
   static async getTeamAttributionForUser(userId: string) {
     try {
-      const teamMember = await TeamService.getTeamMemberByUserId('', userId);
+      const teamMember = await TeamService.getTeamMembershipByUserId(userId);
       
       if (!teamMember) {
         return null;
@@ -118,7 +118,7 @@ export class ReceiptTeamService {
    */
   static async isTeamMember(userId: string): Promise<boolean> {
     try {
-      const teamMember = await TeamService.getTeamMemberByUserId('', userId);
+      const teamMember = await TeamService.getTeamMembershipByUserId(userId);
       return teamMember !== null;
     } catch (error) {
       console.error('Error checking team membership:', error);
@@ -132,7 +132,7 @@ export class ReceiptTeamService {
    */
   static async getEffectiveUserIdForReceipts(userId: string): Promise<string> {
     try {
-      const teamMember = await TeamService.getTeamMemberByUserId('', userId);
+      const teamMember = await TeamService.getTeamMembershipByUserId(userId);
       return teamMember?.accountHolderId || userId;
     } catch (error) {
       console.error('Error getting effective user ID:', error);

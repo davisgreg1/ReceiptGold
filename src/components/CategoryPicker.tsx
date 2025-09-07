@@ -27,6 +27,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { ReceiptCategoryService, ReceiptCategory } from '../services/ReceiptCategoryService';
 import { CustomCategoryService, CustomCategory } from '../services/CustomCategoryService';
 import { useAuth } from '../context/AuthContext';
+import { useTeam } from '../context/TeamContext';
 
 interface CategoryPickerProps {
   selectedCategory: ReceiptCategory;
@@ -66,6 +67,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 }) => {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { accountHolderId } = useTeam();
   const [modalVisible, setModalVisible] = useState(false);
   const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
@@ -77,20 +79,19 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   // Load custom categories on mount
   useEffect(() => {
     loadCategories();
-  }, [user]);
+  }, [user, accountHolderId]);
 
   const loadCategories = async () => {
-    if (!user) return;
+    if (!user || !accountHolderId) return;
     
     try {
-      const [baseCategories, userCustomCategories] = await Promise.all([
-        ReceiptCategoryService.getAvailableCategories(),
-        CustomCategoryService.getCustomCategories(user.uid)
+      const [allAvailableCategories, accountCustomCategories] = await Promise.all([
+        ReceiptCategoryService.getAvailableCategories(accountHolderId, user.uid),
+        CustomCategoryService.getCustomCategories(accountHolderId, user.uid)
       ]);
       
-      setCustomCategories(userCustomCategories);
-      const customCategoryNames = userCustomCategories.map(cat => cat.name as ReceiptCategory);
-      setAllCategories([...baseCategories, ...customCategoryNames]);
+      setCustomCategories(accountCustomCategories);
+      setAllCategories(allAvailableCategories);
     } catch (error) {
       console.error('Error loading categories:', error);
     }
@@ -116,7 +117,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   };
 
   const handleCreateCustomCategory = async () => {
-    if (!user) return;
+    if (!user || !accountHolderId) return;
 
     const validation = CustomCategoryService.validateCategoryName(newCategoryName);
     if (!validation.isValid) {
@@ -127,6 +128,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
     setIsLoading(true);
     try {
       const newCategory = await CustomCategoryService.createCustomCategory(
+        accountHolderId,
         user.uid,
         newCategoryName,
         newCategoryIcon
@@ -278,7 +280,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
               })}
               
               {/* Add Custom Category Option */}
-              {allowCustomCategories && user && (
+              {allowCustomCategories && user && accountHolderId && (
                 <TouchableOpacity
                   style={[
                     styles.categoryItem,
