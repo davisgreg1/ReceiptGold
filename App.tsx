@@ -184,15 +184,15 @@ export default function App() {
           <AuthProvider>
             <SubscriptionProvider>
               <BusinessProvider>
-                <TeamProvider>
-                  <CustomAlertProvider>
+                <CustomAlertProvider>
+                  <TeamProvider>
                     <NotificationSettingsProvider>
                       <InAppNotificationProvider>
                         <AppContent />
                       </InAppNotificationProvider>
                     </NotificationSettingsProvider>
-                  </CustomAlertProvider>
-                </TeamProvider>
+                  </TeamProvider>
+                </CustomAlertProvider>
               </BusinessProvider>
             </SubscriptionProvider>
           </AuthProvider>

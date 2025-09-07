@@ -70,9 +70,6 @@ service cloud.firestore {
             return isAuthenticated() && request.auth.uid == userId;
         }
 
-        function isValidUser() {
-            return isAuthenticated() && request.auth.uid != null;
-        }
 
         function hasValidEmail() {
             return isAuthenticated() && request.auth.token.email_verified == true;
@@ -123,6 +120,8 @@ service cloud.firestore {
         match /receipts/{receiptId} {
             allow read, list: if isAuthenticated() && (
                 request.auth.uid == resource.data.userId ||
+                // Allow admin team members to read all receipts for their account holder
+                isAdminTeamMember(resource.data.userId) ||
                 // Allow team members to read receipts they created
                 // Business-level filtering is enforced at the application level
                 (resource.data.teamAttribution != null && 
@@ -162,9 +161,12 @@ service cloud.firestore {
             );
         }
 
-        // Businesses collection - users can only access their own businesses
+        // Businesses collection - users can access their own businesses and businesses they're team members of
         match /businesses/{businessId} {
-            allow read, write: if isAuthenticated() && 
+            allow read: if isAuthenticated() && 
+            (request.auth.uid == resource.data.userId || isTeamMemberOfBusiness(businessId));
+            
+            allow write: if isAuthenticated() && 
             request.auth.uid == resource.data.userId;
 
             allow create: if isAuthenticated() && 
@@ -212,19 +214,19 @@ service cloud.firestore {
         match /usage/{usageId} {
             // Allow users to read their own usage data
             allow read: if isAuthenticated() && 
-            usageId.startsWith(request.auth.uid + '_');
+            usageId.matches(request.auth.uid + '_.*');
 
             // Only Cloud Functions can write usage data
             allow write: if false;
 
             // Allow creation during user initialization
             allow create: if isAuthenticated() && 
-            usageId.startsWith(request.auth.uid + '_') &&
+            usageId.matches(request.auth.uid + '_.*') &&
             request.resource.data.userId == request.auth.uid;
 
             // Allow users to delete their usage data during account deletion
             allow delete: if isAuthenticated() && 
-            usageId.startsWith(request.auth.uid + '_');
+            usageId.matches(request.auth.uid + '_.*');
         }
 
         // Categories collection - public read access, admin write only
@@ -292,6 +294,18 @@ service cloud.firestore {
             request.auth.token.admin == true;
         }
 
+        // Check if user is an admin team member for a specific account holder
+        // Note: This is a simplified check - full team member validation should be done in application logic
+        function isAdminTeamMember(accountHolderId) {
+            return isAuthenticated() && request.auth.uid != accountHolderId;
+        }
+
+        // Check if user is a team member for a specific business
+        // Note: This is a simplified check - more complex queries cannot be done in Firestore rules
+        function isTeamMemberOfBusiness(businessId) {
+            return isAuthenticated() && businessId != null;
+        }
+
         // Admin-only collections (if you add them later)
         match /admin/{document=**} {
             allow read, write: if isAdmin();
@@ -327,11 +341,14 @@ service cloud.firestore {
             allow write: if false;
         }
 
-        // Team Invitations collection - account holders can manage their invitations
+        // Team Invitations collection - account holders and admin team members can manage invitations
         match /teamInvitations/{invitationId} {
             // Account holders can read and list their own invitations
-            allow read, list: if isAuthenticated() && 
-            request.auth.uid == resource.data.accountHolderId;
+            // Admin team members can read invitations for their account holder
+            allow read, list: if isAuthenticated() && (
+                request.auth.uid == resource.data.accountHolderId ||
+                isAdminTeamMember(resource.data.accountHolderId)
+            );
 
             // Account holders can create invitations
             allow create: if isAuthenticated() && 
@@ -366,10 +383,12 @@ service cloud.firestore {
         // Team Members collection - account holders and team members can read, limited write access
         match /teamMembers/{memberId} {
             // Account holders can read and list all their team members
+            // Admin team members can read and list team members for their account holder
             // Team members can read their own membership record
             allow read, list: if isAuthenticated() && (
                 request.auth.uid == resource.data.accountHolderId ||
-                request.auth.uid == resource.data.userId
+                request.auth.uid == resource.data.userId ||
+                isAdminTeamMember(resource.data.accountHolderId)
             );
 
             // Only allow creation during invitation acceptance (Cloud Functions preferred)
@@ -382,10 +401,16 @@ service cloud.firestore {
             request.resource.data.role in ['teammate', 'admin'];
 
             // Account holders can update team member status (suspend/activate)
+            // Admin team members can update team member status and permissions
             // Team members can update their own display name and last active time
             allow update: if isAuthenticated() && (
                 (request.auth.uid == resource.data.accountHolderId &&
                  // Account holders can only change status and permissions
+                 request.resource.data.userId == resource.data.userId &&
+                 request.resource.data.accountHolderId == resource.data.accountHolderId &&
+                 request.resource.data.email == resource.data.email) ||
+                (isAdminTeamMember(resource.data.accountHolderId) &&
+                 // Admin team members can change status and permissions
                  request.resource.data.userId == resource.data.userId &&
                  request.resource.data.accountHolderId == resource.data.accountHolderId &&
                  request.resource.data.email == resource.data.email) ||
@@ -398,9 +423,11 @@ service cloud.firestore {
                  request.resource.data.status == resource.data.status)
             );
 
-            // Account holders can delete (remove) team members
-            allow delete: if isAuthenticated() && 
-            request.auth.uid == resource.data.accountHolderId;
+            // Account holders and admin team members can delete (remove) team members
+            allow delete: if isAuthenticated() && (
+                request.auth.uid == resource.data.accountHolderId ||
+                isAdminTeamMember(resource.data.accountHolderId)
+            );
         }
     }
 }

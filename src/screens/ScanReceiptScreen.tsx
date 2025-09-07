@@ -18,6 +18,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useBusiness } from "../context/BusinessContext";
+import { useTeam } from "../context/TeamContext";
 import BusinessSelector from "../components/BusinessSelector";
 import { useFocusEffect } from "@react-navigation/native";
 import { useReceiptsNavigation } from "../navigation/navigationHelpers";
@@ -116,6 +117,7 @@ export const ScanReceiptScreen = () => {
   const { subscription, canAddReceipt, getRemainingReceipts, currentReceiptCount, refreshReceiptCount } =
     useSubscription();
   const { selectedBusiness, selectBusiness } = useBusiness();
+  const { isTeamMember, currentMembership } = useTeam();
   const { theme } = useTheme();
   const { showError, showSuccess, showWarning, showFirebaseError } = useCustomAlert();
   const cameraRef = useRef<CameraView>(null);
@@ -124,6 +126,18 @@ export const ScanReceiptScreen = () => {
   useEffect(() => {
     logDummyDataStatus();
   }, []);
+
+  // Set default business for team members
+  useEffect(() => {
+    if (isTeamMember && currentMembership?.businessId && (!selectedBusiness || selectedBusiness.id !== currentMembership.businessId)) {
+      console.log('🏢 Setting default business for team member:', {
+        businessId: currentMembership.businessId,
+        businessName: currentMembership.businessName,
+        currentSelected: selectedBusiness?.id
+      });
+      selectBusiness(currentMembership.businessId);
+    }
+  }, [isTeamMember, currentMembership?.businessId, selectedBusiness?.id, selectBusiness]);
 
   // Refresh receipt count when screen is focused
   useFocusEffect(
@@ -143,6 +157,44 @@ export const ScanReceiptScreen = () => {
   const [showScanning, setShowScanning] = useState(false);
   const [scanningError, setScanningError] = useState<string | null>(null);
   const [capturedImageUri, setCapturedImageUri] = useState<string | null>(null);
+
+  // Helper function to create receipt data with proper team attribution
+  const createReceiptData = (baseData: any) => {
+    const effectiveAccountHolderId = currentMembership?.accountHolderId || user!.uid;
+    
+    let receiptData = {
+      ...baseData,
+      userId: effectiveAccountHolderId, // Always store under account holder's ID
+      businessId: selectedBusiness?.id,
+    };
+
+    // Add team attribution if user is a team member
+    if (isTeamMember && currentMembership) {
+      receiptData.teamAttribution = {
+        createdByUserId: user!.uid,
+        createdByDisplayName: currentMembership.displayName || user!.email || 'Unknown',
+        createdByRole: currentMembership.role,
+        accountHolderId: effectiveAccountHolderId,
+        businessId: currentMembership.businessId,
+        businessName: currentMembership.businessName,
+        createdAt: new Date(),
+      };
+      
+      // Update description to include team member attribution
+      const teamMemberEmail = user!.email || 'Unknown';
+      const originalDescription = receiptData.description || '';
+      receiptData.description = `${originalDescription} - Provided by ${teamMemberEmail}`;
+    }
+
+    console.log('📝 Creating receipt with data:', {
+      userId: receiptData.userId,
+      isTeamMember,
+      teamAttribution: receiptData.teamAttribution,
+      effectiveAccountHolderId
+    });
+
+    return receiptData;
+  };
 
   // Combined effect for receipt limit check and count fetch
   useFocusEffect(
@@ -364,9 +416,7 @@ export const ScanReceiptScreen = () => {
             console.log("Generated dummy data:", dummyData);
 
             // Create receipt record with dummy data
-            receiptData = {
-              userId: user.uid,
-              businessId: selectedBusiness?.id,
+            receiptData = createReceiptData({
               images: [
                 {
                   url: downloadURL,
@@ -375,7 +425,7 @@ export const ScanReceiptScreen = () => {
                 },
               ],
               ...dummyData, // Spread all the dummy data
-            };
+            });
           } else {
             // Use the already-analyzed OCR data (no need to re-analyze)
             console.log("Using pre-validated OCR data:", ocrData);
@@ -389,9 +439,7 @@ export const ScanReceiptScreen = () => {
             });
 
             // Create receipt record in Firestore with OCR data - ensure no undefined values
-            receiptData = {
-              userId: user.uid,
-              businessId: selectedBusiness?.id,
+            receiptData = createReceiptData({
               images: [
                 {
                   url: downloadURL,
@@ -436,7 +484,7 @@ export const ScanReceiptScreen = () => {
                   })) || [],
               },
               processingErrors: [],
-            };
+            });
           }
 
           await receiptService.createReceipt(receiptData);
@@ -450,9 +498,7 @@ export const ScanReceiptScreen = () => {
           setOcrStatus("OCR failed, saving without analysis...");
 
           // Still save the receipt even if OCR fails - ensure no undefined values
-          const fallbackReceiptData = {
-            userId: user.uid,
-            businessId: selectedBusiness?.id,
+          const fallbackReceiptData = createReceiptData({
             images: [
               {
                 url: downloadURL,
@@ -484,7 +530,7 @@ export const ScanReceiptScreen = () => {
               items: [],
             },
             processingErrors: [ocrError.message || "OCR analysis failed"],
-          };
+          });
 
           await receiptService.createReceipt(fallbackReceiptData);
           console.log("✅ Fallback receipt successfully saved to Firestore");
@@ -708,9 +754,7 @@ export const ScanReceiptScreen = () => {
           console.log("Generated dummy data:", dummyData);
 
           // Create receipt record with dummy data
-          receiptData = {
-            userId: user!.uid,
-            businessId: selectedBusiness?.id,
+          receiptData = createReceiptData({
             images: [
               {
                 url: downloadURL,
@@ -719,7 +763,7 @@ export const ScanReceiptScreen = () => {
               },
             ],
             ...dummyData, // Spread all the dummy data
-          };
+          });
         } else {
           // Use the tax analysis from earlier OCR processing
           const taxAnalysis = (ocrData as any).taxAnalysis;
@@ -727,9 +771,7 @@ export const ScanReceiptScreen = () => {
           // Category was already determined in validation step
           const category = ocrData.category || 'other';
           
-          receiptData = {
-            userId: user!.uid,
-            businessId: selectedBusiness?.id,
+          receiptData = createReceiptData({
             images: [
               {
                 url: downloadURL,
@@ -769,7 +811,7 @@ export const ScanReceiptScreen = () => {
                 })) || [],
             },
             processingErrors: [],
-          };
+          });
         }
 
         await receiptService.createReceipt(receiptData);
@@ -780,9 +822,7 @@ export const ScanReceiptScreen = () => {
         setOcrStatus("OCR failed, saving without analysis...");
 
         // Still save the receipt even if OCR fails - ensure no undefined values
-        const fallbackReceiptData = {
-          userId: user!.uid,
-          businessId: selectedBusiness?.id,
+        const fallbackReceiptData = createReceiptData({
           images: [
             {
               url: downloadURL,
@@ -814,7 +854,7 @@ export const ScanReceiptScreen = () => {
             items: [],
           },
           processingErrors: [ocrError.message || "OCR analysis failed"],
-        };
+        });
 
         await receiptService.createReceipt(fallbackReceiptData);
         console.log("✅ Fallback receipt successfully saved to Firestore");
@@ -1050,9 +1090,7 @@ export const ScanReceiptScreen = () => {
           const dummyData = generateDummyReceiptData();
           console.log("Generated dummy data for gallery image:", dummyData);
 
-          receiptData = {
-            userId: user.uid,
-            businessId: selectedBusiness?.id,
+          receiptData = createReceiptData({
             images: [
               {
                 url: downloadURL,
@@ -1061,7 +1099,7 @@ export const ScanReceiptScreen = () => {
               },
             ],
             ...dummyData, // Spread all the dummy data
-          };
+          });
         } else {
           // Use the already-analyzed OCR data from validation step
           console.log("Using pre-validated OCR data:", ocrData);
@@ -1075,9 +1113,7 @@ export const ScanReceiptScreen = () => {
           });
 
           // Create receipt record in Firestore with OCR data
-          receiptData = {
-            userId: user.uid,
-            businessId: selectedBusiness?.id,
+          receiptData = createReceiptData({
             images: [
               {
                 url: downloadURL,
@@ -1122,7 +1158,7 @@ export const ScanReceiptScreen = () => {
                 })) || [],
             },
             processingErrors: [],
-          };
+          });
         }
 
         await receiptService.createReceipt(receiptData);
@@ -1149,9 +1185,7 @@ export const ScanReceiptScreen = () => {
         console.error("Failed to process receipt:", error);
         
         // Save without OCR data
-        const fallbackReceiptData = {
-          userId: user.uid,
-          businessId: selectedBusiness?.id,
+        const fallbackReceiptData = createReceiptData({
           images: [
             {
               url: downloadURL,
@@ -1182,7 +1216,7 @@ export const ScanReceiptScreen = () => {
             items: [],
           },
           processingErrors: [(error as Error).message || "Failed to process receipt"],
-        };
+        });
 
         await receiptService.createReceipt(fallbackReceiptData);
         showWarning(

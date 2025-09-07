@@ -22,6 +22,7 @@ import {
 } from "react-native-paper";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useBusiness } from "../context/BusinessContext";
+import { useTeam } from "../context/TeamContext";
 import {
   collection,
   query,
@@ -62,6 +63,7 @@ export default function ReportsScreen() {
   const { user } = useAuth();
   const { subscription } = useSubscription();
   const { getBusinessById } = useBusiness();
+  const { isTeamMember, currentMembership, accountHolderId } = useTeam();
   const navigation = useNavigation<StackNavigationProp<any>>();
   const { theme } = useTheme();
   
@@ -300,26 +302,59 @@ export default function ReportsScreen() {
     const fetchReceipts = async () => {
       try {
         const receiptsRef = collection(db, "receipts");
+        const effectiveAccountHolderId = accountHolderId || user.uid;
         let querySnapshot;
 
+        console.log('🔍 Reports receipt visibility check:', {
+          userId: user.uid,
+          isTeamMember,
+          currentMembership: currentMembership?.role,
+          accountHolderId,
+          effectiveAccountHolderId
+        });
+
         try {
-          // Try optimized query first
-          const optimizedQuery = query(
-            receiptsRef,
-            where("userId", "==", user.uid),
-            where("status", "!=", "deleted"),
-            where("createdAt", ">=", dateRangeFilter.startDate),
-            where("createdAt", "<=", dateRangeFilter.endDate)
-          );
+          // Try optimized query first with proper hierarchy
+          let optimizedQuery;
+          
+          if (!isTeamMember || currentMembership?.role === 'admin') {
+            // Account holder or admin team member - get all receipts for the account
+            optimizedQuery = query(
+              receiptsRef,
+              where("userId", "==", effectiveAccountHolderId),
+              where("status", "!=", "deleted"),
+              where("createdAt", ">=", dateRangeFilter.startDate),
+              where("createdAt", "<=", dateRangeFilter.endDate)
+            );
+          } else {
+            // Regular team member - get all receipts for the account, will filter after
+            optimizedQuery = query(
+              receiptsRef,
+              where("userId", "==", effectiveAccountHolderId),
+              where("status", "!=", "deleted"),
+              where("createdAt", ">=", dateRangeFilter.startDate),
+              where("createdAt", "<=", dateRangeFilter.endDate)
+            );
+          }
+          
           console.log('Attempting optimized query...');
           querySnapshot = await getDocs(optimizedQuery);
+          
+          // Filter for regular team members (only their own receipts)
+          if (isTeamMember && currentMembership?.role !== 'admin') {
+            querySnapshot.docs = querySnapshot.docs.filter(doc => {
+              const data = doc.data();
+              return data.teamAttribution?.createdByUserId === user.uid;
+            });
+          }
+          
         } catch (error: any) {
           console.log('Optimized query failed, using fallback:', error.message);
           if (error.code === 'failed-precondition' || error.message.includes('index')) {
             // Fall back to basic query and filter in memory
             const basicQuery = query(
               receiptsRef,
-              where("userId", "==", user.uid)
+              where("userId", "==", effectiveAccountHolderId)
             );
             const basicSnapshot = await getDocs(basicQuery);
             
@@ -330,8 +365,17 @@ export default function ReportsScreen() {
               const createdAt = data.createdAt;
               if (!createdAt) return false;
               
-              return createdAt >= dateRangeFilter.startDate && 
-                     createdAt <= dateRangeFilter.endDate;
+              // Check date range
+              if (!(createdAt >= dateRangeFilter.startDate && createdAt <= dateRangeFilter.endDate)) {
+                return false;
+              }
+              
+              // For regular team members, only show receipts they created
+              if (isTeamMember && currentMembership?.role !== 'admin') {
+                return data.teamAttribution?.createdByUserId === user.uid;
+              }
+              
+              return true;
             });
             
             querySnapshot = { docs };
@@ -390,22 +434,48 @@ export default function ReportsScreen() {
     
     try {
       const receiptsRef = collection(db, "receipts");
+      const effectiveAccountHolderId = accountHolderId || user.uid;
       let querySnapshot;
 
       try {
-        const optimizedQuery = query(
-          receiptsRef,
-          where("userId", "==", user.uid),
-          where("status", "!=", "deleted"),
-          where("createdAt", ">=", dateRangeFilter.startDate),
-          where("createdAt", "<=", dateRangeFilter.endDate)
-        );
+        // Apply same hierarchy logic as fetchReceipts
+        let optimizedQuery;
+        
+        if (!isTeamMember || currentMembership?.role === 'admin') {
+          // Account holder or admin team member - get all receipts for the account
+          optimizedQuery = query(
+            receiptsRef,
+            where("userId", "==", effectiveAccountHolderId),
+            where("status", "!=", "deleted"),
+            where("createdAt", ">=", dateRangeFilter.startDate),
+            where("createdAt", "<=", dateRangeFilter.endDate)
+          );
+        } else {
+          // Regular team member - get all receipts for the account, will filter after
+          optimizedQuery = query(
+            receiptsRef,
+            where("userId", "==", effectiveAccountHolderId),
+            where("status", "!=", "deleted"),
+            where("createdAt", ">=", dateRangeFilter.startDate),
+            where("createdAt", "<=", dateRangeFilter.endDate)
+          );
+        }
+        
         querySnapshot = await getDocsFromServer(optimizedQuery);
+        
+        // Filter for regular team members (only their own receipts)
+        if (isTeamMember && currentMembership?.role !== 'admin') {
+          querySnapshot.docs = querySnapshot.docs.filter(doc => {
+            const data = doc.data();
+            return data.teamAttribution?.createdByUserId === user.uid;
+          });
+        }
+        
       } catch (error: any) {
         if (error.code === 'failed-precondition' || error.message.includes('index')) {
           const basicQuery = query(
             receiptsRef,
-            where("userId", "==", user.uid)
+            where("userId", "==", effectiveAccountHolderId)
           );
           const basicSnapshot = await getDocsFromServer(basicQuery);
           
@@ -416,8 +486,17 @@ export default function ReportsScreen() {
             const createdAt = data.createdAt;
             if (!createdAt) return false;
             
-            return createdAt >= dateRangeFilter.startDate && 
-                   createdAt <= dateRangeFilter.endDate;
+            // Check date range
+            if (!(createdAt >= dateRangeFilter.startDate && createdAt <= dateRangeFilter.endDate)) {
+              return false;
+            }
+            
+            // For regular team members, only show receipts they created
+            if (isTeamMember && currentMembership?.role !== 'admin') {
+              return data.teamAttribution?.createdByUserId === user.uid;
+            }
+            
+            return true;
           });
           
           querySnapshot = { docs };
@@ -448,7 +527,7 @@ export default function ReportsScreen() {
       console.error("Error refreshing receipts:", error);
       throw error; // Re-throw to be handled by refreshData
     }
-  }, [user, dateRangeFilter]);
+  }, [user, dateRangeFilter, isTeamMember, currentMembership?.role, accountHolderId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -818,8 +897,8 @@ export default function ReportsScreen() {
         </View>
       </View>
 
-      {/* Premium Features */}
-      {!subscription.features.advancedReporting && (
+      {/* Premium Features - Hidden for team members */}
+      {!subscription.features.advancedReporting && !isTeamMember && (
         <View style={[
           styles.premiumCard,
           { backgroundColor: theme.background.secondary, borderColor: theme.gold.primary }
@@ -834,8 +913,8 @@ export default function ReportsScreen() {
         </View>
       )}
       
-      {/* Advanced features for premium users */}
-      {subscription.features.advancedReporting && advancedReport && (
+      {/* Advanced features for premium users - Hidden for team members */}
+      {subscription.features.advancedReporting && advancedReport && !isTeamMember && (
         <>
           {/* Business vs Personal Split */}
           <View style={[

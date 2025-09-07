@@ -1,5 +1,6 @@
 import { db } from '../config/firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
+import { TeamService } from '../services/TeamService';
 
 export async function enforceReceiptLimit(
   userId: string | undefined,
@@ -8,6 +9,17 @@ export async function enforceReceiptLimit(
 ): Promise<boolean> {
   if (!userId) return false;
   if (maxReceipts === -1) return true; // Unlimited plan
+
+  // Check if user is a team member - team members get unlimited receipts
+  try {
+    const teamMembership = await TeamService.getTeamMembershipByUserId(userId);
+    if (teamMembership && teamMembership.status === 'active') {
+      return true; // Team members have unlimited receipts
+    }
+  } catch (error) {
+    console.error('Error checking team membership:', error);
+    // Continue with normal limit check if team check fails
+  }
   
   // Get current month's receipt count
   const startOfMonth = new Date();

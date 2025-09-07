@@ -34,6 +34,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useStripePayments } from "../hooks/useStripePayments";
 import { useAuth } from "../context/AuthContext";
+import { useTeam } from "../context/TeamContext";
 import { useReceiptSync } from "../services/ReceiptSyncService";
 import { db } from "../config/firebase";
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
@@ -54,6 +55,7 @@ export const ReceiptsListScreen: React.FC = () => {
     useSubscription();
   const { handleSubscriptionWithCloudFunction } = useStripePayments();
   const { user } = useAuth();
+  const { isTeamMember, currentMembership, accountHolderId, teamMembers } = useTeam();
   const { showError, showSuccess, showWarning, showFirebaseError, hideAlert } =
     useCustomAlert();
   const [isUpgrading, setIsUpgrading] = useState(false);
@@ -479,18 +481,66 @@ export const ReceiptsListScreen: React.FC = () => {
       setLoading(true);
 
       let receiptDocs;
+      const effectiveAccountHolderId = accountHolderId || user.uid;
+
+      // Implement receipt viewing hierarchy
+      // 1. Account holder (not a team member) - sees ALL receipts for their account
+      // 2. Admin team member - sees ALL receipts for the account they belong to  
+      // 3. Regular team member - sees only their own receipts
+
+      console.log('🔍 Receipt visibility check:', {
+        userId: user.uid,
+        isTeamMember,
+        currentMembership: currentMembership?.role,
+        accountHolderId,
+        effectiveAccountHolderId
+      });
 
       // First try the optimized query with indexes
       try {
-        // Get displayed receipts (not deleted) with ordering
-        const receiptsQuery = query(
-          collection(db, "receipts"),
-          where("userId", "==", user.uid),
-          where("status", "!=", "deleted"),
-          orderBy("createdAt", "desc")
-        );
+        let receiptsQuery;
+        
+        if (!isTeamMember) {
+          // Account holder - sees ALL receipts for their account (userId = their ID)
+          console.log('📊 Fetching receipts for account holder');
+          receiptsQuery = query(
+            collection(db, "receipts"),
+            where("userId", "==", user.uid),
+            where("status", "!=", "deleted"),
+            orderBy("createdAt", "desc")
+          );
+        } else if (currentMembership?.role === 'admin') {
+          // Admin team member - sees ALL receipts for the account they belong to
+          console.log('📊 Fetching receipts for admin team member');
+          receiptsQuery = query(
+            collection(db, "receipts"),
+            where("userId", "==", effectiveAccountHolderId),
+            where("status", "!=", "deleted"),
+            orderBy("createdAt", "desc")
+          );
+        } else {
+          // Regular team member - sees only receipts they created
+          console.log('📊 Fetching receipts for regular team member (own receipts only)');
+          receiptsQuery = query(
+            collection(db, "receipts"),
+            where("userId", "==", effectiveAccountHolderId),
+            where("status", "!=", "deleted"),
+            orderBy("createdAt", "desc")
+          );
+        }
+
         const receiptsSnapshot = await getDocs(receiptsQuery);
         receiptDocs = receiptsSnapshot.docs;
+
+        // Filter for regular team members (only their own receipts)
+        if (isTeamMember && currentMembership?.role !== 'admin') {
+          receiptDocs = receiptDocs.filter(doc => {
+            const data = doc.data();
+            // Show receipts they created (teamAttribution.createdByUserId matches their userId)
+            return data.teamAttribution?.createdByUserId === user.uid;
+          });
+        }
+
       } catch (error: any) {
         // If we get an index error, fall back to the basic query
         if (error?.message?.includes("requires an index")) {
@@ -501,13 +551,35 @@ export const ReceiptsListScreen: React.FC = () => {
           );
 
           // Get all receipts and sort them in memory
-          const basicQuery = query(
-            collection(db, "receipts"),
-            where("userId", "==", user.uid)
-          );
+          let basicQuery;
+          
+          if (!isTeamMember || currentMembership?.role === 'admin') {
+            // Account holder or admin team member - get all receipts for the account
+            basicQuery = query(
+              collection(db, "receipts"),
+              where("userId", "==", effectiveAccountHolderId)
+            );
+          } else {
+            // Regular team member - get all receipts for the account, will filter after
+            basicQuery = query(
+              collection(db, "receipts"),
+              where("userId", "==", effectiveAccountHolderId)
+            );
+          }
+
           const basicSnapshot = await getDocs(basicQuery);
           receiptDocs = basicSnapshot.docs
-            .filter((doc) => doc.data().status !== "deleted")
+            .filter((doc) => {
+              const data = doc.data();
+              if (data.status === "deleted") return false;
+              
+              // For regular team members, only show receipts they created
+              if (isTeamMember && currentMembership?.role !== 'admin') {
+                return data.teamAttribution?.createdByUserId === user.uid;
+              }
+              
+              return true;
+            })
             .sort((a, b) => {
               const aDate = a.data().createdAt?.toDate?.() || new Date(0);
               const bDate = b.data().createdAt?.toDate?.() || new Date(0);
@@ -549,28 +621,51 @@ export const ReceiptsListScreen: React.FC = () => {
       console.log("🚀 ~ ReceiptsListScreen ~ monthlyCount:", monthlyCount);
       console.log("Monthly usage count (including deleted):", monthlyCount);
 
-      // Get historical usage (last 6 months)
+      // Get historical usage (last 6 months) - follow same hierarchy
       let historicalDocs;
       try {
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
 
-        // Try optimized historical query first
-        const historicalQuery = query(
-          collection(db, "receipts"),
-          where("userId", "==", user.uid),
-          where("createdAt", ">=", sixMonthsAgo),
-          orderBy("createdAt", "desc")
-        );
+        // Try optimized historical query first with proper hierarchy
+        let historicalQuery;
+        
+        if (!isTeamMember || currentMembership?.role === 'admin') {
+          // Account holder or admin team member - get all historical receipts for the account
+          historicalQuery = query(
+            collection(db, "receipts"),
+            where("userId", "==", effectiveAccountHolderId),
+            where("createdAt", ">=", sixMonthsAgo),
+            orderBy("createdAt", "desc")
+          );
+        } else {
+          // Regular team member - get historical receipts for the account, will filter after
+          historicalQuery = query(
+            collection(db, "receipts"),
+            where("userId", "==", effectiveAccountHolderId),
+            where("createdAt", ">=", sixMonthsAgo),
+            orderBy("createdAt", "desc")
+          );
+        }
+        
         const historicalSnapshot = await getDocs(historicalQuery);
         historicalDocs = historicalSnapshot.docs;
+
+        // Filter for regular team members (only their own receipts)
+        if (isTeamMember && currentMembership?.role !== 'admin') {
+          historicalDocs = historicalDocs.filter(doc => {
+            const data = doc.data();
+            return data.teamAttribution?.createdByUserId === user.uid;
+          });
+        }
+        
       } catch (error: any) {
         if (error?.message?.includes("requires an index")) {
           console.log("Historical index not ready, using basic query...");
           // Fall back to basic query and filter/sort in memory
           const basicHistoricalQuery = query(
             collection(db, "receipts"),
-            where("userId", "==", user.uid)
+            where("userId", "==", effectiveAccountHolderId)
           );
           const basicSnapshot = await getDocs(basicHistoricalQuery);
           const sixMonthsAgo = new Date();
@@ -578,8 +673,18 @@ export const ReceiptsListScreen: React.FC = () => {
 
           historicalDocs = basicSnapshot.docs
             .filter((doc) => {
-              const createdAt = doc.data().createdAt?.toDate?.();
-              return createdAt && createdAt >= sixMonthsAgo;
+              const data = doc.data();
+              const createdAt = data.createdAt?.toDate?.();
+              
+              // Check date range
+              if (!createdAt || createdAt < sixMonthsAgo) return false;
+              
+              // For regular team members, only show receipts they created
+              if (isTeamMember && currentMembership?.role !== 'admin') {
+                return data.teamAttribution?.createdByUserId === user.uid;
+              }
+              
+              return true;
             })
             .sort((a, b) => {
               const aDate = a.data().createdAt?.toDate?.() || new Date(0);
@@ -641,7 +746,7 @@ export const ReceiptsListScreen: React.FC = () => {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user?.uid]);
+  }, [user?.uid, isTeamMember, currentMembership?.role, accountHolderId]);
 
   // Focus effect to fetch receipts when screen is focused
   useFocusEffect(
@@ -942,14 +1047,14 @@ export const ReceiptsListScreen: React.FC = () => {
                 <Text
                   style={[styles.usageLabel, { color: theme.text.tertiary }]}
                 >
-                  {subscription?.currentTier === "free"
+                  {subscription?.currentTier === "free" && !isTeamMember
                     ? "Total Usage (includes deleted)"
                     : "Monthly Usage (includes deleted)"}
                 </Text>
                 <Text
                   style={[styles.usageValue, { color: theme.text.primary }]}
                 >
-                  {maxReceipts === -1
+                  {maxReceipts === -1 || isTeamMember
                     ? currentReceiptCount
                     : `${currentReceiptCount} / ${maxReceipts}`}
                 </Text>
@@ -969,7 +1074,7 @@ export const ReceiptsListScreen: React.FC = () => {
                 </Text>
               )}
 
-              {maxReceipts !== -1 && remainingReceipts <= 2 && (
+              {maxReceipts !== -1 && remainingReceipts <= 2 && !isTeamMember && (
                 <Text
                   style={[styles.warningText, { color: theme.status.warning }]}
                 >
@@ -1785,13 +1890,15 @@ export const ReceiptsListScreen: React.FC = () => {
                   ? [
                       // Add limit reached prompt for users who have reached their limit
                       ...(remainingReceipts === 0 &&
-                      !isLimitReachedPromptDismissed
+                      !isLimitReachedPromptDismissed &&
+                      !isTeamMember
                         ? [{ isLimitReachedPrompt: true }]
                         : []),
-                      // Add upgrade prompt as last item for free users with remaining receipts
+                      // Add upgrade prompt as last item for free users with remaining receipts (not for team members)
                       ...(subscription?.currentTier === "free" &&
                       remainingReceipts > 0 &&
-                      !isUpgradePromptDismissed
+                      !isUpgradePromptDismissed &&
+                      !isTeamMember
                         ? [{ isUpgradePrompt: true }]
                         : []),
                     ]
@@ -2019,14 +2126,17 @@ export const ReceiptsListScreen: React.FC = () => {
           <FlatList
             data={[
               ...filteredReceipts,
-              // Add limit reached prompt for users who have reached their limit
-              ...(remainingReceipts === 0 && !isLimitReachedPromptDismissed
+              // Add limit reached prompt for users who have reached their limit (not for team members)
+              ...(remainingReceipts === 0 && 
+              !isLimitReachedPromptDismissed &&
+              !isTeamMember
                 ? [{ isLimitReachedPrompt: true }]
                 : []),
-              // Add upgrade prompt as last item for free users with remaining receipts
+              // Add upgrade prompt as last item for free users with remaining receipts (not for team members)
               ...(subscription?.currentTier === "free" &&
               remainingReceipts > 0 &&
-              !isUpgradePromptDismissed
+              !isUpgradePromptDismissed &&
+              !isTeamMember
                 ? [{ isUpgradePrompt: true }]
                 : []),
             ]}
