@@ -51,7 +51,7 @@ import { Receipt as FirebaseReceipt } from "../services/firebaseService";
 export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
   const navigation = useReceiptsNavigation();
-  const { subscription, getRemainingReceipts, currentReceiptCount } =
+  const { subscription, getRemainingReceipts, currentReceiptCount, refreshReceiptCount } =
     useSubscription();
   const { handleSubscriptionWithCloudFunction } = useStripePayments();
   const { user } = useAuth();
@@ -754,7 +754,16 @@ export const ReceiptsListScreen: React.FC = () => {
       console.log("📱 ReceiptsListScreen focused, fetching receipts...");
       fetchReceipts();
       fetchCustomCategories();
-    }, [fetchReceipts, fetchCustomCategories])
+      
+      // Refresh receipt count with the correct accountHolderId for team members
+      if (isTeamMember && accountHolderId) {
+        console.log("📱 ReceiptsListScreen: Refreshing receipt count for team member with accountHolderId:", accountHolderId);
+        refreshReceiptCount(accountHolderId);
+      } else {
+        console.log("📱 ReceiptsListScreen: Refreshing receipt count for account holder");
+        refreshReceiptCount();
+      }
+    }, [fetchReceipts, fetchCustomCategories, refreshReceiptCount, isTeamMember, accountHolderId])
   );
 
   // Comprehensive filter function that applies all filters

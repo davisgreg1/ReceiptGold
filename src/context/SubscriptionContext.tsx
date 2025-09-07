@@ -13,6 +13,7 @@ import {
 import { useAuth } from "./AuthContext";
 import { db } from "../config/firebase";
 import { getMonthlyReceiptCount } from "../utils/getMonthlyReceipts";
+import { TeamService } from "../services/TeamService";
 
 export type SubscriptionTier = "trial" | "free" | "starter" | "growth" | "professional";
 
@@ -68,7 +69,7 @@ interface SubscriptionContextType {
   getRemainingReceipts: (currentReceiptCount: number) => number;
   loading: boolean;
   currentReceiptCount: number;
-  refreshReceiptCount: () => Promise<{
+  refreshReceiptCount: (accountHolderId?: string) => Promise<{
     success: boolean;
     count?: number;
     error?: string;
@@ -197,6 +198,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   // Improved refresh receipt count function
   const refreshReceiptCount = useCallback(
     async (
+      accountHolderIdParam?: string,
       options: {
         retryCount?: number;
         forceRefresh?: boolean;
@@ -274,9 +276,13 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           });
         });
 
+        // Use the provided accountHolderId parameter if available (for team members)
+        console.log("📊 refreshReceiptCount: accountHolderIdParam:", accountHolderIdParam);
+        console.log("📊 refreshReceiptCount: user.uid:", user.uid);
+
         // Race between the actual request and timeout
         const count = await Promise.race([
-          getMonthlyReceiptCount(user.uid),
+          getMonthlyReceiptCount(user.uid, accountHolderIdParam),
           timeoutPromise,
         ]);
 
@@ -316,7 +322,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
         if (isRetryableError) {
           console.log(`📊 refreshReceiptCount: Retrying...`);
-          return refreshReceiptCount({
+          return refreshReceiptCount(accountHolderIdParam, {
             retryCount: retryCount + 1,
             forceRefresh: true,
             skipDelay: false,

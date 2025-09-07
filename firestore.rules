@@ -143,6 +143,8 @@ service cloud.firestore {
             allow update: if isAuthenticated() && (
                 // Account holders can update their receipts
                 request.auth.uid == resource.data.userId ||
+                // Admin team members can update all receipts for their account holder
+                isAdminTeamMember(resource.data.userId) ||
                 // Team members can only update receipts they created
                 // Business-level validation is enforced at the application level
                 (resource.data.teamAttribution != null && 
@@ -154,6 +156,8 @@ service cloud.firestore {
             allow delete: if isAuthenticated() && (
                 // Account holders can delete their receipts
                 request.auth.uid == resource.data.userId ||
+                // Admin team members can delete all receipts for their account holder
+                isAdminTeamMember(resource.data.userId) ||
                 // Team members can only delete receipts they created
                 // Business-level validation is enforced at the application level
                 (resource.data.teamAttribution != null && 
@@ -350,9 +354,11 @@ service cloud.firestore {
                 isAdminTeamMember(resource.data.accountHolderId)
             );
 
-            // Account holders can create invitations
-            allow create: if isAuthenticated() && 
-            request.auth.uid == request.resource.data.accountHolderId &&
+            // Account holders and admin team members can create invitations
+            allow create: if isAuthenticated() && (
+                request.auth.uid == request.resource.data.accountHolderId ||
+                isAdminTeamMember(request.resource.data.accountHolderId)
+            ) &&
             // Validate required fields including business association
             request.resource.data.keys().hasAll(['accountHolderId', 'businessId', 'inviteEmail', 'status', 'token', 'expiresAt', 'createdAt', 'role']) &&
             // Validate field types and sizes

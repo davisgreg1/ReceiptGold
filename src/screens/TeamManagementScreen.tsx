@@ -139,6 +139,11 @@ const TeamInvitationCard: React.FC<TeamInvitationCardProps> = ({
 export const TeamManagementScreen: React.FC = () => {
   const navigation = useNavigation();
   const { theme } = useTheme();
+  
+  // Debug render counter
+  const renderCountRef = React.useRef(0);
+  renderCountRef.current += 1;
+  console.log('🔍 TeamManagementScreen render #', renderCountRef.current);
   const { subscription } = useSubscription();
   const {
     teamMembers,
@@ -174,18 +179,26 @@ export const TeamManagementScreen: React.FC = () => {
   }, [refreshTeamData]);
 
   const handleInviteTeammate = () => {
+    console.log('🔍 handleInviteTeammate called');
+    console.log('  - canInviteMembers():', canInviteMembers());
+    console.log('  - hasReachedMemberLimit():', hasReachedMemberLimit());
+    
     if (!canInviteMembers()) {
+      console.log('  ❌ Blocked by canInviteMembers check');
       showError('Upgrade Required', 'Team management is available for Professional tier users only.');
       return;
     }
 
     if (hasReachedMemberLimit()) {
+      console.log('  ❌ Blocked by hasReachedMemberLimit check');
       showError(
         'Member Limit Reached', 
         `You have reached the maximum number of team members (${subscription.limits.maxTeamMembers}) for your subscription plan.`
       );
       return;
     }
+    
+    console.log('  ✅ Proceeding to navigation');
 
     // Navigate to invitation screen - we'll create this next
     navigation.navigate('InviteTeammate' as never);
@@ -252,6 +265,10 @@ export const TeamManagementScreen: React.FC = () => {
   console.log('🚀 ~ TeamManagementScreen ~ teamInvitations:', teamInvitations);
   console.log('🚀 ~ TeamManagementScreen ~ pendingInvitations:', pendingInvitations);
   console.log('🚀 ~ TeamManagementScreen ~ teamMembers:', teamMembers);
+  console.log('🚀 ~ TeamManagementScreen ~ loading:', loading);
+  console.log('🚀 ~ TeamManagementScreen ~ error:', error);
+  console.log('🚀 ~ TeamManagementScreen ~ subscription feature check:', subscription ? subscription.features : 'No subscription');
+  console.log('🚀 ~ TeamManagementScreen ~ canAccessTeam:', subscription?.features?.teamManagement);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
@@ -317,7 +334,12 @@ export const TeamManagementScreen: React.FC = () => {
             </Text>
           </View>
 
-          {teamMembers.length === 0 ? (
+          {(() => {
+            console.log('🔍 TeamManagementScreen render check - teamMembers.length:', teamMembers.length);
+            console.log('🔍 TeamManagementScreen render check - teamMembers.length === 0:', teamMembers.length === 0);
+            console.log('🔍 TeamManagementScreen render check - teamMembers array:', teamMembers);
+            return teamMembers.length === 0;
+          })() ? (
             <View style={styles.emptyState}>
               <Ionicons
                 name="people-outline"
@@ -369,11 +391,11 @@ export const TeamManagementScreen: React.FC = () => {
             styles.inviteButton,
             { 
               backgroundColor: theme.gold.primary,
-              opacity: hasReachedMemberLimit() ? 0.6 : 1,
+              opacity: (!canInviteMembers() || hasReachedMemberLimit()) ? 0.6 : 1,
             }
           ]}
           onPress={handleInviteTeammate}
-          disabled={hasReachedMemberLimit()}
+          disabled={!canInviteMembers() || hasReachedMemberLimit()}
         >
           <Ionicons name="person-add" size={20} color="#FFFFFF" />
           <Text style={styles.inviteButtonText}>
