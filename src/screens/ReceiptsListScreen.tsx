@@ -496,6 +496,13 @@ export const ReceiptsListScreen: React.FC = () => {
         effectiveAccountHolderId
       });
 
+      console.log('🔍 Team member status details:', {
+        isTeamMember,
+        membershipRole: currentMembership?.role,
+        isRegularTeamMember: isTeamMember && currentMembership?.role !== 'admin',
+        willFilterReceipts: isTeamMember && currentMembership?.role !== 'admin'
+      });
+
       // First try the optimized query with indexes
       try {
         let receiptsQuery;
@@ -534,14 +541,34 @@ export const ReceiptsListScreen: React.FC = () => {
 
         // Filter for regular team members (only their own receipts)
         if (isTeamMember && currentMembership?.role !== 'admin') {
+          console.log('🔍 Before filtering - total receiptDocs:', receiptDocs.length);
           receiptDocs = receiptDocs.filter(doc => {
             const data = doc.data();
+            const hasTeamAttribution = !!data.teamAttribution;
+            const createdByUserId = data.teamAttribution?.createdByUserId;
+            const storedUserId = data.userId;
+            const matchesTeamAttribution = createdByUserId === user.uid;
+            const matchesDirectUserId = !data.teamAttribution && data.userId === user.uid;
+            const shouldInclude = matchesTeamAttribution || matchesDirectUserId;
+            
+            console.log('🔍 Receipt filter check:', {
+              receiptId: data.receiptId || doc.id,
+              vendor: data.vendor,
+              hasTeamAttribution,
+              createdByUserId,
+              storedUserId,
+              currentUserId: user.uid,
+              matchesTeamAttribution,
+              matchesDirectUserId,
+              shouldInclude
+            });
+            
             // Show receipts they created in two ways:
             // 1. Receipts with teamAttribution.createdByUserId matching their userId (preferred)
             // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
-            return data.teamAttribution?.createdByUserId === user.uid || 
-                   (!data.teamAttribution && data.userId === user.uid);
+            return shouldInclude;
           });
+          console.log('🔍 After filtering - receipts for team member:', receiptDocs.length);
         }
 
       } catch (error: any) {
@@ -571,6 +598,7 @@ export const ReceiptsListScreen: React.FC = () => {
           }
 
           const basicSnapshot = await getDocs(basicQuery);
+          console.log('🔍 Fallback query - total docs before filtering:', basicSnapshot.docs.length);
           receiptDocs = basicSnapshot.docs
             .filter((doc) => {
               const data = doc.data();
@@ -578,11 +606,29 @@ export const ReceiptsListScreen: React.FC = () => {
               
               // For regular team members, only show receipts they created
               if (isTeamMember && currentMembership?.role !== 'admin') {
+                const hasTeamAttribution = !!data.teamAttribution;
+                const createdByUserId = data.teamAttribution?.createdByUserId;
+                const storedUserId = data.userId;
+                const matchesTeamAttribution = createdByUserId === user.uid;
+                const matchesDirectUserId = !data.teamAttribution && data.userId === user.uid;
+                const shouldInclude = matchesTeamAttribution || matchesDirectUserId;
+                
+                console.log('🔍 Fallback receipt filter check:', {
+                  receiptId: data.receiptId || doc.id,
+                  vendor: data.vendor,
+                  hasTeamAttribution,
+                  createdByUserId,
+                  storedUserId,
+                  currentUserId: user.uid,
+                  matchesTeamAttribution,
+                  matchesDirectUserId,
+                  shouldInclude
+                });
+                
                 // Show receipts they created in two ways:
                 // 1. Receipts with teamAttribution.createdByUserId matching their userId (preferred)
                 // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
-                return data.teamAttribution?.createdByUserId === user.uid || 
-                       (!data.teamAttribution && data.userId === user.uid);
+                return shouldInclude;
               }
               
               return true;
@@ -624,7 +670,14 @@ export const ReceiptsListScreen: React.FC = () => {
       }) as FirebaseReceipt[];
 
       // Get monthly usage count using our utility function
-      const monthlyCount = await getMonthlyReceiptCount(user.uid);
+      // For team members, count receipts under the account holder's ID
+      console.log('🔍 Monthly count parameters:', {
+        userId: user.uid,
+        accountHolderId,
+        isTeamMember,
+        effectiveAccountHolderId: accountHolderId || user.uid
+      });
+      const monthlyCount = await getMonthlyReceiptCount(user.uid, accountHolderId || undefined);
       console.log("🚀 ~ ReceiptsListScreen ~ monthlyCount:", monthlyCount);
       console.log("Monthly usage count (including deleted):", monthlyCount);
 
