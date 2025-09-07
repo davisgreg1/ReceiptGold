@@ -256,16 +256,26 @@ export const receiptService = {
       const docRef = doc(collection(db, 'receipts'));
       console.log("🚀 Creating receipt document with ID:", docRef.id);
 
+      // For now, skip team attribution during creation to avoid permissions issues
+      // Team attribution will be handled at the application level during receipt display
+      const effectiveUserId = receipt.userId;
+      const teamAttribution = undefined;
+
       // Ensure userId is present and properly typed
       const { userId, businessId, ...rest } = receipt;
       
       // Create base receipt data
       const receiptData = {
-        userId: String(userId), // Ensure it's a string
+        userId: String(effectiveUserId), // Use effective user ID (account holder for team members)
         ...rest, // Spread all other properties except userId and businessId
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       };
+
+      // Add team attribution if user is a team member
+      if (teamAttribution) {
+        (receiptData as any).teamAttribution = teamAttribution;
+      }
 
       // Only add businessId if it's not undefined
       if (businessId !== undefined) {

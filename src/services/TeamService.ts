@@ -9,6 +9,7 @@ import {
   query, 
   where, 
   orderBy,
+  limit,
   Timestamp,
   serverTimestamp 
 } from 'firebase/firestore';
@@ -36,6 +37,50 @@ export class TeamService {
     request: CreateTeamInvitationRequest
   ): Promise<TeamInvitation> {
     try {
+      const inviteEmail = request.inviteEmail.toLowerCase();
+      
+      // Validation: Check if email already exists as a team member
+      console.log('🔍 Checking for existing team member with email:', inviteEmail);
+      const existingMemberQuery = query(
+        collection(db, this.COLLECTIONS.MEMBERS),
+        where('email', '==', inviteEmail),
+        where('status', '==', 'active'),
+        limit(5) // Add explicit limit for security rules
+      );
+      const existingMemberSnapshot = await getDocs(existingMemberQuery);
+      
+      if (!existingMemberSnapshot.empty) {
+        throw new Error('This email address is already registered as a team member');
+      }
+      
+      // Validation: Check if there's already a pending invitation for this email
+      console.log('🔍 Checking for existing pending invitation with email:', inviteEmail);
+      const existingInvitationQuery = query(
+        collection(db, this.COLLECTIONS.INVITATIONS),
+        where('inviteEmail', '==', inviteEmail),
+        where('status', '==', 'pending'),
+        where('expiresAt', '>', new Date()), // Only check non-expired invitations
+        limit(5) // Add explicit limit for security rules
+      );
+      const existingInvitationSnapshot = await getDocs(existingInvitationQuery);
+      
+      if (!existingInvitationSnapshot.empty) {
+        throw new Error('There is already a pending invitation for this email address');
+      }
+      
+      // Validation: Check if this email belongs to an existing user (account holder)
+      console.log('🔍 Checking if email belongs to an existing user account:', inviteEmail);
+      const usersQuery = query(
+        collection(db, 'users'),
+        where('email', '==', inviteEmail),
+        limit(5) // Add explicit limit for security rules
+      );
+      const usersSnapshot = await getDocs(usersQuery);
+      
+      if (!usersSnapshot.empty) {
+        throw new Error('This email address is already registered as a user account. Users cannot be invited as team members.');
+      }
+
       const token = generateSecureToken();
       const expiresAt = new Date();
       expiresAt.setDate(expiresAt.getDate() + 7); // Expire in 7 days
@@ -46,7 +91,7 @@ export class TeamService {
         accountHolderName: request.accountHolderName,
         businessId: request.businessId,
         businessName: request.businessName,
-        inviteEmail: request.inviteEmail.toLowerCase(),
+        inviteEmail: inviteEmail, // Use the already normalized email
         status: 'pending',
         token,
         expiresAt,

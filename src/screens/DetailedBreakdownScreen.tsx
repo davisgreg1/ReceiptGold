@@ -27,6 +27,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../config/firebase";
 import { useAuth } from "../context/AuthContext";
+import { useTeam } from "../context/TeamContext";
 import { useFocusEffect } from "@react-navigation/native";
 import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
 import { CustomCategoryService, CustomCategory } from '../services/CustomCategoryService';
@@ -74,6 +75,7 @@ interface MonthlyData {
 
 export const DetailedBreakdownScreen = () => {
   const { user } = useAuth();
+  const { accountHolderId } = useTeam();
   const { theme } = useTheme();
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
@@ -83,10 +85,10 @@ export const DetailedBreakdownScreen = () => {
 
   // Fetch custom categories
   const fetchCustomCategories = async () => {
-    if (!user) return;
+    if (!user || !accountHolderId) return;
     
     try {
-      const categories = await CustomCategoryService.getCustomCategories(user.uid);
+      const categories = await CustomCategoryService.getCustomCategories(accountHolderId, user.uid);
       setCustomCategories(categories);
       console.log('✅ Fetched custom categories:', categories.length);
     } catch (error) {
