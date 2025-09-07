@@ -93,13 +93,6 @@ export const HomeScreen: React.FC = () => {
       
       // Get all receipts from Firebase with team member support
       const effectiveAccountHolderId = accountHolderId || user.uid;
-      console.log('🏠 HomeScreen receipt query:', {
-        userId: user.uid,
-        isTeamMember,
-        accountHolderId,
-        effectiveAccountHolderId,
-        memberRole: currentMembership?.role
-      });
 
       let receiptDocs;
       try {
@@ -129,7 +122,6 @@ export const HomeScreen: React.FC = () => {
 
       // Filter receipts for regular team members (same logic as ReceiptsListScreen)
       if (isTeamMember && currentMembership?.role !== 'admin') {
-        console.log('🏠 Filtering receipts for regular team member - before:', receiptDocs.length);
         receiptDocs = receiptDocs.filter(doc => {
           const data = doc.data();
           // Show receipts they created in two ways:
@@ -137,21 +129,8 @@ export const HomeScreen: React.FC = () => {
           // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
           const matchesTeamAttribution = data.teamAttribution?.createdByUserId === user.uid;
           const matchesDirectUserId = !data.teamAttribution && data.userId === user.uid;
-          const shouldInclude = matchesTeamAttribution || matchesDirectUserId;
-          
-          console.log('🏠 Receipt filter check:', {
-            receiptId: data.receiptId || doc.id,
-            vendor: data.vendor,
-            hasTeamAttribution: !!data.teamAttribution,
-            createdByUserId: data.teamAttribution?.createdByUserId,
-            storedUserId: data.userId,
-            currentUserId: user.uid,
-            shouldInclude
-          });
-          
-          return shouldInclude;
+          return matchesTeamAttribution || matchesDirectUserId;
         });
-        console.log('🏠 Filtering receipts for regular team member - after:', receiptDocs.length);
       }
 
       // Convert Firestore docs to receipt objects
