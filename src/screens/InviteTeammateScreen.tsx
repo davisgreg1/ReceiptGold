@@ -17,6 +17,7 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useTeam } from '../context/TeamContext';
 import { useAuth } from '../context/AuthContext';
 import { useSubscription } from '../context/SubscriptionContext';
+import { useBusiness } from '../context/BusinessContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { TeamMemberRole } from '../types/team';
 import { isValidEmail } from '../utils/security';
@@ -27,11 +28,22 @@ export const InviteTeammateScreen: React.FC = () => {
   const { user } = useAuth();
   const { inviteTeammate, hasReachedMemberLimit, isTeamMember, currentMembership, accountHolderId } = useTeam();
   const { subscription, canAccessFeature } = useSubscription();
+  const { accessibleBusinesses, selectedBusiness } = useBusiness();
   const { showError, showSuccess } = useCustomAlert();
 
   const [email, setEmail] = useState('');
   const [role, setRole] = useState<TeamMemberRole>('teammate');
+  const [selectedBusinessId, setSelectedBusinessId] = useState<string>('');
   const [loading, setLoading] = useState(false);
+
+  // Auto-select the currently selected business if only one is available
+  React.useEffect(() => {
+    if (accessibleBusinesses.length === 1) {
+      setSelectedBusinessId(accessibleBusinesses[0].id!);
+    } else if (selectedBusiness && !selectedBusinessId) {
+      setSelectedBusinessId(selectedBusiness.id!);
+    }
+  }, [accessibleBusinesses, selectedBusiness, selectedBusinessId]);
 
   const handleInvite = async () => {
     if (!email.trim()) {
@@ -41,6 +53,11 @@ export const InviteTeammateScreen: React.FC = () => {
 
     if (!isValidEmail(email.trim())) {
       showError('Invalid Email', 'Please enter a valid email address.');
+      return;
+    }
+
+    if (!selectedBusinessId) {
+      showError('Business Required', 'Please select a business for this team member.');
       return;
     }
 
@@ -65,10 +82,17 @@ export const InviteTeammateScreen: React.FC = () => {
 
     setLoading(true);
     try {
+      const selectedBusiness = accessibleBusinesses.find(b => b.id === selectedBusinessId);
+      if (!selectedBusiness) {
+        throw new Error('Selected business not found');
+      }
+
       await inviteTeammate({
         inviteEmail: email.trim().toLowerCase(),
         role,
         accountHolderName: user?.displayName || user?.email || 'Account Holder',
+        businessId: selectedBusinessId,
+        businessName: selectedBusiness.name,
       });
 
       showSuccess(
@@ -117,6 +141,51 @@ export const InviteTeammateScreen: React.FC = () => {
               Invite team members to help manage receipts on your account. They'll be able to add and manage their own receipts while you maintain full oversight.
             </Text>
           </View>
+
+          {/* Business Selection */}
+          {accessibleBusinesses.length > 1 && (
+            <View style={styles.formSection}>
+              <Text style={[styles.label, { color: theme.text.primary }]}>
+                Business *
+              </Text>
+              <View style={styles.businessSelector}>
+                {accessibleBusinesses.map((business) => (
+                  <TouchableOpacity
+                    key={business.id}
+                    style={[
+                      styles.businessOption,
+                      {
+                        backgroundColor: selectedBusinessId === business.id ? theme.gold.primary + '20' : theme.background.secondary,
+                        borderColor: selectedBusinessId === business.id ? theme.gold.primary : theme.border.primary,
+                      }
+                    ]}
+                    onPress={() => setSelectedBusinessId(business.id!)}
+                    disabled={loading}
+                  >
+                    <View style={[
+                      styles.radioButton,
+                      {
+                        borderColor: selectedBusinessId === business.id ? theme.gold.primary : theme.border.primary,
+                        backgroundColor: selectedBusinessId === business.id ? theme.gold.primary : 'transparent',
+                      }
+                    ]}>
+                      {selectedBusinessId === business.id && (
+                        <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                      )}
+                    </View>
+                    <View style={styles.businessInfo}>
+                      <Text style={[styles.businessName, { color: theme.text.primary }]}>
+                        {business.name}
+                      </Text>
+                      <Text style={[styles.businessType, { color: theme.text.secondary }]}>
+                        {business.type}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
 
           {/* Email Input */}
           <View style={styles.formSection}>
@@ -225,13 +294,13 @@ export const InviteTeammateScreen: React.FC = () => {
               style={[
                 styles.inviteButton,
                 {
-                  backgroundColor: loading || !email.trim() ? theme.gold.primary + '60' : theme.gold.primary,
+                  backgroundColor: loading || !email.trim() || !selectedBusinessId ? theme.gold.primary + '60' : theme.gold.primary,
                   borderWidth: 1,
                   borderColor: theme.gold.primary,
                 }
               ]}
               onPress={handleInvite}
-              disabled={loading || !email.trim()}
+              disabled={loading || !email.trim() || !selectedBusinessId}
             >
               {loading ? (
                 <ActivityIndicator color="#FFFFFF" />
@@ -417,6 +486,29 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  businessSelector: {
+    gap: 12,
+  },
+  businessOption: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  businessInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  businessName: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  businessType: {
+    fontSize: 14,
+    textTransform: 'capitalize',
   },
 });
 
