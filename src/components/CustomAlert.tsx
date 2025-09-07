@@ -161,6 +161,20 @@ const CustomAlertModal: React.FC = () => {
   
   if (!alertState.visible) return null;
   
+  const handlePrimaryPress = () => {
+    if (alertState.options.onPrimaryPress) {
+      alertState.options.onPrimaryPress();
+    }
+    hideAlert(); // Always close the alert after the callback
+  };
+
+  const handleSecondaryPress = () => {
+    if (alertState.options.onSecondaryPress) {
+      alertState.options.onSecondaryPress();
+    }
+    hideAlert(); // Always close the alert after the callback
+  };
+  
   return (
     <CustomAlert
       visible={alertState.visible}
@@ -170,8 +184,8 @@ const CustomAlertModal: React.FC = () => {
       onClose={hideAlert}
       primaryButtonText={alertState.options.primaryButtonText}
       secondaryButtonText={alertState.options.secondaryButtonText}
-      onPrimaryPress={alertState.options.onPrimaryPress || hideAlert}
-      onSecondaryPress={alertState.options.onSecondaryPress}
+      onPrimaryPress={handlePrimaryPress}
+      onSecondaryPress={handleSecondaryPress}
     />
   );
 };

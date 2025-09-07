@@ -141,6 +141,7 @@ const BusinessManagementScreen: React.FC = () => {
   const { theme } = useTheme();
   const {
     businesses,
+    accessibleBusinesses,
     selectedBusiness,
     loading,
     error,
@@ -148,6 +149,7 @@ const BusinessManagementScreen: React.FC = () => {
     deleteBusiness,
     canCreateBusiness,
     refreshBusinesses,
+    isBusinessAccessible,
   } = useBusiness();
   const { subscription, canAccessFeature } = useSubscription();
   const { showError, showSuccess, showWarning, showInfo, hideAlert } = useCustomAlert();
@@ -246,6 +248,10 @@ const BusinessManagementScreen: React.FC = () => {
   };
 
   const handleEditBusiness = (business: BusinessData) => {
+    if (!business.id || !isBusinessAccessible(business.id)) {
+      showError('Access Denied', 'This business is not accessible with your current subscription plan.');
+      return;
+    }
     navigation.navigate('CreateBusiness', {
       businessId: business.id,
       mode: 'edit'
@@ -253,6 +259,10 @@ const BusinessManagementScreen: React.FC = () => {
   };
 
   const handleDeleteBusiness = (business: BusinessData) => {
+    if (!business.id || !isBusinessAccessible(business.id)) {
+      showError('Access Denied', 'This business is not accessible with your current subscription plan.');
+      return;
+    }
     showWarning(
       'Delete Business',
       `Are you sure you want to delete "${business.name}"? This action cannot be undone. All receipts associated with this business will become unassigned.`,
@@ -286,7 +296,7 @@ const BusinessManagementScreen: React.FC = () => {
     );
   };
 
-  if (loading && businesses.length === 0) {
+  if (loading && accessibleBusinesses.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
         <View style={styles.loadingContainer}>
@@ -304,15 +314,15 @@ const BusinessManagementScreen: React.FC = () => {
 
       {/* Business Stats Header */}
       <View style={[styles.statsHeader, { backgroundColor: theme.background.secondary }]}>
-        {businesses.length > 0 ? (
+        {accessibleBusinesses.length > 0 ? (
           <>
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Text style={[styles.statNumber, { color: theme.gold.primary }]}>
-                  {businesses.length}
+                  {accessibleBusinesses.length}
                 </Text>
                 <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
-                  {businesses.length === 1 ? 'Business' : 'Businesses'}
+                  {accessibleBusinesses.length === 1 ? 'Business' : 'Businesses'}
                 </Text>
               </View>
               
@@ -320,7 +330,7 @@ const BusinessManagementScreen: React.FC = () => {
               
               <View style={styles.statItem}>
                 <Text style={[styles.statNumber, { color: theme.text.primary }]}>
-                  {businesses.reduce((sum, business) => sum + business.stats.totalReceipts, 0)}
+                  {accessibleBusinesses.reduce((sum, business) => sum + business.stats.totalReceipts, 0)}
                 </Text>
                 <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
                   Total Receipts
@@ -393,7 +403,7 @@ const BusinessManagementScreen: React.FC = () => {
           />
         }
       >
-        {businesses.length === 0 ? (
+        {accessibleBusinesses.length === 0 ? (
           <View style={styles.emptyState}>
             <Ionicons
               name="business-outline"
@@ -415,7 +425,7 @@ const BusinessManagementScreen: React.FC = () => {
             </TouchableOpacity>
           </View>
         ) : (
-          businesses.map((business) => (
+          accessibleBusinesses.map((business) => (
             <BusinessCard
               key={business.id}
               business={business}
@@ -429,8 +439,24 @@ const BusinessManagementScreen: React.FC = () => {
           ))
         )}
 
+        {/* Tier Restriction Notice */}
+        {!canAccessFeature('multiBusinessManagement') && businesses.length > 1 && (
+          <View style={[styles.restrictionNotice, { backgroundColor: theme.gold.primary + '20', borderColor: theme.gold.primary }]}>
+            <Ionicons name="information-circle" size={24} color={theme.gold.primary} />
+            <View style={styles.restrictionContent}>
+              <Text style={[styles.restrictionTitle, { color: theme.gold.primary }]}>
+                Limited Access
+              </Text>
+              <Text style={[styles.restrictionText, { color: theme.text.primary }]}>
+                You have {businesses.length} businesses but can only access your oldest one on your current plan. 
+                Upgrade to Professional to manage all {businesses.length} businesses.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Create New Business Button */}
-        {businesses.length > 0 && (
+        {accessibleBusinesses.length > 0 && (
           <TouchableOpacity
             style={[styles.createButton, { backgroundColor: theme.gold.primary }]}
             onPress={handleCreateBusiness}
@@ -674,6 +700,27 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     marginLeft: 8,
+  },
+  restrictionNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    margin: 20,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  restrictionContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  restrictionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  restrictionText: {
+    fontSize: 14,
+    lineHeight: 20,
   },
 });
 

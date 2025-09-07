@@ -20,6 +20,7 @@ import { BusinessData, CreateBusinessRequest } from '../types/business';
 
 interface BusinessContextType {
   businesses: BusinessData[];
+  accessibleBusinesses: BusinessData[];
   selectedBusiness: BusinessData | null;
   loading: boolean;
   error: string | null;
@@ -34,6 +35,7 @@ interface BusinessContextType {
   canCreateBusiness: () => boolean;
   getBusinessById: (businessId: string) => BusinessData | undefined;
   refreshBusinesses: () => Promise<void>;
+  isBusinessAccessible: (businessId: string) => boolean;
 }
 
 const BusinessContext = createContext<BusinessContextType | undefined>(undefined);
@@ -46,6 +48,18 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [selectedBusiness, setSelectedBusiness] = useState<BusinessData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Filter businesses based on subscription tier access
+  const getAccessibleBusinesses = useCallback(() => {
+    if (!canAccessFeature('multiBusinessManagement') && businesses.length > 1) {
+      // For lower tiers, only allow access to the first business (oldest)
+      const oldestBusiness = businesses.sort((a, b) => 
+        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+      )[0];
+      return oldestBusiness ? [oldestBusiness] : [];
+    }
+    return businesses;
+  }, [canAccessFeature, businesses]);
 
   // Check if user can create more businesses
   const canCreateBusiness = useCallback(() => {
@@ -61,6 +75,12 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const getBusinessById = useCallback((businessId: string) => {
     return businesses.find(business => business.id === businessId);
   }, [businesses]);
+
+  // Check if a business is accessible based on current subscription
+  const isBusinessAccessible = useCallback((businessId: string) => {
+    const accessibleBusinesses = getAccessibleBusinesses();
+    return accessibleBusinesses.some(business => business.id === businessId);
+  }, [getAccessibleBusinesses]);
 
   // Create a new business
   const createBusiness = useCallback(async (businessData: CreateBusinessRequest): Promise<BusinessData> => {
@@ -174,19 +194,27 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
   }, [user, selectedBusiness]);
 
-  // Select a business
+  // Select a business (with access restrictions)
   const selectBusiness = useCallback((businessId: string | null) => {
     if (businessId) {
       const business = getBusinessById(businessId);
-      if (business) {
+      if (business && isBusinessAccessible(businessId)) {
         setSelectedBusiness(business);
         AsyncStorage.setItem('selectedBusinessId', businessId);
+      } else {
+        console.warn('🚫 Business not accessible or not found:', businessId);
+        // If trying to select an inaccessible business, select the first accessible one
+        const accessibleBusinesses = getAccessibleBusinesses();
+        if (accessibleBusinesses.length > 0) {
+          setSelectedBusiness(accessibleBusinesses[0]);
+          AsyncStorage.setItem('selectedBusinessId', accessibleBusinesses[0].id!);
+        }
       }
     } else {
       setSelectedBusiness(null);
       AsyncStorage.removeItem('selectedBusinessId');
     }
-  }, [getBusinessById]);
+  }, [getBusinessById, isBusinessAccessible, getAccessibleBusinesses]);
 
   // Refresh businesses from Firestore
   const refreshBusinesses = useCallback(async () => {
@@ -257,26 +285,41 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         console.log('🏢 BusinessContext: Loaded businesses:', businessList.map(b => ({ id: b.id, name: b.name })));
         setBusinesses(businessList);
 
-        // Restore selected business from AsyncStorage
+        // Restore selected business from AsyncStorage with access restrictions
         const restoreSelectedBusiness = async () => {
           try {
             const savedBusinessId = await AsyncStorage.getItem('selectedBusinessId');
+            
+            // Get accessible businesses for current tier
+            const tempAccessibleBusinesses = !canAccessFeature('multiBusinessManagement') && businessList.length > 1
+              ? [businessList.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]]
+              : businessList;
+            
             if (savedBusinessId) {
               const savedBusiness = businessList.find(b => b.id === savedBusinessId);
-              if (savedBusiness) {
+              const isAccessible = tempAccessibleBusinesses.some(b => b.id === savedBusinessId);
+              
+              if (savedBusiness && isAccessible) {
                 setSelectedBusiness(savedBusiness);
               } else {
-                // Saved business no longer exists, clear it
+                // Saved business no longer exists or is not accessible, clear it and select first accessible
+                console.log('🔄 Switching to accessible business due to tier restriction or missing business');
                 await AsyncStorage.removeItem('selectedBusinessId');
-                setSelectedBusiness(null);
+                if (tempAccessibleBusinesses.length > 0) {
+                  setSelectedBusiness(tempAccessibleBusinesses[0]);
+                  await AsyncStorage.setItem('selectedBusinessId', tempAccessibleBusinesses[0].id!);
+                } else {
+                  setSelectedBusiness(null);
+                }
               }
-            } else if (businessList.length === 1) {
-              // Auto-select the only business
-              setSelectedBusiness(businessList[0]);
-              await AsyncStorage.setItem('selectedBusinessId', businessList[0].id!);
-            } else if (businessList.length === 0) {
-              // No businesses exist - this is likely why the dropdown is empty
-              console.log('⚠️ No businesses found. User needs to create a business in Settings → Business Management');
+            } else if (tempAccessibleBusinesses.length === 1) {
+              // Auto-select the only accessible business
+              setSelectedBusiness(tempAccessibleBusinesses[0]);
+              await AsyncStorage.setItem('selectedBusinessId', tempAccessibleBusinesses[0].id!);
+            } else if (tempAccessibleBusinesses.length === 0) {
+              // No accessible businesses
+              console.log('⚠️ No accessible businesses found.');
+              setSelectedBusiness(null);
             }
           } catch (error) {
             console.error('Error restoring selected business:', error);
@@ -298,6 +341,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
   const contextValue: BusinessContextType = {
     businesses,
+    accessibleBusinesses: getAccessibleBusinesses(),
     selectedBusiness,
     loading,
     error,
@@ -308,6 +352,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     canCreateBusiness,
     getBusinessById,
     refreshBusinesses,
+    isBusinessAccessible,
   };
 
   return (
