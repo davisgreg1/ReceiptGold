@@ -34,7 +34,7 @@ const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const stripe_1 = __importDefault(require("stripe"));
 const https_1 = require("firebase-functions/v2/https");
-const sgMail = __importStar(require("@sendgrid/mail"));
+const sgMail = require('@sendgrid/mail');
 // Initialize Firebase Admin SDK for production
 admin.initializeApp();
 const db = admin.firestore();
@@ -2648,15 +2648,16 @@ exports.sendTeamInvitationEmail = functionsV1.firestore
         sgMail.setApiKey(sendgridApiKey);
         const msg = {
             to: invitation.inviteEmail,
-            from: accountHolderEmail,
+            from: 'noreply@receiptgold.com',
             replyTo: accountHolderEmail,
             subject: subject,
             html: htmlContent,
             text: `${accountHolderName} invited you to join their ReceiptGold team\n\nAccept your invitation: ${invitationLink}\n\nThis invitation will expire on ${new Date(invitation.expiresAt.toDate()).toLocaleDateString()}.`
         };
         // Send the email
-        await sgMail.send(msg);
+        const response = await sgMail.send(msg);
         console.log('✅ Team invitation email sent successfully to:', invitation.inviteEmail);
+        console.log('📧 SendGrid response status:', response[0].statusCode);
         // Mark invitation as email sent (optional status tracking)
         await snapshot.ref.update({
             emailSent: true,

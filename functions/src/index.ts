@@ -7,7 +7,7 @@ import * as admin from "firebase-admin";
 import Stripe from "stripe";
 import { onCall, HttpsError, CallableRequest, onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
-import * as sgMail from "@sendgrid/mail";
+const sgMail = require('@sendgrid/mail');
 
 // Split-tender interfaces
 interface SplitTenderPayment {
@@ -3338,16 +3338,17 @@ export const sendTeamInvitationEmail = functionsV1.firestore
 
       const msg = {
         to: invitation.inviteEmail,
-        from: accountHolderEmail, // Use account holder email as verified sender for now
-        replyTo: accountHolderEmail,
+        from: 'noreply@receiptgold.com', // Use verified SendGrid sender
+        replyTo: accountHolderEmail, // Reply to account holder
         subject: subject,
         html: htmlContent,
         text: `${accountHolderName} invited you to join their ReceiptGold team\n\nAccept your invitation: ${invitationLink}\n\nThis invitation will expire on ${new Date(invitation.expiresAt.toDate()).toLocaleDateString()}.`
       };
 
       // Send the email
-      await sgMail.send(msg);
+      const response = await sgMail.send(msg);
       console.log('✅ Team invitation email sent successfully to:', invitation.inviteEmail);
+      console.log('📧 SendGrid response status:', response[0].statusCode);
       
       // Mark invitation as email sent (optional status tracking)
       await snapshot.ref.update({
