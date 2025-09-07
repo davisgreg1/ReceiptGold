@@ -27,6 +27,7 @@ export interface SubscriptionFeatures {
   apiAccess: boolean;
   dedicatedManager: boolean;
   bankConnection: boolean;
+  teamManagement: boolean;
 }
 
 export interface BillingInfo {
@@ -47,6 +48,7 @@ export interface SubscriptionState {
     maxBusinesses: number;
     apiCallsPerMonth: number;
     maxReports?: number;
+    maxTeamMembers: number;
   };
   isActive: boolean;
   expiresAt: Date | null;
@@ -110,6 +112,7 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         apiAccess: true,
         dedicatedManager: true,
         bankConnection: true,
+        teamManagement: true,
       };
     case "free":
       return {
@@ -123,6 +126,7 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         apiAccess: false,
         dedicatedManager: false,
         bankConnection: false,
+        teamManagement: false,
       };
     case "starter":
       return {
@@ -136,6 +140,7 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         apiAccess: false,
         dedicatedManager: false,
         bankConnection: false,
+        teamManagement: false,
       };
     case "growth":
       return {
@@ -149,6 +154,7 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         apiAccess: false,
         dedicatedManager: false,
         bankConnection: false,
+        teamManagement: false,
       };
     case "professional":
       return {
@@ -162,6 +168,7 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         apiAccess: true,
         dedicatedManager: true,
         bankConnection: true,
+        teamManagement: true,
       };
   }
 };
@@ -348,6 +355,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       maxBusinesses: 1,
       apiCallsPerMonth: 0,
       maxReports: 3,
+      maxTeamMembers: 0,
     },
     isActive: false,
     expiresAt: null,
@@ -398,6 +406,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           maxBusinesses: 1,
           apiCallsPerMonth: 0,
           maxReports: 3,
+          maxTeamMembers: 0,
         },
         isActive: false,
         expiresAt: null,
@@ -534,6 +543,10 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
                 : effectiveTier === "starter"
                 ? 10
                 : 3,
+            maxTeamMembers:
+              effectiveTier === "professional" || effectiveTier === "trial"
+                ? 10 // Reasonable limit for team members
+                : 0, // No team members for lower tiers
           };
 
           setSubscription({
@@ -617,6 +630,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               maxBusinesses: -1,
               apiCallsPerMonth: -1,
               maxReports: -1,
+              maxTeamMembers: 10,
             },
             isActive: true,
             expiresAt: trialExpires,
@@ -649,6 +663,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           maxBusinesses: 1,
           apiCallsPerMonth: 0,
           maxReports: 3,
+          maxTeamMembers: 0,
         },
         isActive: false,
         expiresAt: null,

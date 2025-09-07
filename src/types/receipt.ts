@@ -11,6 +11,13 @@ export interface Receipt {
   createdAt: Date;
   updatedAt: Date;
   status: string;
+  teamAttribution?: {
+    accountHolderId: string;
+    createdByUserId: string;
+    createdByEmail: string;
+    createdByName?: string;
+    isTeamReceipt: boolean;
+  };
   images: Array<{
     url: string;
     size: number;

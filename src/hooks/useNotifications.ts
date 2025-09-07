@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { NotificationService } from '../services/ExpoNotificationService';
+import { NotificationService } from '../services/NotificationService';
 import { useNotificationSettings } from '../context/NotificationSettingsContext';
 
 export const useNotifications = () => {

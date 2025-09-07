@@ -19,7 +19,7 @@ import { useNotificationSettings } from '../context/NotificationSettingsContext'
 import { BankReceiptService } from '../services/BankReceiptService';
 import { useAuth } from '../hooks/useAuth';
 import { useSubscription } from '../context/SubscriptionContext';
-import { NotificationService } from '../services/ExpoNotificationService';
+import { NotificationService } from '../services/NotificationService';
 
 // Helper functions for time handling
 const timeStringToDate = (timeString: string): Date => {
@@ -84,7 +84,7 @@ export const NotificationSettingsScreen: React.FC = () => {
 
   const requestPermissions = async () => {
     try {
-      const { NotificationService } = await import('../services/ExpoNotificationService');
+      const { NotificationService } = await import('../services/NotificationService');
       const service = NotificationService.getInstance();
       await service.initialize();
       await loadNotificationData();

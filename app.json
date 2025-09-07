@@ -119,12 +119,6 @@
           "photosPermission": "The app accesses your photos to let you select a receipt."
         }
       ],
-      [
-        "@react-native-firebase/app"
-      ],
-      [
-        "@react-native-firebase/messaging"
-      ],
       "expo-notifications"
     ],
     "owner": "davisgreg1"
