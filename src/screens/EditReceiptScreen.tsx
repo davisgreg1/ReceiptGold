@@ -1045,9 +1045,6 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 borderColor: theme.border.secondary,
               }]}
             />
-            <Text style={{ color: theme.text.secondary, fontSize: 12, marginTop: 4 }}>
-              Debug: {formData.businessId ? `Selected: ${formData.businessId}` : 'No business selected'}
-            </Text>
           </View>
 
           <View style={styles.fieldGroup}>

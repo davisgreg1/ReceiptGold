@@ -144,7 +144,7 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
   style,
 }) => {
   const { theme } = useTheme();
-  const { businesses, loading, getBusinessById } = useBusiness();
+  const { businesses, accessibleBusinesses, loading, getBusinessById } = useBusiness();
   const { canAccessFeature } = useSubscription();
   const hasMultiBusinessAccess = canAccessFeature('multiBusinessManagement');
   
@@ -160,13 +160,14 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
   // Debug logging
   console.log('🏢 BusinessSelector Debug:', {
     businessesCount: businesses.length,
+    accessibleBusinessesCount: accessibleBusinesses.length,
     loading,
     hasMultiBusinessAccess,
     selectedBusinessId,
     selectedBusiness: selectedBusiness?.name,
     selectedBusinessResult: selectedBusinessId ? getBusinessById(selectedBusinessId) : 'no ID provided',
-    businessNames: businesses.map(b => b.name),
-    businessIds: businesses.map(b => b.id),
+    accessibleBusinessNames: accessibleBusinesses.map(b => b.name),
+    accessibleBusinessIds: accessibleBusinesses.map(b => b.id),
   });
 
   const handleSelect = (businessId: string | null) => {
@@ -287,7 +288,7 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
                   )}
 
                   {/* Business Options */}
-                  {businesses.map((business) => (
+                  {accessibleBusinesses.map((business) => (
                     <BusinessOption
                       key={business.id}
                       business={business}
@@ -297,7 +298,7 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
                   ))}
 
                   {/* Empty State */}
-                  {businesses.length === 0 && (
+                  {accessibleBusinesses.length === 0 && (
                     <View style={styles.emptyState}>
                       <Ionicons
                         name="business-outline"
@@ -318,11 +319,11 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
             </ScrollView>
 
             {/* Upgrade Prompt */}
-            {!hasMultiBusinessAccess && businesses.length > 0 && (
+            {!hasMultiBusinessAccess && businesses.length > 1 && (
               <View style={[styles.upgradePrompt, { backgroundColor: theme.gold.primary + '20', borderColor: theme.gold.primary }]}>
                 <Ionicons name="star" size={20} color={theme.gold.primary} />
                 <Text style={[styles.upgradeText, { color: theme.gold.primary }]}>
-                  Upgrade to Professional to manage multiple businesses
+                  You have {businesses.length} businesses. Upgrade to Professional to access all of them.
                 </Text>
               </View>
             )}

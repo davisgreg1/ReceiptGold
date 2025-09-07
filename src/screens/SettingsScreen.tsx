@@ -173,6 +173,15 @@ const SettingsRow: React.FC<SettingsRowProps> = ({
   );
 };
 
+// Helper function to safely format dates
+const formatConnectionDate = (dateValue: any): string => {
+  if (!dateValue) {
+    return 'Unknown';
+  }
+  const date = new Date(dateValue);
+  return isNaN(date.getTime()) ? 'Unknown' : date.toLocaleDateString();
+};
+
 export const SettingsScreen: React.FC = () => {
   const { theme, themeMode, toggleTheme } = useTheme();
   const { subscription, canAccessFeature } = useSubscription();
@@ -1220,8 +1229,7 @@ export const SettingsScreen: React.FC = () => {
                           { color: theme.text.tertiary },
                         ]}
                       >
-                        Connected{" "}
-                        {new Date(connection.connectedAt).toLocaleDateString()}
+                        Connected {formatConnectionDate(connection.connectedAt)}
                       </Text>
                     </View>
                     <TouchableOpacity
@@ -2507,16 +2515,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     marginBottom: 2,
+    flex: 1,
+    marginRight: 12,
   },
   bankNameContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
   repairIndicator: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexShrink: 0,
   },
   repairText: {
     fontSize: 12,
