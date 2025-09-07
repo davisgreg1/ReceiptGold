@@ -21,6 +21,7 @@ import {
   ActivityIndicator,
 } from "react-native-paper";
 import { useSubscription } from "../context/SubscriptionContext";
+import { useBusiness } from "../context/BusinessContext";
 import {
   collection,
   query,
@@ -60,6 +61,7 @@ interface Receipt {
 export default function ReportsScreen() {
   const { user } = useAuth();
   const { subscription } = useSubscription();
+  const { getBusinessById } = useBusiness();
   const navigation = useNavigation<StackNavigationProp<any>>();
   const { theme } = useTheme();
   
@@ -467,11 +469,14 @@ export default function ReportsScreen() {
         "Date,Amount,Category,Business,Description",
         ...receipts.map((receipt) => {
           const receiptDate = receipt.createdAt?.toDate() || receipt.date?.toDate();
+          const businessName = receipt.businessId 
+            ? getBusinessById(receipt.businessId)?.name || "Unknown Business"
+            : "Personal";
           return [
             receiptDate ? format(receiptDate, "yyyy-MM-dd") : "Unknown",
             receipt.amount.toString(),
             receipt.category,
-            receipt.businessId || "Personal",
+            businessName,
             (receipt.description || "").replace(/,/g, ";"),
           ].join(",");
         }),
