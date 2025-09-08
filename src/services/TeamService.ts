@@ -4,7 +4,6 @@ import {
   addDoc, 
   updateDoc, 
   setDoc,
-  deleteDoc, 
   getDoc, 
   getDocs, 
   query, 
@@ -20,9 +19,7 @@ import {
   TeamMember, 
   TeamStats, 
   CreateTeamInvitationRequest,
-  TeamMemberRole,
-  TeamMemberStatus,
-  InvitationStatus
+  TeamMemberRole
 } from '../types/team';
 import { generateSecureToken } from '../utils/security';
 
@@ -217,7 +214,7 @@ export class TeamService {
         throw new Error('Invitation is no longer valid');
       }
 
-      if (new Date() > invitation.expiresAt.toDate()) {
+      if (new Date() > invitation.expiresAt) {
         throw new Error('Invitation has expired');
       }
 

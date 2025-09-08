@@ -68,6 +68,31 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, subscription.currentTier, subscriptionLoading]);
 
+  const clearTeamData = useCallback(() => {
+    setTeamMembers([]);
+    setTeamInvitations([]);
+    setTeamStats(null);
+    setIsTeamMember(false);
+    setCurrentMembership(null);
+    setAccountHolderId(null);
+    setError(null);
+  }, []);
+
+  const handleTeamMemberRevocation = useCallback(async () => {
+    console.log('🔒 Handling team member revocation - signing out user');
+    
+    // Clear team data immediately
+    clearTeamData();
+    
+    // Show notification to user about revocation (no interaction required)
+    showInfo('Access Revoked', 'Your team access has been revoked. Signing out automatically...');
+    
+    // Sign out the user after a brief delay to allow notification to be seen
+    setTimeout(() => {
+      logout();
+    }, 2000);
+  }, [clearTeamData, logout, showInfo]);
+
   // Monitor team member status in real-time for revocation detection
   useEffect(() => {
     if (!user?.uid || !isTeamMember || !currentMembership?.id) {
@@ -127,37 +152,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return unsubscribe;
   }, [user?.uid, isTeamMember, currentMembership?.id, handleTeamMemberRevocation]);
-
-  const clearTeamData = useCallback(() => {
-    setTeamMembers([]);
-    setTeamInvitations([]);
-    setTeamStats(null);
-    setIsTeamMember(false);
-    setCurrentMembership(null);
-    setAccountHolderId(null);
-    setError(null);
-  }, []);
-
-  const handleTeamMemberRevocation = useCallback(async () => {
-    console.log('🔒 Handling team member revocation - signing out user');
-    
-    // Clear team data immediately
-    clearTeamData();
-    
-    // Show notification to user about revocation (no interaction required)
-    showInfo('Access Revoked', 'Your team access has been revoked. Signing out automatically...');
-    
-    // Automatically sign out the user after a brief delay
-    setTimeout(async () => {
-      try {
-        await logout();
-      } catch (error) {
-        console.error('Error during revocation logout:', error);
-        // If logout fails, at least the team data is already cleared
-        // The user will be in a state where they can't access team features
-      }
-    }, 2000); // 2 second delay to allow user to see the notification
-  }, [logout, clearTeamData, showInfo]);
 
   const loadTeamData = useCallback(async () => {
     if (!user?.uid) {
@@ -325,6 +319,31 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [user, canAccessFeature]);
 
+  const hasReachedMemberLimit = useCallback((): boolean => {
+    const maxMembers = subscription.limits.maxTeamMembers;
+    const pendingInvitations = teamInvitations.filter(
+      inv => inv.status === 'pending' && inv.expiresAt > new Date()
+    ).length;
+    const currentCount = teamMembers.length + pendingInvitations;
+    
+    console.log('🔍 hasReachedMemberLimit check:');
+    console.log('  - maxMembers:', maxMembers);
+    console.log('  - teamMembers.length:', teamMembers.length);
+    console.log('  - pendingInvitations:', pendingInvitations);
+    console.log('  - currentCount:', currentCount);
+    console.log('  - isTeamMember:', isTeamMember);
+    console.log('  - currentMembership?.role:', currentMembership?.role);
+    
+    if (maxMembers === -1) {
+      console.log('  ✅ Unlimited members - returning false');
+      return false; // Unlimited
+    }
+    
+    const hasReached = currentCount >= maxMembers;
+    console.log('  hasReachedMemberLimit result:', hasReached);
+    return hasReached;
+  }, [subscription.limits.maxTeamMembers, teamInvitations, teamMembers.length, isTeamMember, currentMembership?.role]);
+
   const inviteTeammate = useCallback(async (request: CreateTeamInvitationRequest): Promise<TeamInvitation> => {
     if (!user?.uid) {
       throw new Error('User must be authenticated');
@@ -466,40 +485,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     return false;
   }, [canAccessFeature, isTeamMember, currentMembership]);
-
-  const hasReachedMemberLimit = useCallback((): boolean => {
-    const maxMembers = subscription.limits.maxTeamMembers;
-    const pendingInvitations = teamInvitations.filter(
-      inv => inv.status === 'pending' && inv.expiresAt > new Date()
-    ).length;
-    const currentCount = teamMembers.length + pendingInvitations;
-    
-    console.log('🔍 hasReachedMemberLimit check:');
-    console.log('  - maxMembers:', maxMembers);
-    console.log('  - teamMembers.length:', teamMembers.length);
-    console.log('  - pendingInvitations:', pendingInvitations);
-    console.log('  - currentCount:', currentCount);
-    console.log('  - isTeamMember:', isTeamMember);
-    console.log('  - currentMembership?.role:', currentMembership?.role);
-    
-    if (maxMembers === -1) {
-      console.log('  ✅ Unlimited members - returning false');
-      return false; // Unlimited
-    }
-    
-    // Admin team members should use the account holder's subscription limits
-    // For now, let's allow admin team members to always invite (they inherit account holder permissions)
-    if (isTeamMember && currentMembership?.role === 'admin') {
-      console.log('  ✅ Admin team member - bypassing free tier limits');
-      // TODO: In production, this should check the actual account holder's subscription
-      // For now, allow admin team members to invite regardless of free tier limits
-      return false;
-    }
-    
-    const result = currentCount >= maxMembers;
-    console.log('  Result:', result ? '❌ Limit reached' : '✅ Under limit');
-    return result;
-  }, [subscription.limits.maxTeamMembers, teamMembers.length, teamInvitations, isTeamMember, currentMembership]);
 
   const contextValue: TeamContextType = {
     // State

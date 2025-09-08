@@ -13,7 +13,6 @@ import {
 import { useAuth } from "./AuthContext";
 import { db } from "../config/firebase";
 import { getMonthlyReceiptCount } from "../utils/getMonthlyReceipts";
-import { TeamService } from "../services/TeamService";
 
 export type SubscriptionTier = "trial" | "free" | "starter" | "growth" | "professional" | "teammate";
 
