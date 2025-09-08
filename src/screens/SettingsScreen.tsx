@@ -727,7 +727,7 @@ export const SettingsScreen: React.FC = () => {
         setShowCreateCategoryDialog(false);
         setNewCategoryName("");
         setNewCategoryIcon("📁");
-        showSuccess("Success", `"${newCategory.name}" category created successfully`);
+        // Category created successfully - no need to show success alert
       } else {
         showError("Error", "Failed to create custom category. Please try again.");
       }

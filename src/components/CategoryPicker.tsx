@@ -1,6 +1,6 @@
 /**
  * CategoryPicker - Cross-platform category selection component
- * 
+ *
  * Features:
  * - Works on both Android and iOS
  * - Shows friendly category names
@@ -9,25 +9,31 @@
  * - Smooth animations and native feel
  */
 
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  StyleSheet, 
-  Modal, 
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
   ScrollView,
   Platform,
   Dimensions,
   TextInput,
-  Alert
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useTheme } from '../theme/ThemeProvider';
-import { ReceiptCategoryService, ReceiptCategory } from '../services/ReceiptCategoryService';
-import { CustomCategoryService, CustomCategory } from '../services/CustomCategoryService';
-import { useAuth } from '../context/AuthContext';
-import { useTeam } from '../context/TeamContext';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "../theme/ThemeProvider";
+import {
+  ReceiptCategoryService,
+  ReceiptCategory,
+} from "../services/ReceiptCategoryService";
+import {
+  CustomCategoryService,
+  CustomCategory,
+} from "../services/CustomCategoryService";
+import { useAuth } from "../context/AuthContext";
+import { useTeam } from "../context/TeamContext";
+import { useCustomAlert } from "./CustomAlert";
 
 interface CategoryPickerProps {
   selectedCategory: ReceiptCategory;
@@ -41,18 +47,18 @@ interface CategoryPickerProps {
 }
 
 const ALL_CATEGORIES: ReceiptCategory[] = [
-  'groceries',
-  'restaurant', 
-  'entertainment',
-  'shopping',
-  'travel',
-  'transportation',
-  'utilities',
-  'healthcare',
-  'professional_services',
-  'office_supplies',
-  'equipment_software',
-  'other'
+  "groceries",
+  "restaurant",
+  "entertainment",
+  "shopping",
+  "travel",
+  "transportation",
+  "utilities",
+  "healthcare",
+  "professional_services",
+  "office_supplies",
+  "equipment_software",
+  "other",
 ];
 
 export const CategoryPicker: React.FC<CategoryPickerProps> = ({
@@ -67,12 +73,15 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 }) => {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { showError } = useCustomAlert();
   const { accountHolderId } = useTeam();
   const [modalVisible, setModalVisible] = useState(false);
   const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [newCategoryIcon, setNewCategoryIcon] = useState('📁');
-  const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newCategoryIcon, setNewCategoryIcon] = useState("📁");
+  const [customCategories, setCustomCategories] = useState<CustomCategory[]>(
+    []
+  );
   const [allCategories, setAllCategories] = useState<ReceiptCategory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -83,17 +92,21 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
   const loadCategories = async () => {
     if (!user || !accountHolderId) return;
-    
+
     try {
-      const [allAvailableCategories, accountCustomCategories] = await Promise.all([
-        ReceiptCategoryService.getAvailableCategories(accountHolderId, user.uid),
-        CustomCategoryService.getCustomCategories(accountHolderId, user.uid)
-      ]);
-      
+      const [allAvailableCategories, accountCustomCategories] =
+        await Promise.all([
+          ReceiptCategoryService.getAvailableCategories(
+            accountHolderId,
+            user.uid
+          ),
+          CustomCategoryService.getCustomCategories(accountHolderId, user.uid),
+        ]);
+
       setCustomCategories(accountCustomCategories);
       setAllCategories(allAvailableCategories);
     } catch (error) {
-      console.error('Error loading categories:', error);
+      console.error("Error loading categories:", error);
     }
   };
 
@@ -102,16 +115,21 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   };
 
   const getCategoryDisplayName = (category: ReceiptCategory): string => {
-    return ReceiptCategoryService.getCategoryDisplayName(category, customCategories);
+    return ReceiptCategoryService.getCategoryDisplayName(
+      category,
+      customCategories
+    );
   };
 
   const handleCategorySelect = async (category: ReceiptCategory) => {
     // Update last used date for custom categories
-    const customCategory = customCategories.find(cat => cat.name === category);
+    const customCategory = customCategories.find(
+      (cat) => cat.name === category
+    );
     if (customCategory) {
       await CustomCategoryService.updateLastUsed(customCategory.id);
     }
-    
+
     onCategorySelect(category);
     setModalVisible(false);
   };
@@ -119,9 +137,10 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   const handleCreateCustomCategory = async () => {
     if (!user || !accountHolderId) return;
 
-    const validation = CustomCategoryService.validateCategoryName(newCategoryName);
+    const validation =
+      CustomCategoryService.validateCategoryName(newCategoryName);
     if (!validation.isValid) {
-      Alert.alert('Invalid Category Name', validation.error);
+      showError("Error", validation.error as string);
       return;
     }
 
@@ -136,21 +155,25 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
       if (newCategory) {
         await loadCategories(); // Refresh categories
-        setNewCategoryName('');
-        setNewCategoryIcon('📁');
+        setNewCategoryName("");
+        setNewCategoryIcon("📁");
         setShowNewCategoryModal(false);
-        
+
         // Automatically select the new category
         onCategorySelect(newCategory.name as ReceiptCategory);
         setModalVisible(false);
-        
-        Alert.alert('Success', 'Custom category created successfully!');
       } else {
-        Alert.alert('Error', 'Failed to create custom category. It may already exist.');
+        showError(
+          "Error",
+          "Failed to create custom category. It may already exist."
+        );
       }
     } catch (error) {
-      console.error('Error creating custom category:', error);
-      Alert.alert('Error', 'Failed to create custom category. Please try again.');
+      console.error("Error creating custom category:", error);
+      showError(
+          "Error",
+          "Failed to create custom category. Please try again."
+        );
     } finally {
       setIsLoading(false);
     }
@@ -160,7 +183,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
     // Put AI suggested category at the top if it exists and is different from selected
     const categories = [...allCategories];
     if (aiSuggestedCategory && aiSuggestedCategory !== selectedCategory) {
-      const filtered = categories.filter(cat => cat !== aiSuggestedCategory);
+      const filtered = categories.filter((cat) => cat !== aiSuggestedCategory);
       return [aiSuggestedCategory, ...filtered];
     }
     return categories;
@@ -175,7 +198,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           {label}
         </Text>
       )}
-      
+
       <TouchableOpacity
         style={[
           styles.picker,
@@ -183,7 +206,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
             backgroundColor: theme.background.secondary,
             borderColor: theme.border.primary,
           },
-          disabled && styles.disabled
+          disabled && styles.disabled,
         ]}
         onPress={() => !disabled && setModalVisible(true)}
         disabled={disabled}
@@ -192,19 +215,20 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           <Text style={styles.categoryIcon}>
             {getCategoryIcon(selectedCategory)}
           </Text>
-          <Text style={[
-            styles.selectedText,
-            { color: theme.text.primary },
-            disabled && { color: theme.text.secondary }
-          ]}>
+          <Text
+            style={[
+              styles.selectedText,
+              { color: theme.text.primary },
+              disabled && { color: theme.text.secondary },
+            ]}
+          >
             {selectedDisplayName}
           </Text>
-
         </View>
-        <Ionicons 
-          name="chevron-down" 
-          size={20} 
-          color={disabled ? theme.text.secondary : theme.text.primary} 
+        <Ionicons
+          name="chevron-down"
+          size={20}
+          color={disabled ? theme.text.secondary : theme.text.primary}
         />
       </TouchableOpacity>
 
@@ -219,14 +243,19 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           activeOpacity={1}
           onPress={() => setModalVisible(false)}
         >
-          <View 
+          <View
             style={[
               styles.modalContent,
-              { backgroundColor: theme.background.primary }
+              { backgroundColor: theme.background.primary },
             ]}
             onStartShouldSetResponder={() => true}
           >
-            <View style={[styles.modalHeader, { borderBottomColor: theme.border.primary }]}>
+            <View
+              style={[
+                styles.modalHeader,
+                { borderBottomColor: theme.border.primary },
+              ]}
+            >
               <Text style={[styles.modalTitle, { color: theme.text.primary }]}>
                 Select Category
               </Text>
@@ -237,20 +266,22 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                 <Ionicons name="close" size={24} color={theme.text.primary} />
               </TouchableOpacity>
             </View>
-            
+
             <ScrollView style={styles.categoryList}>
               {sortedCategories.map((category) => {
                 const isSelected = category === selectedCategory;
                 const isAISuggested = category === aiSuggestedCategory;
                 const displayName = getCategoryDisplayName(category);
-                
+
                 return (
                   <TouchableOpacity
                     key={category}
                     style={[
                       styles.categoryItem,
                       { borderBottomColor: theme.border.primary },
-                      isSelected && { backgroundColor: theme.gold.primary + '20' }
+                      isSelected && {
+                        backgroundColor: theme.gold.primary + "20",
+                      },
                     ]}
                     onPress={() => handleCategorySelect(category)}
                   >
@@ -259,48 +290,55 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                         {getCategoryIcon(category)}
                       </Text>
                       <View style={styles.categoryItemText}>
-                        <Text style={[
-                          styles.categoryItemName,
-                          { color: theme.text.primary },
-                          isSelected && { fontWeight: '600' }
-                        ]}>
+                        <Text
+                          style={[
+                            styles.categoryItemName,
+                            { color: theme.text.primary },
+                            isSelected && { fontWeight: "600" },
+                          ]}
+                        >
                           {displayName}
                         </Text>
                       </View>
                     </View>
                     {isSelected && (
-                      <Ionicons 
-                        name="checkmark" 
-                        size={20} 
-                        color={theme.gold.primary} 
+                      <Ionicons
+                        name="checkmark"
+                        size={20}
+                        color={theme.gold.primary}
                       />
                     )}
                   </TouchableOpacity>
                 );
               })}
-              
+
               {/* Add Custom Category Option */}
               {allowCustomCategories && user && accountHolderId && (
                 <TouchableOpacity
                   style={[
                     styles.categoryItem,
                     styles.addCategoryItem,
-                    { borderBottomColor: theme.border.primary, borderTopColor: theme.border.primary }
+                    {
+                      borderBottomColor: theme.border.primary,
+                      borderTopColor: theme.border.primary,
+                    },
                   ]}
                   onPress={() => setShowNewCategoryModal(true)}
                 >
                   <View style={styles.categoryItemContent}>
-                    <Ionicons 
-                      name="add-circle-outline" 
-                      size={24} 
-                      color={theme.gold.primary} 
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={24}
+                      color={theme.gold.primary}
                       style={styles.addCategoryIcon}
                     />
                     <View style={styles.categoryItemText}>
-                      <Text style={[
-                        styles.categoryItemName,
-                        { color: theme.gold.primary, fontWeight: '500' }
-                      ]}>
+                      <Text
+                        style={[
+                          styles.categoryItemName,
+                          { color: theme.gold.primary, fontWeight: "500" },
+                        ]}
+                      >
                         Add Custom Category
                       </Text>
                     </View>
@@ -324,14 +362,19 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           activeOpacity={1}
           onPress={() => setShowNewCategoryModal(false)}
         >
-          <View 
+          <View
             style={[
               styles.newCategoryModal,
-              { backgroundColor: theme.background.primary }
+              { backgroundColor: theme.background.primary },
             ]}
             onStartShouldSetResponder={() => true}
           >
-            <View style={[styles.modalHeader, { borderBottomColor: theme.border.primary }]}>
+            <View
+              style={[
+                styles.modalHeader,
+                { borderBottomColor: theme.border.primary },
+              ]}
+            >
               <Text style={[styles.modalTitle, { color: theme.text.primary }]}>
                 Create Custom Category
               </Text>
@@ -345,7 +388,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
 
             <View style={styles.newCategoryContent}>
               <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: theme.text.primary }]}>
+                <Text
+                  style={[styles.inputLabel, { color: theme.text.primary }]}
+                >
                   Category Name
                 </Text>
                 <TextInput
@@ -354,8 +399,8 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                     {
                       backgroundColor: theme.background.secondary,
                       borderColor: theme.border.primary,
-                      color: theme.text.primary
-                    }
+                      color: theme.text.primary,
+                    },
                   ]}
                   placeholder="Enter category name..."
                   placeholderTextColor={theme.text.tertiary}
@@ -364,32 +409,45 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   maxLength={30}
                   autoCapitalize="words"
                 />
-                <Text style={[styles.characterCount, { color: theme.text.tertiary }]}>
+                <Text
+                  style={[
+                    styles.characterCount,
+                    { color: theme.text.tertiary },
+                  ]}
+                >
                   {newCategoryName.length}/30
                 </Text>
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={[styles.inputLabel, { color: theme.text.primary }]}>
+                <Text
+                  style={[styles.inputLabel, { color: theme.text.primary }]}
+                >
                   Icon
                 </Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.iconPicker}>
-                  {CustomCategoryService.getDefaultIcons().map((icon, index) => (
-                    <TouchableOpacity
-                      key={index}
-                      style={[
-                        styles.iconOption,
-                        { borderColor: theme.border.primary },
-                        newCategoryIcon === icon && { 
-                          borderColor: theme.gold.primary, 
-                          backgroundColor: theme.gold.primary + '20' 
-                        }
-                      ]}
-                      onPress={() => setNewCategoryIcon(icon)}
-                    >
-                      <Text style={styles.iconText}>{icon}</Text>
-                    </TouchableOpacity>
-                  ))}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.iconPicker}
+                >
+                  {CustomCategoryService.getDefaultIcons().map(
+                    (icon, index) => (
+                      <TouchableOpacity
+                        key={index}
+                        style={[
+                          styles.iconOption,
+                          { borderColor: theme.border.primary },
+                          newCategoryIcon === icon && {
+                            borderColor: theme.gold.primary,
+                            backgroundColor: theme.gold.primary + "20",
+                          },
+                        ]}
+                        onPress={() => setNewCategoryIcon(icon)}
+                      >
+                        <Text style={styles.iconText}>{icon}</Text>
+                      </TouchableOpacity>
+                    )
+                  )}
                 </ScrollView>
               </View>
 
@@ -398,16 +456,18 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   style={[
                     styles.newCategoryButton,
                     styles.cancelButton,
-                    { borderColor: theme.border.primary }
+                    { borderColor: theme.border.primary },
                   ]}
                   onPress={() => {
                     setShowNewCategoryModal(false);
-                    setNewCategoryName('');
-                    setNewCategoryIcon('📁');
+                    setNewCategoryName("");
+                    setNewCategoryIcon("📁");
                   }}
                   disabled={isLoading}
                 >
-                  <Text style={[styles.buttonText, { color: theme.text.primary }]}>
+                  <Text
+                    style={[styles.buttonText, { color: theme.text.primary }]}
+                  >
                     Cancel
                   </Text>
                 </TouchableOpacity>
@@ -415,13 +475,13 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                   style={[
                     styles.newCategoryButton,
                     styles.createButton,
-                    { backgroundColor: theme.gold.primary }
+                    { backgroundColor: theme.gold.primary },
                   ]}
                   onPress={handleCreateCustomCategory}
                   disabled={isLoading || !newCategoryName.trim()}
                 >
-                  <Text style={[styles.buttonText, { color: 'white' }]}>
-                    {isLoading ? 'Creating...' : 'Create'}
+                  <Text style={[styles.buttonText, { color: "white" }]}>
+                    {isLoading ? "Creating..." : "Create"}
                   </Text>
                 </TouchableOpacity>
               </View>
@@ -433,7 +493,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   );
 };
 
-const { height: screenHeight } = Dimensions.get('window');
+const { height: screenHeight } = Dimensions.get("window");
 
 const styles = StyleSheet.create({
   container: {
@@ -441,13 +501,13 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 8,
   },
   picker: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderRadius: 8,
@@ -458,8 +518,8 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   pickerContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
   },
   categoryIcon: {
@@ -472,14 +532,14 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
     ...Platform.select({
       ios: {
-        justifyContent: 'center',
+        justifyContent: "center",
       },
       android: {
-        justifyContent: 'flex-end',
+        justifyContent: "flex-end",
       },
     }),
   },
@@ -502,15 +562,15 @@ const styles = StyleSheet.create({
     }),
   },
   modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     padding: 20,
     borderBottomWidth: 1,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   closeButton: {
     padding: 4,
@@ -519,16 +579,16 @@ const styles = StyleSheet.create({
     maxHeight: screenHeight * 0.6,
   },
   categoryItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   categoryItemContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
   },
   categoryItemIcon: {
@@ -563,7 +623,7 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
     marginBottom: 8,
   },
   textInput: {
@@ -576,7 +636,7 @@ const styles = StyleSheet.create({
   },
   characterCount: {
     fontSize: 12,
-    textAlign: 'right',
+    textAlign: "right",
   },
   iconPicker: {
     paddingVertical: 8,
@@ -587,14 +647,14 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: 2,
     marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   iconText: {
     fontSize: 20,
   },
   newCategoryButtons: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
     marginTop: 20,
   },
@@ -603,7 +663,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 20,
     borderRadius: 8,
-    alignItems: 'center',
+    alignItems: "center",
   },
   cancelButton: {
     borderWidth: 1,
@@ -613,6 +673,6 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });
