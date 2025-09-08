@@ -530,6 +530,18 @@ export const usageService = {
           maxApiCalls: 1000,
           maxReports: -1,
         };
+      case 'teammate':
+        return {
+          maxReceipts: parseInt(Constants.expoConfig?.extra?.TEAMMATE_TIER_MAX_RECEIPTS || "-1", 10),
+          maxApiCalls: 0, // No API access for teammates
+          maxReports: 0, // No reports for teammates
+        };
+      case 'trial':
+        return {
+          maxReceipts: -1, // Unlimited for trial like professional
+          maxApiCalls: 1000,
+          maxReports: -1,
+        };
     }
   },
 

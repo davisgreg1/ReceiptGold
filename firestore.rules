@@ -306,6 +306,7 @@ service cloud.firestore {
         }
 
 
+
         // Admin-only collections (if you add them later)
         match /admin/{document=**} {
             allow read, write: if isAdmin();
@@ -398,6 +399,10 @@ service cloud.firestore {
                 request.auth.uid == resource.data.userId ||
                 isAdminTeamMember(resource.data.accountHolderId)
             );
+            
+            // Allow account holders to query their team members for migration purposes
+            allow list: if isAuthenticated() && 
+            resource == null; // Allow queries that haven't been filtered yet
             
             // Allow limited queries for duplicate checking (email validation)
             // This is needed when creating team invitations to check for duplicates

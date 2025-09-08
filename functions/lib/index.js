@@ -44,7 +44,8 @@ const getReceiptLimits = () => {
         free: parseInt(process.env.FREE_TIER_MAX_RECEIPTS || "10", 10),
         starter: parseInt(process.env.STARTER_TIER_MAX_RECEIPTS || "50", 10),
         growth: parseInt(process.env.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
-        professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10)
+        professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
+        teammate: parseInt(process.env.TEAMMATE_TIER_MAX_RECEIPTS || "-1", 10)
     };
 };
 // Stripe configuration from environment variables
@@ -99,6 +100,11 @@ exports.TIER_LIMITS = {
         maxReceipts: -1,
         maxBusinesses: -1,
         apiCallsPerMonth: -1, // unlimited
+    },
+    teammate: {
+        maxReceipts: -1,
+        maxBusinesses: 1,
+        apiCallsPerMonth: 0, // no API access for teammates
     }
 };
 // Subscription tier configurations (keeping your existing setup)
@@ -177,6 +183,25 @@ const subscriptionTiers = {
             whiteLabel: true,
             apiAccess: true,
             dedicatedManager: true,
+        },
+    },
+    teammate: {
+        name: "Teammate",
+        limits: {
+            maxReceipts: getReceiptLimits().teammate,
+            maxBusinesses: 1,
+            apiCallsPerMonth: 0,
+            maxReports: 0, // no reports for teammates
+        },
+        features: {
+            advancedReporting: false,
+            taxPreparation: false,
+            accountingIntegrations: false,
+            prioritySupport: false,
+            multiBusinessManagement: false,
+            whiteLabel: false,
+            apiAccess: false,
+            dedicatedManager: false,
         },
     },
 };

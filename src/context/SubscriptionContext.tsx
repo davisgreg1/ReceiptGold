@@ -15,7 +15,7 @@ import { db } from "../config/firebase";
 import { getMonthlyReceiptCount } from "../utils/getMonthlyReceipts";
 import { TeamService } from "../services/TeamService";
 
-export type SubscriptionTier = "trial" | "free" | "starter" | "growth" | "professional";
+export type SubscriptionTier = "trial" | "free" | "starter" | "growth" | "professional" | "teammate";
 
 export interface SubscriptionFeatures {
   maxReceipts: number;
@@ -78,6 +78,7 @@ interface SubscriptionContextType {
   startTrial: () => Promise<{ success: boolean; error?: string }>;
   canAccessPremiumFeatures: () => boolean;
   hasProfessionalAccess: () => boolean;
+  getFeaturesForTeammate: (teamMemberRole?: string) => SubscriptionFeatures;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(
@@ -94,10 +95,11 @@ const getReceiptLimits = () => {
     starter: parseInt(extra.STARTER_TIER_MAX_RECEIPTS || "50", 10),
     growth: parseInt(extra.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
     professional: parseInt(extra.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
+    teammate: parseInt(extra.TEAMMATE_TIER_MAX_RECEIPTS || "-1", 10),
   };
 };
 
-const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
+const getFeaturesByTier = (tier: SubscriptionTier, teamMemberRole?: string): SubscriptionFeatures => {
   const limits = getReceiptLimits();
 
   switch (tier) {
@@ -170,6 +172,20 @@ const getFeaturesByTier = (tier: SubscriptionTier): SubscriptionFeatures => {
         dedicatedManager: true,
         bankConnection: true,
         teamManagement: true,
+      };
+    case "teammate":
+      return {
+        maxReceipts: -1, // Unlimited receipts for teammates
+        advancedReporting: false, // Limited features for teammates
+        taxPreparation: false,
+        accountingIntegrations: false,
+        prioritySupport: false,
+        multiBusinessManagement: false,
+        whiteLabel: false,
+        apiAccess: false,
+        dedicatedManager: false,
+        bankConnection: false, // No bank connections for teammates
+        teamManagement: teamMemberRole === 'admin', // Only admin teammates can manage teams
       };
   }
 };
@@ -482,7 +498,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           const receiptLimits = getReceiptLimits();
           const limits = {
             maxReceipts:
-              effectiveTier === "professional" || effectiveTier === "trial"
+              effectiveTier === "professional" || effectiveTier === "trial" || effectiveTier === "teammate"
                 ? receiptLimits.professional
                 : effectiveTier === "growth"
                 ? receiptLimits.growth
@@ -492,7 +508,9 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             maxBusinesses:
               effectiveTier === "professional" || effectiveTier === "trial"
                 ? -1
-                : 1, // Unlimited for professional/trial, 1 for others
+                : effectiveTier === "teammate"
+                ? 1 // Teammates work within assigned business
+                : 1, // 1 for others
             apiCallsPerMonth:
               effectiveTier === "professional" || effectiveTier === "trial"
                 ? -1
@@ -510,6 +528,8 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             maxTeamMembers:
               effectiveTier === "professional" || effectiveTier === "trial"
                 ? 10 // Reasonable limit for team members
+                : effectiveTier === "teammate"
+                ? 0 // Teammates can't have their own team members
                 : 0, // No team members for lower tiers
           };
 
@@ -545,7 +565,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           // This will trigger after Cloud Function updates
           console.log("🔄 Subscription changed, refreshing receipt count");
           setTimeout(() => {
-            refreshReceiptCount({ skipDelay: true, forceRefresh: true });
+            refreshReceiptCount(undefined, { skipDelay: true, forceRefresh: true });
           }, 500); // Small delay to allow for Firestore consistency
 
         } else {
@@ -726,6 +746,14 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     return subscription.currentTier === "professional" || subscription.trial.isActive;
   }, [subscription.currentTier, subscription.trial.isActive]);
 
+  // Method to get features for teammates with role-based permissions
+  const getFeaturesForTeammate = useCallback((teamMemberRole?: string): SubscriptionFeatures => {
+    if (subscription.currentTier !== "teammate") {
+      return subscription.features;
+    }
+    return getFeaturesByTier("teammate", teamMemberRole);
+  }, [subscription.currentTier, subscription.features]);
+
   const contextValue = {
     subscription,
     canAccessFeature,
@@ -738,6 +766,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     startTrial,
     canAccessPremiumFeatures,
     hasProfessionalAccess,
+    getFeaturesForTeammate,
   };
 
   return (

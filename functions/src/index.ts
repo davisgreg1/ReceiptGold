@@ -42,7 +42,8 @@ const getReceiptLimits = () => {
     free: parseInt(process.env.FREE_TIER_MAX_RECEIPTS || "10", 10),
     starter: parseInt(process.env.STARTER_TIER_MAX_RECEIPTS || "50", 10),
     growth: parseInt(process.env.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
-    professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10)
+    professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
+    teammate: parseInt(process.env.TEAMMATE_TIER_MAX_RECEIPTS || "-1", 10)
   };
 };
 
@@ -141,6 +142,11 @@ export const TIER_LIMITS = {
     maxReceipts: -1, // unlimited
     maxBusinesses: -1, // unlimited
     apiCallsPerMonth: -1, // unlimited
+  },
+  teammate: {
+    maxReceipts: -1, // unlimited receipts for teammates
+    maxBusinesses: 1, // limited to account holder's businesses
+    apiCallsPerMonth: 0, // no API access for teammates
   }
 } as const;
 
@@ -334,6 +340,25 @@ const subscriptionTiers: Record<string, SubscriptionTier> = {
       whiteLabel: true,
       apiAccess: true,
       dedicatedManager: true,
+    },
+  },
+  teammate: {
+    name: "Teammate",
+    limits: {
+      maxReceipts: getReceiptLimits().teammate,
+      maxBusinesses: 1, // limited to account holder's businesses
+      apiCallsPerMonth: 0, // no API access for teammates
+      maxReports: 0, // no reports for teammates
+    },
+    features: {
+      advancedReporting: false,
+      taxPreparation: false,
+      accountingIntegrations: false,
+      prioritySupport: false,
+      multiBusinessManagement: false,
+      whiteLabel: false,
+      apiAccess: false,
+      dedicatedManager: false,
     },
   },
 };

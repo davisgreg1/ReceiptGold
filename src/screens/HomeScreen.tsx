@@ -14,6 +14,7 @@ import { useTheme } from "../theme/ThemeProvider";
 import { useAuth } from "../context/AuthContext";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useTeam } from "../context/TeamContext";
+import { TeamService } from "../services/TeamService";
 import { useHomeNavigation, useTabNavigation, navigationHelpers } from "../navigation/navigationHelpers";
 import { BrandText, HeadingText, BodyText, ButtonText } from '../components/Typography';
 import { Signature } from '../components/Signature';
@@ -65,6 +66,43 @@ export const HomeScreen: React.FC = () => {
   });
   const [loading, setLoading] = useState(true);
   const [isInitialLoad, setIsInitialLoad] = useState(true);
+  const [migrationStatus, setMigrationStatus] = useState<string>('');
+
+  // Debug function to migrate team members to teammate tier
+  const handleMigrateTeammates = async () => {
+    if (!user) {
+      setMigrationStatus('❌ No user logged in');
+      return;
+    }
+    
+    try {
+      setMigrationStatus('Running migration...');
+      const result = await TeamService.migrateTeamMembersToTeammateTier(user.uid);
+      setMigrationStatus(`✅ Migrated ${result.migrated} members. Errors: ${result.errors.length}`);
+      console.log('Migration result:', result);
+    } catch (error) {
+      setMigrationStatus(`❌ Migration failed: ${error}`);
+      console.error('Migration error:', error);
+    }
+  };
+
+  // Debug function to fix limits for existing teammate subscriptions
+  const handleFixTeammateLimits = async () => {
+    if (!user) {
+      setMigrationStatus('❌ No user logged in');
+      return;
+    }
+    
+    try {
+      setMigrationStatus('Fixing teammate limits...');
+      const result = await TeamService.fixTeammateLimits(user.uid);
+      setMigrationStatus(`✅ Fixed ${result.updated} teammates. Errors: ${result.errors.length}`);
+      console.log('Fix limits result:', result);
+    } catch (error) {
+      setMigrationStatus(`❌ Fix limits failed: ${error}`);
+      console.error('Fix limits error:', error);
+    }
+  };
 
   // Load dashboard data on mount and when screen is focused
   useEffect(() => {
@@ -644,6 +682,28 @@ export const HomeScreen: React.FC = () => {
           </View>
         )}
 
+        {/* Debug Migration Button (Development Only) */}
+        {__DEV__ && (
+          <View style={[styles.debugSection, { borderColor: theme.border.primary, backgroundColor: theme.background.secondary }]}>
+            <HeadingText color="secondary" size="small">Debug: Team Migration</HeadingText>
+            <TouchableOpacity
+              style={[styles.debugButton, { backgroundColor: theme.status.info }]}
+              onPress={handleMigrateTeammates}
+            >
+              <ButtonText color="inverse" size="small">Migrate Team Members to Teammate Tier</ButtonText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.debugButton, { backgroundColor: theme.status.warning, marginTop: 8 }]}
+              onPress={handleFixTeammateLimits}
+            >
+              <ButtonText color="inverse" size="small">Fix Teammate Limits (Unlimited Receipts)</ButtonText>
+            </TouchableOpacity>
+            {migrationStatus ? (
+              <BodyText color="secondary" size="small">{migrationStatus}</BodyText>
+            ) : null}
+          </View>
+        )}
+
         {/* Signature */}
         <Signature variant="default" />
       </ScrollView>
@@ -898,5 +958,19 @@ const styles = StyleSheet.create({
   },
   stat: {
     alignItems: "center",
+  },
+  debugSection: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    marginHorizontal: 20,
+    gap: 12,
+  },
+  debugButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
   },
 });
