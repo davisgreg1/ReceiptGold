@@ -3,6 +3,7 @@ import {
   doc, 
   addDoc, 
   updateDoc, 
+  setDoc,
   deleteDoc, 
   getDoc, 
   getDocs, 
@@ -248,6 +249,9 @@ export class TeamService {
         acceptedAt: serverTimestamp(),
       });
 
+      // Ensure the new team member gets teammate subscription tier
+      await this.ensureTeammateSubscription(userId);
+
       return {
         id: memberDocRef.id,
         ...teamMember,
@@ -479,6 +483,186 @@ export class TeamService {
           canDeleteOwnReceipts: false,
           canViewTeamReceipts: false,
         };
+    }
+  }
+
+  /**
+   * Migrate existing team members to use the "teammate" subscription tier
+   */
+  static async migrateTeamMembersToTeammateTier(accountHolderId: string): Promise<{ migrated: number; errors: string[] }> {
+    const errors: string[] = [];
+    let migrated = 0;
+
+    try {
+      console.log('🔄 Starting migration of team members to teammate tier...');
+
+      // Get team members for this account holder only
+      const teamMembersQuery = query(
+        collection(db, 'teamMembers'),
+        where('accountHolderId', '==', accountHolderId)
+      );
+      const teamMembersSnapshot = await getDocs(teamMembersQuery);
+
+      for (const memberDoc of teamMembersSnapshot.docs) {
+        const memberData = memberDoc.data() as TeamMember;
+        
+        try {
+          // Check if user has a subscription
+          const subscriptionDoc = await getDoc(doc(db, 'subscriptions', memberData.userId));
+          
+          if (subscriptionDoc.exists()) {
+            const subscriptionData = subscriptionDoc.data();
+            
+            // Only migrate if they don't already have a paid subscription
+            if (!subscriptionData.currentTier || subscriptionData.currentTier === 'free') {
+              await updateDoc(doc(db, 'subscriptions', memberData.userId), {
+                currentTier: 'teammate',
+                updatedAt: new Date(),
+                migratedToTeammate: true,
+                migrationDate: new Date()
+              });
+              
+              console.log(`✅ Migrated team member ${memberData.email} to teammate tier`);
+              migrated++;
+            }
+          } else {
+            // Create new subscription for team member
+            await setDoc(doc(db, 'subscriptions', memberData.userId), {
+              currentTier: 'teammate',
+              status: 'active',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+              migratedToTeammate: true,
+              migrationDate: new Date(),
+              trial: {
+                isActive: false,
+                startedAt: null,
+                expiresAt: null,
+                daysRemaining: 0
+              },
+              billing: null
+            });
+            
+            console.log(`✅ Created teammate subscription for ${memberData.email}`);
+            migrated++;
+          }
+        } catch (error) {
+          const errorMsg = `Failed to migrate team member ${memberData.email}: ${error}`;
+          console.error('❌', errorMsg);
+          errors.push(errorMsg);
+        }
+      }
+
+      console.log(`🎉 Migration completed: ${migrated} members migrated, ${errors.length} errors`);
+      return { migrated, errors };
+
+    } catch (error) {
+      console.error('❌ Migration failed:', error);
+      errors.push(`Migration failed: ${error}`);
+      return { migrated: 0, errors };
+    }
+  }
+
+  /**
+   * Fix limits for existing teammate subscriptions
+   */
+  static async fixTeammateLimits(accountHolderId: string): Promise<{ updated: number; errors: string[] }> {
+    const errors: string[] = [];
+    let updated = 0;
+
+    try {
+      console.log('🔧 Fixing limits for teammate subscriptions...');
+
+      // Get team members for this account holder
+      const teamMembersQuery = query(
+        collection(db, 'teamMembers'),
+        where('accountHolderId', '==', accountHolderId)
+      );
+      const teamMembersSnapshot = await getDocs(teamMembersQuery);
+
+      for (const memberDoc of teamMembersSnapshot.docs) {
+        const memberData = memberDoc.data() as TeamMember;
+        
+        try {
+          // Check subscription
+          const subscriptionDoc = await getDoc(doc(db, 'subscriptions', memberData.userId));
+          
+          if (subscriptionDoc.exists()) {
+            const subscriptionData = subscriptionDoc.data();
+            
+            // Fix limits for teammate tier subscriptions
+            if (subscriptionData.currentTier === 'teammate') {
+              await updateDoc(doc(db, 'subscriptions', memberData.userId), {
+                limits: {
+                  maxReceipts: -1, // Unlimited receipts for teammates
+                  maxBusinesses: 1,
+                  apiCallsPerMonth: 0,
+                  maxReports: 0
+                },
+                updatedAt: new Date()
+              });
+              
+              console.log(`✅ Fixed limits for teammate ${memberData.email}`);
+              updated++;
+            }
+          }
+        } catch (error) {
+          const errorMsg = `Failed to fix limits for ${memberData.email}: ${error}`;
+          console.error('❌', errorMsg);
+          errors.push(errorMsg);
+        }
+      }
+
+      console.log(`🎉 Fixed limits for ${updated} teammates, ${errors.length} errors`);
+      return { updated, errors };
+
+    } catch (error) {
+      console.error('❌ Fix limits failed:', error);
+      errors.push(`Fix limits failed: ${error}`);
+      return { updated: 0, errors };
+    }
+  }
+
+  /**
+   * Ensure new team member gets teammate subscription tier
+   */
+  static async ensureTeammateSubscription(userId: string): Promise<void> {
+    try {
+      const subscriptionDoc = await getDoc(doc(db, 'subscriptions', userId));
+      
+      if (!subscriptionDoc.exists()) {
+        // Create new teammate subscription
+        await setDoc(doc(db, 'subscriptions', userId), {
+          currentTier: 'teammate',
+          status: 'active',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          trial: {
+            isActive: false,
+            startedAt: null,
+            expiresAt: null,
+            daysRemaining: 0
+          },
+          billing: null
+        });
+        
+        console.log(`✅ Created teammate subscription for user ${userId}`);
+      } else {
+        const subscriptionData = subscriptionDoc.data();
+        
+        // Only update to teammate if they don't have a paid subscription
+        if (!subscriptionData.currentTier || subscriptionData.currentTier === 'free') {
+          await updateDoc(doc(db, 'subscriptions', userId), {
+            currentTier: 'teammate',
+            updatedAt: new Date()
+          });
+          
+          console.log(`✅ Updated user ${userId} to teammate tier`);
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Failed to ensure teammate subscription for ${userId}:`, error);
+      throw error;
     }
   }
 }
