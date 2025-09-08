@@ -715,6 +715,7 @@ export const SettingsScreen: React.FC = () => {
     setIsCreatingCategory(true);
     try {
       const newCategory = await CustomCategoryService.createCustomCategory(
+        accountHolderId!,
         user.uid,
         newCategoryName.trim(),
         newCategoryIcon
@@ -1527,6 +1528,7 @@ export const SettingsScreen: React.FC = () => {
                       </Text>
                     </View>
                   </View>
+                  {/* All team members can delete custom categories */}
                   <TouchableOpacity
                     style={[
                       styles.deleteCategoryButton,

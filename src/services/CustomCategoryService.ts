@@ -139,9 +139,10 @@ export class CustomCategoryService {
         }
     }
 
+
     static async deleteCustomCategory(accountHolderId: string, categoryId: string, currentUserId: string): Promise<boolean> {
         try {
-            // Validate access
+            // Validate access (same as read access - all team members can delete)
             const hasAccess = await this.validateAccountAccess(currentUserId, accountHolderId);
             if (!hasAccess) {
                 throw new Error('Access denied: User is not authorized to delete categories for this account');
