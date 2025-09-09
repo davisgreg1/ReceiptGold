@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
@@ -33,17 +34,38 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isReturningUser, setIsReturningUser] = useState<boolean | null>(null);
   const { alertState, showError, showFirebaseError, hideAlert } = useCustomAlert();
 
+  // Check if user has signed in before
+  useEffect(() => {
+    checkReturningUser();
+  }, []);
+
+  const checkReturningUser = async () => {
+    try {
+      const hasSignedInBefore = await AsyncStorage.getItem('hasSignedInBefore');
+      setIsReturningUser(hasSignedInBefore === 'true');
+    } catch (error) {
+      console.log('Error checking returning user status:', error);
+      setIsReturningUser(false);
+    }
+  };
+
   const handleSignIn = async () => {
-    if (!email || !password) {
+    // Trim email only, keep password as-is since spaces might be intentional
+    const trimmedEmail = email.trim();
+    
+    if (!trimmedEmail || !password) {
       showError('Error', 'Please fill in all fields');
       return;
     }
 
     setLoading(true);
     try {
-      await signIn(email, password);
+      await signIn(trimmedEmail, password);
+      // Mark that user has successfully signed in
+      await AsyncStorage.setItem('hasSignedInBefore', 'true');
     } catch (error: any) {
       showFirebaseError(error, 'Sign In Error');
     } finally {
@@ -70,14 +92,33 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
           <View style={styles.header}>
             <Logo size={80} />
             <DisplayText size="medium" color="gold" align="center">
-              Welcome Back
+              {isReturningUser === null 
+                ? 'Welcome' 
+                : isReturningUser 
+                  ? 'Welcome Back' 
+                  : 'Welcome'}
             </DisplayText>
             <BodyText size="large" color="secondary" align="center" style={styles.subtitle}>
-              Sign in to your{' '}
-              <BrandText size="small" color="gold">
-                ReceiptGold
-              </BrandText>
-              {' '}account
+              {isReturningUser === null 
+                ? 'Sign in to continue'
+                : isReturningUser 
+                  ? (
+                    <>
+                      Sign in to your{' '}
+                      <BrandText size="small" color="gold">
+                        ReceiptGold
+                      </BrandText>
+                      {' '}account
+                    </>
+                  )
+                  : (
+                    <>
+                      Sign in to{' '}
+                      <BrandText size="small" color="gold">
+                        ReceiptGold
+                      </BrandText>
+                    </>
+                  )}
             </BodyText>
           </View>
 
@@ -230,7 +271,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   bottomSpacer: {
-    height: 20,
+    height: 60,
   },
   inputContainer: {
     marginBottom: 20,

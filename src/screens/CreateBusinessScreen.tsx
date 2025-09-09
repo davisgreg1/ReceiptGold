@@ -242,8 +242,21 @@ const CreateBusinessScreen: React.FC = () => {
       return;
     }
 
-    // Validate form
-    const errors = BusinessService.validateBusinessData(formData);
+    // Trim all text inputs before validation and submission
+    const trimmedFormData = {
+      ...formData,
+      name: formData.name.trim(),
+      industry: formData.industry?.trim() || '',
+      address: {
+        ...formData.address,
+        street: formData.address?.street?.trim() || '',
+        city: formData.address?.city?.trim() || '',
+        state: formData.address?.state?.trim() || '',
+      }
+    };
+
+    // Validate form with trimmed data
+    const errors = BusinessService.validateBusinessData(trimmedFormData);
     if (errors.length > 0) {
       showError('Validation Error', errors.join('\n'));
       return;
@@ -254,11 +267,11 @@ const CreateBusinessScreen: React.FC = () => {
     try {
       // Ensure settings has proper structure for business creation/update
       const businessData = {
-        ...formData,
+        ...trimmedFormData,
         settings: {
-          defaultCurrency: formData.settings?.defaultCurrency || 'USD',
-          taxYear: formData.settings?.taxYear || new Date().getFullYear(),
-          categories: formData.settings?.categories || [],
+          defaultCurrency: trimmedFormData.settings?.defaultCurrency || 'USD',
+          taxYear: trimmedFormData.settings?.taxYear || new Date().getFullYear(),
+          categories: trimmedFormData.settings?.categories || [],
         }
       };
 
@@ -386,7 +399,7 @@ const CreateBusinessScreen: React.FC = () => {
                   },
                 ]}
                 value={formData.name}
-                onChangeText={(text) => updateFormData('name', text.trim())}
+                onChangeText={(text) => updateFormData('name', text)}
                 maxLength={100}
                 onFocus={() => scrollToInput('name')}
                 placeholder="Enter business name"
@@ -550,7 +563,7 @@ const CreateBusinessScreen: React.FC = () => {
                   },
                 ]}
                 value={formData.address?.street || ''}
-                onChangeText={(text) => updateFormData('address.street', text.trim())}
+                onChangeText={(text) => updateFormData('address.street', text)}
                 onFocus={() => scrollToInput('street')}
                 placeholder="123 Main Street"
                 placeholderTextColor={theme.text.tertiary}
@@ -573,7 +586,7 @@ const CreateBusinessScreen: React.FC = () => {
                     },
                   ]}
                   value={formData.address?.city || ''}
-                  onChangeText={(text) => updateFormData('address.city', text.trim())}
+                  onChangeText={(text) => updateFormData('address.city', text)}
                   onFocus={() => scrollToInput('city')}
                   placeholder="City"
                   placeholderTextColor={theme.text.tertiary}
@@ -595,7 +608,7 @@ const CreateBusinessScreen: React.FC = () => {
                     },
                   ]}
                   value={formData.address?.state || ''}
-                  onChangeText={(text) => updateFormData('address.state', text.toUpperCase())}
+                  onChangeText={(text) => updateFormData('address.state', text.toUpperCase().trim())}
                   onFocus={() => scrollToInput('state')}
                   placeholder="CA"
                   placeholderTextColor={theme.text.tertiary}

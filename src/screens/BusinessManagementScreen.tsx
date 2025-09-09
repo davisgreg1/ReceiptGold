@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
@@ -22,6 +21,7 @@ import { useTeam } from '../context/TeamContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { useStripePayments } from '../hooks/useStripePayments';
 import { useAuth } from '../context/AuthContext';
+import { formatCurrency } from '../utils/formatCurrency';
 
 type BusinessManagementScreenNavigationProp = StackNavigationProp<any>;
 
@@ -96,7 +96,7 @@ const BusinessCard: React.FC<BusinessCardProps> = ({
           </View>
           <View style={styles.stat}>
             <Text style={[styles.statValue, { color: theme.text.primary }]}>
-              ${business.stats.totalAmount.toFixed(2)}
+              {formatCurrency(business.stats.totalAmount)}
             </Text>
             <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
               Total
@@ -153,7 +153,7 @@ const BusinessManagementScreen: React.FC = () => {
     isBusinessAccessible,
   } = useBusiness();
   const { subscription, canAccessFeature } = useSubscription();
-  const { teamMembers, canInviteMembers } = useTeam();
+  const { teamMembers } = useTeam();
   const { showError, showSuccess, showWarning, showInfo, hideAlert } = useCustomAlert();
   const { handleSubscriptionWithCloudFunction } = useStripePayments();
   const { user } = useAuth();

@@ -36,7 +36,10 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
   const { alertState, showError, showSuccess, showFirebaseError, hideAlert } = useCustomAlert();
 
   const handleSignUp = async () => {
-    if (!email || !password || !confirmPassword) {
+    // Trim email only, keep passwords as-is since spaces might be intentional
+    const trimmedEmail = email.trim();
+    
+    if (!trimmedEmail || !password || !confirmPassword) {
       showError('Error', 'Please fill in all fields');
       return;
     }
@@ -53,7 +56,7 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
 
     setLoading(true);
     try {
-      await signUp(email, password);
+      await signUp(trimmedEmail, password);
       showSuccess('Success', 'Account created successfully!');
     } catch (error: any) {
       showFirebaseError(error, 'Sign Up Error');
@@ -73,7 +76,6 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          automaticallyAdjustKeyboardInsets={true}
         >
           {/* Flexible spacer */}
           <View style={styles.topSpacer} />
@@ -256,7 +258,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   bottomSpacer: {
-    height: 20,
+    height: 60,
   },
   inputContainer: {
     marginBottom: 20,

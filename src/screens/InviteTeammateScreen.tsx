@@ -204,7 +204,7 @@ export const InviteTeammateScreen: React.FC = () => {
               placeholder="teammate@company.com"
               placeholderTextColor={theme.text.tertiary}
               value={email}
-              onChangeText={(text) => setEmail(text.trim())}
+              onChangeText={setEmail}
               keyboardType="email-address"
               autoCapitalize="none"
               autoCorrect={false}
