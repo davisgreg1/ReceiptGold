@@ -36,6 +36,9 @@
       },
       "android": {
         "buildType": "apk"
+      },
+      "hooks": {
+        "preInstall": "./hooks/eas-build-pre-install.sh"
       }
     }
   },
