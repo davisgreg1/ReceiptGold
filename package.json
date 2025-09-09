@@ -75,6 +75,7 @@
     "react-native-vision-camera": "^4.7.1",
     "react-native-web": "^0.20.0",
     "react-native-webview": "13.13.5",
+    "rn-emoji-keyboard": "^1.7.0",
     "stripe": "^18.3.0"
   },
   "devDependencies": {

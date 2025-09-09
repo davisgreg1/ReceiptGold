@@ -15,6 +15,7 @@ import {
   Platform,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
+import EmojiPicker from 'rn-emoji-keyboard';
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { StackNavigationProp } from "@react-navigation/stack";
@@ -329,6 +330,8 @@ export const SettingsScreen: React.FC = () => {
   const [newCategoryName, setNewCategoryName] = React.useState("");
   const [newCategoryIcon, setNewCategoryIcon] = React.useState("📁");
   const [isCreatingCategory, setIsCreatingCategory] = React.useState(false);
+  const [showEmojiSelector, setShowEmojiSelector] = React.useState(false);
+  const [lastCustomEmoji, setLastCustomEmoji] = React.useState<string>("");
 
   const handleNameChange = async () => {
     if (!user || !firstName.trim()) return;
@@ -727,6 +730,8 @@ export const SettingsScreen: React.FC = () => {
         setShowCreateCategoryDialog(false);
         setNewCategoryName("");
         setNewCategoryIcon("📁");
+        setLastCustomEmoji("");
+        setShowEmojiSelector(false);
         // Category created successfully - no need to show success alert
       } else {
         showError("Error", "Failed to create custom category. Please try again.");
@@ -751,7 +756,6 @@ export const SettingsScreen: React.FC = () => {
         if (success) {
           // Update local state
           setCustomCategories(prev => prev.filter(cat => cat.id !== category.id));
-          showSuccess("Success", `"${category.name}" category deleted successfully`);
         } else {
           showError("Error", "Failed to delete custom category. Please try again.");
         }
@@ -1505,7 +1509,9 @@ export const SettingsScreen: React.FC = () => {
                   ]}
                 >
                   <View style={styles.customCategoryInfo}>
-                    <Text style={styles.customCategoryIcon}>{category.icon}</Text>
+                    <View style={styles.customCategoryIcon}>
+                      <Text style={styles.customCategoryIconText}>{category.icon || ""}</Text>
+                    </View>
                     <View style={styles.customCategoryDetails}>
                       <Text
                         style={[
@@ -2283,6 +2289,68 @@ export const SettingsScreen: React.FC = () => {
                 showsHorizontalScrollIndicator={false} 
                 style={styles.iconPicker}
               >
+                {/* Custom emoji selector option */}
+                <TouchableOpacity
+                  style={[
+                    styles.iconOption,
+                    styles.addEmojiOption,
+                    { 
+                      borderColor: showEmojiSelector ? theme.gold.primary : theme.border.primary,
+                      backgroundColor: showEmojiSelector ? theme.gold.background : "transparent"
+                    },
+                  ]}
+                  onPress={() => setShowEmojiSelector(true)}
+                >
+                  <Ionicons 
+                    name="add" 
+                    size={20} 
+                    color={showEmojiSelector ? theme.gold.primary : theme.text.secondary} 
+                  />
+                </TouchableOpacity>
+
+                {/* No emoji option */}
+                <TouchableOpacity
+                  style={[
+                    styles.iconOption,
+                    styles.noEmojiOption,
+                    { borderColor: theme.border.primary },
+                    newCategoryIcon === "" && {
+                      borderColor: theme.gold.primary,
+                      backgroundColor: theme.gold.background,
+                    },
+                  ]}
+                  onPress={() => {
+                    setNewCategoryIcon("");
+                    setShowEmojiSelector(false);
+                  }}
+                >
+                  <Ionicons 
+                    name="ban" 
+                    size={16} 
+                    color={newCategoryIcon === "" ? theme.gold.primary : theme.text.secondary} 
+                  />
+                </TouchableOpacity>
+
+                {/* Custom emoji preview - persists even when default emoji is selected */}
+                {lastCustomEmoji && (
+                  <TouchableOpacity
+                    style={[
+                      styles.iconOption,
+                      styles.selectedEmojiPreview,
+                      {
+                        borderColor: newCategoryIcon === lastCustomEmoji ? theme.gold.primary : theme.border.primary,
+                        backgroundColor: newCategoryIcon === lastCustomEmoji ? theme.gold.background : "transparent",
+                      },
+                    ]}
+                    onPress={() => {
+                      setNewCategoryIcon(lastCustomEmoji);
+                      setShowEmojiSelector(false);
+                    }}
+                  >
+                    <Text style={styles.iconText}>{lastCustomEmoji}</Text>
+                  </TouchableOpacity>
+                )}
+
                 {CustomCategoryService.getDefaultIcons().map((icon, index) => (
                   <TouchableOpacity
                     key={index}
@@ -2293,7 +2361,10 @@ export const SettingsScreen: React.FC = () => {
                         backgroundColor: newCategoryIcon === icon ? theme.gold.background : "transparent"
                       },
                     ]}
-                    onPress={() => setNewCategoryIcon(icon)}
+                    onPress={() => {
+                      setNewCategoryIcon(icon);
+                      setShowEmojiSelector(false);
+                    }}
                   >
                     <Text style={styles.iconText}>{icon}</Text>
                   </TouchableOpacity>
@@ -2311,6 +2382,8 @@ export const SettingsScreen: React.FC = () => {
                   setShowCreateCategoryDialog(false);
                   setNewCategoryName("");
                   setNewCategoryIcon("📁");
+                  setLastCustomEmoji("");
+                  setShowEmojiSelector(false);
                 }}
               >
                 <Text
@@ -2342,6 +2415,44 @@ export const SettingsScreen: React.FC = () => {
           </View>
         </View>
       )}
+
+      {/* Emoji Keyboard */}
+      <EmojiPicker
+        onEmojiSelected={(emojiObject) => {
+          setNewCategoryIcon(emojiObject.emoji);
+          // Only track as custom emoji if it's not in default icons
+          if (!CustomCategoryService.getDefaultIcons().includes(emojiObject.emoji)) {
+            setLastCustomEmoji(emojiObject.emoji);
+          }
+          setShowEmojiSelector(false);
+        }}
+        open={showEmojiSelector}
+        onClose={() => setShowEmojiSelector(false)}
+        theme={{
+          backdrop: theme.background.overlay || 'rgba(0, 0, 0, 0.5)',
+          knob: theme.border.primary,
+          container: theme.background.primary,
+          header: theme.background.secondary,
+          category: {
+            icon: theme.text.secondary,
+            iconActive: theme.gold.primary,
+            container: theme.background.secondary,
+            containerActive: theme.gold.primary + '20',
+          },
+          search: {
+            text: theme.text.primary,
+            placeholder: theme.text.tertiary,
+            icon: theme.text.secondary,
+            background: theme.background.secondary,
+          },
+          emoji: {
+            selected: theme.gold.primary + '40',
+          },
+        }}
+        enableSearchBar={true}
+        enableRecentlyUsed={true}
+        categoryPosition="top"
+      />
     </SafeAreaView>
   );
 };
@@ -2808,8 +2919,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   customCategoryIcon: {
-    fontSize: 24,
+    width: 24,
+    height: 24,
     marginRight: 16,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  customCategoryIconText: {
+    fontSize: 24,
   },
   customCategoryDetails: {
     flex: 1,
@@ -2995,5 +3112,45 @@ const styles = StyleSheet.create({
   },
   contactEmail: {
     fontWeight: '500',
+  },
+  // Emoji selector styles
+  addEmojiOption: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  noEmojiOption: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  selectedEmojiPreview: {
+    borderWidth: 2,
+  },
+  emojiModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  emojiModalContent: {
+    height: Dimensions.get("window").height * 0.7,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+  },
+  emojiContainer: {
+    flex: 1,
+    paddingHorizontal: 10,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 20,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  closeButton: {
+    padding: 4,
   },
 });
