@@ -4,19 +4,22 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useNavigation, CommonActions } from '@react-navigation/native';
+import type { NavigationProp, ParamListBase } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTeam } from '../context/TeamContext';
 
 const { width } = Dimensions.get('window');
 
 export const TrialBanner: React.FC = () => {
   const { theme } = useTheme();
   const { subscription } = useSubscription();
-  const navigation = useNavigation();
+  const { isTeamMember } = useTeam();
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const insets = useSafeAreaInsets();
   const [isDismissed, setIsDismissed] = useState(false);
 
-  // Don't show banner if not on trial or if dismissed
-  if (!subscription.trial.isActive || isDismissed) {
+  // Don't show banner if not on trial, if dismissed, or if user is a team member
+  if (!subscription.trial.isActive || isDismissed || isTeamMember) {
     return null;
   }
 
@@ -24,14 +27,14 @@ export const TrialBanner: React.FC = () => {
     // Navigate to the Home tab first, then to Subscription screen
     // This works from any tab/stack
     try {
-      navigation.navigate('HomeTab' as never, {
+      navigation.navigate('HomeTab', {
         screen: 'Subscription'
-      } as never);
+      });
     } catch (error) {
       console.warn('Failed to navigate to Subscription screen:', error);
       // Fallback: just try direct navigation
       try {
-        navigation.navigate('Subscription' as never);
+        navigation.navigate('Subscription');
       } catch (fallbackError) {
         console.error('Both navigation attempts failed:', fallbackError);
       }

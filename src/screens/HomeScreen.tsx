@@ -496,7 +496,7 @@ export const HomeScreen: React.FC = () => {
               </TouchableOpacity>
             )}
             
-            {(subscription.currentTier === 'professional' || subscription.trial.isActive) && (
+            {(subscription.currentTier === 'professional' || subscription.trial.isActive) && !isTeamMember && (
               <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: theme.status.success }]}
                 onPress={() => homeNavigation.navigate('BankTransactions')}
@@ -622,7 +622,7 @@ export const HomeScreen: React.FC = () => {
                 <BodyText size="small" color="secondary">
                   {subscription.currentTier === 'starter' && '50 receipts/mo • Basic categorization'}
                   {subscription.currentTier === 'growth' && '150 receipts/mo • Advanced reporting'}
-                  {(subscription.currentTier === 'professional' || subscription.trial.isActive) && 'Unlimited receipts • Multi-business • Bank sync'}
+                  {(subscription.currentTier === 'professional' || subscription.trial.isActive) && (isTeamMember ? 'Team member access • Receipt management' : 'Unlimited receipts • Multi-business • Bank sync')}
                   {subscription.currentTier === 'free' && !subscription.trial.isActive && 'Limited features • Upgrade for more'}
                 </BodyText>
                 <BodyText size="small" color="tertiary" style={{ marginTop: 4 }}>

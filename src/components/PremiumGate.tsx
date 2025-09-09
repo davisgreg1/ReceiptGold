@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { View, TouchableOpacity, Text, StyleSheet } from 'react-native';
 import { useTheme } from '../theme/ThemeProvider';
 import { useSubscription, SubscriptionTier } from '../context/SubscriptionContext';
+import { useTeam } from '../context/TeamContext';
 import { UpgradePrompt } from './UpgradePrompt';
 
 interface PremiumGateProps {
@@ -25,12 +26,36 @@ export const PremiumGate: React.FC<PremiumGateProps> = ({
 }) => {
   const { theme } = useTheme();
   const { canAccessFeature } = useSubscription();
+  const { isTeamMember } = useTeam();
   const [showUpgradePrompt, setShowUpgradePrompt] = useState(false);
 
   const hasAccess = canAccessFeature(feature);
 
   if (hasAccess) {
     return <>{children}</>;
+  }
+
+  // Team members should see a different message instead of upgrade prompts
+  if (isTeamMember) {
+    if (fallbackComponent) {
+      return <>{fallbackComponent}</>;
+    }
+    
+    // Show a simple "not available" message for team members
+    return (
+      <View style={[styles.lockedContainer, { 
+        backgroundColor: theme.background.secondary,
+        borderColor: theme.border.primary 
+      }]}>
+        <Text style={[styles.lockIcon, { color: theme.text.tertiary }]}>🚫</Text>
+        <Text style={[styles.lockedTitle, { color: theme.text.primary }]}>
+          {featureName}
+        </Text>
+        <Text style={[styles.lockedDescription, { color: theme.text.secondary }]}>
+          This feature is not available for team members
+        </Text>
+      </View>
+    );
   }
 
   if (fallbackComponent) {

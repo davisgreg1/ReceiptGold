@@ -31,33 +31,25 @@ export const OCRScanningOverlay: React.FC<OCRScanningOverlayProps> = ({
 
   useEffect(() => {
     if (isScanning) {
-      let currentPosition = 0;
-      
-      const createRandomAnimation = () => {
-        // Generate a random position between 0 and 1
-        const nextPosition = Math.random();
-        
-        return Animated.timing(scanLineAnim, {
-          toValue: nextPosition,
-          duration: 800, // Faster movement for more dynamic feel
-          useNativeDriver: true,
-        });
-      };
-
-      // Create an array of 8 random movements
-      const createRandomSequence = () => {
-        const animations = [];
-        for (let i = 0; i < 8; i++) {
-          animations.push(createRandomAnimation());
-        }
-        return animations;
-      };
-
+      // Smooth up and down scanning animation
       const animation = Animated.loop(
-        Animated.sequence(createRandomSequence())
+        Animated.sequence([
+          // Start from top (2.5% of screen) and go to bottom (97.5% of screen)
+          Animated.timing(scanLineAnim, {
+            toValue: 1,
+            duration: 2000, // 2 seconds down
+            useNativeDriver: true,
+          }),
+          // Go back up from bottom to top
+          Animated.timing(scanLineAnim, {
+            toValue: 0,
+            duration: 2000, // 2 seconds up
+            useNativeDriver: true,
+          }),
+        ])
       );
 
-      scanLineAnim.setValue(Math.random()); // Start from random position
+      scanLineAnim.setValue(0); // Start from top
       animation.start();
 
       return () => {
@@ -90,7 +82,8 @@ export const OCRScanningOverlay: React.FC<OCRScanningOverlayProps> = ({
                     {
                       translateY: scanLineAnim.interpolate({
                         inputRange: [0, 1],
-                        outputRange: [0, screenHeight],
+                        // Use 95% of screen height, centered (2.5% margin on top and bottom)
+                        outputRange: [screenHeight * 0.025, screenHeight * 0.975],
                       }),
                     },
                   ],
@@ -140,6 +133,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     alignItems: 'center',
+    zIndex: 10, // Higher z-index to appear above scan line
+    elevation: 15,
   },
   statusText: {
     color: 'white',
@@ -149,19 +144,25 @@ const styles = StyleSheet.create({
   },
   scanLine: {
     position: 'absolute',
-    height: 4,
+    height: 6,
     width: '100%',
-    backgroundColor: '#2fff00',
+    backgroundColor: '#00ff00',
     shadowColor: '#00ff00',
     shadowOffset: {
       width: 0,
       height: 0,
     },
     shadowOpacity: 1,
-    shadowRadius: 12,
-    elevation: 15,
+    shadowRadius: 20,
+    elevation: 5,
     top: 0,
-    zIndex: 10, // Ensure scan line is always on top
+    zIndex: 1, // Lower z-index so it appears behind the status boxes
+    // Enhanced glow effect
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderTopColor: '#88ff88',
+    borderBottomColor: '#88ff88',
+    opacity: 0.9,
   },
   errorContainer: {
     padding: 20,

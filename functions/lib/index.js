@@ -266,16 +266,83 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
             },
         };
         await db.collection("users").doc(userId).set(userDoc);
-        // Create subscription document (free tier)
+        // Check if this user has a team invitation (pending OR recently accepted)
+        console.log(`Checking for team invitations for email: ${email} (lowercase: ${email.toLowerCase()})`);
+        const teamInvitationsQuery = await db.collection("teamInvitations")
+            .where("inviteEmail", "==", email.toLowerCase())
+            .where("status", "in", ["pending", "accepted"])
+            .limit(1)
+            .get();
+        const isTeamMember = !teamInvitationsQuery.empty;
+        console.log(`Team invitation query result: found ${teamInvitationsQuery.size} pending/accepted invitations`);
+        // Debug: Let's also check ALL invitations for this email (regardless of status)
+        const allInvitationsQuery = await db.collection("teamInvitations")
+            .where("inviteEmail", "==", email.toLowerCase())
+            .limit(10)
+            .get();
+        console.log(`Debug: Found ${allInvitationsQuery.size} total invitations for email ${email.toLowerCase()}`);
+        allInvitationsQuery.docs.forEach((doc, index) => {
+            const invitation = doc.data();
+            console.log(`Debug invitation ${index + 1}:`, {
+                id: doc.id,
+                inviteEmail: invitation.inviteEmail,
+                status: invitation.status,
+                expiresAt: invitation.expiresAt,
+                isExpired: invitation.expiresAt ? new Date() > invitation.expiresAt.toDate() : 'no expiry',
+                accountHolderId: invitation.accountHolderId,
+                businessName: invitation.businessName,
+                createdAt: invitation.createdAt
+            });
+        });
+        if (!teamInvitationsQuery.empty) {
+            const invitation = teamInvitationsQuery.docs[0].data();
+            console.log(`Found matching team invitation:`, {
+                inviteEmail: invitation.inviteEmail,
+                status: invitation.status,
+                accountHolderId: invitation.accountHolderId,
+                businessName: invitation.businessName
+            });
+        }
+        console.log(`isTeamMember determined as: ${isTeamMember}`);
+        const now = admin.firestore.Timestamp.now();
+        if (isTeamMember) {
+            // Team members do NOT get their own subscription documents
+            // They inherit subscription from their account holder via SubscriptionContext
+            console.log(`Skipping subscription creation for team member ${email} - will inherit from account holder`);
+            // Create usage document for tracking purposes
+            const usageDoc = {
+                userId,
+                month: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`,
+                receiptsUploaded: 0,
+                apiCalls: 0,
+                reportsGenerated: 0,
+                limits: subscriptionTiers.teammate.limits,
+                resetDate: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`,
+                createdAt: now,
+                updatedAt: now,
+            };
+            await db.collection("usage").doc(`${userId}_${usageDoc.month}`).set(usageDoc);
+            console.log(`✅ User account created successfully for team member: ${email}`);
+            return; // Early return for team members - no subscription document needed
+        }
+        // Only create subscription documents for account holders (non-team members)
+        // Create regular user subscription with 3-day trial
+        console.log(`Creating trial subscription for new account holder ${email}`);
+        const trialExpires = admin.firestore.Timestamp.fromDate(new Date(Date.now() + (3 * 24 * 60 * 60 * 1000)) // 3 days from now
+        );
         const subscriptionDoc = {
             userId,
             currentTier: "free",
             status: "active",
+            trial: {
+                startedAt: now,
+                expiresAt: trialExpires,
+            },
             billing: {
                 customerId: null,
                 subscriptionId: null,
                 priceId: null,
-                currentPeriodStart: admin.firestore.Timestamp.now(),
+                currentPeriodStart: now,
                 currentPeriodEnd: null,
                 cancelAtPeriodEnd: false,
                 trialEnd: null,
@@ -285,13 +352,13 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
             history: [
                 {
                     tier: "free",
-                    startDate: admin.firestore.Timestamp.now(),
+                    startDate: now,
                     endDate: null,
                     reason: "initial_signup",
                 },
             ],
-            createdAt: admin.firestore.Timestamp.now(),
-            updatedAt: admin.firestore.Timestamp.now(),
+            createdAt: now,
+            updatedAt: now,
         };
         await db.collection("subscriptions").doc(userId).set(subscriptionDoc);
         // Create usage tracking document
