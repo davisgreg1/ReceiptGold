@@ -33,7 +33,10 @@
     "production": {
       "prebuildCommand": "npx expo prebuild --clean",
       "ios": {
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "cache": {
+          "disabled": true
+        }
       },
       "android": {
         "buildType": "apk"
