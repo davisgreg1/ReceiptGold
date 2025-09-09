@@ -25,6 +25,7 @@ import BusinessManagementScreen from "../screens/BusinessManagementScreen";
 import CreateBusinessScreen from "../screens/CreateBusinessScreen";
 import { TeamManagementScreen } from "../screens/TeamManagementScreen";
 import { InviteTeammateScreen } from "../screens/InviteTeammateScreen";
+import { CreateCustomCategoryScreen } from "../screens/CreateCustomCategoryScreen";
 import { Receipt } from "../types/receipt";
 
 // Tab Navigator Types
@@ -47,6 +48,7 @@ export type ReceiptsStackParamList = {
   ReceiptDetail: { receiptId: string; imageUrl?: string };
   ScanReceipt: undefined;
   EditReceipt: { receipt: Receipt };
+  CreateCustomCategory: { onCategoryCreated?: (categoryName: string) => void } | undefined;
 };
 
 export type ReportsStackParamList = {
@@ -67,6 +69,7 @@ export type SettingsStackParamList = {
   TermsOfService: undefined;
   BusinessManagement: undefined;
   CreateBusiness: undefined;
+  CreateCustomCategory: { onCategoryCreated?: (categoryName: string) => void } | undefined;
   TeamManagement: undefined;
   InviteTeammate: undefined;
 };
@@ -215,6 +218,11 @@ const ReceiptsStackNavigator = () => {
           presentation: 'modal'
         }} 
       />
+      <ReceiptsStack.Screen
+        name="CreateCustomCategory"
+        component={CreateCustomCategoryScreen}
+        options={{ headerShown: false }}
+      />
     </ReceiptsStack.Navigator>
   );
 };
@@ -344,6 +352,11 @@ const SettingsStackNavigator = () => {
         name="InviteTeammate"
         component={InviteTeammateScreen}
         options={{ title: "Invite Teammate" }}
+      />
+      <SettingsStack.Screen
+        name="CreateCustomCategory"
+        component={CreateCustomCategoryScreen}
+        options={{ headerShown: false }}
       />
     </SettingsStack.Navigator>
   );
