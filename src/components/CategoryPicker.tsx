@@ -24,6 +24,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import EmojiPicker from 'rn-emoji-keyboard';
+import { useNavigation } from '@react-navigation/native';
 import { useTheme } from "../theme/ThemeProvider";
 import {
   ReceiptCategoryService,
@@ -77,6 +78,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   const { user } = useAuth();
   const { showError } = useCustomAlert();
   const { accountHolderId } = useTeam();
+  const navigation = useNavigation();
   const [modalVisible, setModalVisible] = useState(false);
   const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -93,6 +95,16 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
   useEffect(() => {
     loadCategories();
   }, [user, accountHolderId]);
+
+  // Reload categories when modal becomes visible
+  useEffect(() => {
+    if (modalVisible && user && accountHolderId) {
+      loadCategories();
+    }
+  }, [modalVisible, user, accountHolderId]);
+
+
+
 
   const loadCategories = async () => {
     if (!user || !accountHolderId) return;
@@ -333,7 +345,18 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                       borderTopColor: theme.border.primary,
                     },
                   ]}
-                  onPress={() => setShowNewCategoryModal(true)}
+                  onPress={() => {
+                    setModalVisible(false); // Close main modal first
+                    (navigation as any).navigate('CreateCustomCategory', {
+                      onCategoryCreated: (categoryName: string) => {
+                        // Reload categories to include the new one
+                        loadCategories().then(() => {
+                          // Select the new category
+                          onCategorySelect(categoryName as ReceiptCategory);
+                        });
+                      },
+                    });
+                  }}
                 >
                   <View style={styles.categoryItemContent}>
                     <Ionicons
@@ -365,12 +388,18 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         visible={showNewCategoryModal}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowNewCategoryModal(false)}
+        onRequestClose={() => {
+          setShowNewCategoryModal(false);
+          setModalVisible(true);
+        }}
       >
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
-          onPress={() => setShowNewCategoryModal(false)}
+          onPress={() => {
+            setShowNewCategoryModal(false);
+            setModalVisible(true);
+          }}
         >
           <View
             style={[
@@ -540,6 +569,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
                     setNewCategoryIcon("📁");
                     setLastCustomEmoji("");
                     setShowEmojiSelector(false);
+                    setModalVisible(true); // Reopen main modal
                   }}
                   disabled={isLoading}
                 >
@@ -569,7 +599,9 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
       </Modal>
 
       {/* Emoji Keyboard */}
-      <EmojiPicker
+      {showEmojiSelector && (
+        <View style={styles.emojiPickerContainer}>
+          <EmojiPicker
         onEmojiSelected={(emojiObject) => {
           setNewCategoryIcon(emojiObject.emoji);
           // Only track as custom emoji if it's not in default icons
@@ -578,7 +610,7 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
           }
           setShowEmojiSelector(false);
         }}
-        open={showEmojiSelector}
+        open={true}
         onClose={() => setShowEmojiSelector(false)}
         theme={{
           backdrop: theme.background.overlay || 'rgba(0, 0, 0, 0.5)',
@@ -604,10 +636,14 @@ export const CategoryPicker: React.FC<CategoryPickerProps> = ({
         enableSearchBar={true}
         enableRecentlyUsed={true}
         categoryPosition="top"
-      />
+          />
+        </View>
+      )}
     </View>
   );
 };
+
+// Note: EmojiPicker is intentionally rendered last to ensure highest z-index
 
 const { height: screenHeight } = Dimensions.get("window");
 
@@ -639,8 +675,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   categoryIcon: {
-    width: 20,
-    height: 20,
+    width: 24,
+    height: 24,
     marginRight: 12,
     justifyContent: "center",
     alignItems: "center",
@@ -714,8 +750,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   categoryItemIcon: {
-    width: 24,
-    height: 24,
+    width: 32,
+    height: 32,
     marginRight: 16,
     justifyContent: "center",
     alignItems: "center",
@@ -827,5 +863,9 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 16,
     fontWeight: "600",
+  },
+  emojiPickerContainer: {
+    zIndex: 9999,
+    elevation: 9999, // For Android
   },
 });

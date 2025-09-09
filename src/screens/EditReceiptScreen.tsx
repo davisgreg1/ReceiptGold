@@ -29,6 +29,7 @@ import { formatCurrency } from '../utils/formatCurrency';
 import { BankReceiptService } from '../services/BankReceiptService';
 import { useAuth } from '../context/AuthContext';
 import { useBusiness } from '../context/BusinessContext';
+import { useTeam } from '../context/TeamContext';
 import BusinessSelector from '../components/BusinessSelector';
 import { Receipt } from '../services/firebaseService';
 import { SplitTenderPayment } from '../types/receipt';
@@ -367,6 +368,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
   const { theme } = useTheme();
   const { user } = useAuth();
   const { selectedBusiness } = useBusiness();
+  const { accountHolderId } = useTeam();
   const { showError, showSuccess, showFirebaseError, hideAlert } = useCustomAlert();
   const bankReceiptService = BankReceiptService.getInstance();
   const [loading, setLoading] = useState(false);

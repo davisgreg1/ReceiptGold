@@ -13,6 +13,7 @@ import {
   TextInput,
   Dimensions,
   Platform,
+  RefreshControl,
 } from "react-native";
 import { Picker } from "@react-native-picker/picker";
 import EmojiPicker from 'rn-emoji-keyboard';
@@ -278,6 +279,18 @@ export const SettingsScreen: React.FC = () => {
     fetchUserData();
   }, [user]);
 
+  // Custom categories cache state
+  const [categoriesLastLoaded, setCategoriesLastLoaded] = React.useState<number>(0);
+  const [categoriesInitialized, setCategoriesInitialized] = React.useState(false);
+  const [isRefreshing, setIsRefreshing] = React.useState(false);
+
+  // Initial load of custom categories
+  React.useEffect(() => {
+    if (user && accountHolderId && !categoriesInitialized) {
+      loadCustomCategories();
+    }
+  }, [user, accountHolderId, categoriesInitialized]);
+
   // Fetch bank connections and custom categories on focus
   const lastRefreshTime = React.useRef<number>(0);
   
@@ -296,10 +309,15 @@ export const SettingsScreen: React.FC = () => {
           if (subscription.currentTier === 'professional' || subscription.trial.isActive) {
             refreshBankConnections();
           }
-          loadCustomCategories();
+          
+          // For custom categories, only reload if cache is stale (>5 minutes) or not initialized
+          const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+          if (!categoriesInitialized || (now - categoriesLastLoaded > CACHE_DURATION)) {
+            loadCustomCategories();
+          }
         }
       }
-    }, [user, subscription.currentTier])
+    }, [user, subscription.currentTier, categoriesInitialized, categoriesLastLoaded])
   );
   const [currentPassword, setCurrentPassword] = React.useState("");
   const [newPassword, setNewPassword] = React.useState("");
@@ -658,6 +676,24 @@ export const SettingsScreen: React.FC = () => {
     );
   };
 
+  // Handle pull to refresh
+  const onRefresh = React.useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      // Force reload custom categories
+      await loadCustomCategories(true);
+      
+      // Also refresh bank connections if user has access
+      if (subscription.currentTier === 'professional' || subscription.trial.isActive) {
+        await refreshBankConnections();
+      }
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [user, subscription.currentTier]);
+
   // Refresh bank connections
   const refreshBankConnections = async () => {
     if (!user) return;
@@ -690,13 +726,27 @@ export const SettingsScreen: React.FC = () => {
   };
 
   // Load custom categories
-  const loadCustomCategories = async () => {
+  const loadCustomCategories = async (forceReload = false) => {
     if (!user || !accountHolderId) return;
+
+    // Only load if not initialized, forced reload, or last loaded more than 5 minutes ago
+    const now = Date.now();
+    const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+    
+    if (!forceReload && categoriesInitialized && (now - categoriesLastLoaded < CACHE_DURATION)) {
+      return;
+    }
 
     try {
       setLoadingCustomCategories(true);
       const categories = await CustomCategoryService.getCustomCategories(accountHolderId, user.uid);
-      setCustomCategories(categories);
+      // Sort categories alphabetically by name
+      const sortedCategories = categories.sort((a, b) => 
+        a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+      );
+      setCustomCategories(sortedCategories);
+      setCategoriesLastLoaded(now);
+      setCategoriesInitialized(true);
     } catch (error) {
       console.error("Error loading custom categories:", error);
       setCustomCategories([]);
@@ -725,8 +775,15 @@ export const SettingsScreen: React.FC = () => {
       );
 
       if (newCategory) {
-        // Update local state
-        setCustomCategories(prev => [...prev, newCategory]);
+        // Update local state and sort alphabetically
+        setCustomCategories(prev => {
+          const updated = [...prev, newCategory];
+          return updated.sort((a, b) => 
+            a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+          );
+        });
+        // Update last loaded time since we just modified the list
+        setCategoriesLastLoaded(Date.now());
         setShowCreateCategoryDialog(false);
         setNewCategoryName("");
         setNewCategoryIcon("📁");
@@ -756,6 +813,8 @@ export const SettingsScreen: React.FC = () => {
         if (success) {
           // Update local state
           setCustomCategories(prev => prev.filter(cat => cat.id !== category.id));
+          // Update last loaded time since we just modified the list
+          setCategoriesLastLoaded(Date.now());
         } else {
           showError("Error", "Failed to delete custom category. Please try again.");
         }
@@ -1126,7 +1185,17 @@ export const SettingsScreen: React.FC = () => {
     <SafeAreaView
       style={[styles.container, { backgroundColor: theme.background.primary }]}
     >
-      <ScrollView style={styles.content}>
+      <ScrollView 
+        style={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefreshing}
+            onRefresh={onRefresh}
+            tintColor={theme.gold.primary}
+            colors={[theme.gold.primary]}
+          />
+        }
+      >
         {/* Account Section */}
         <SettingsSection title="Account">
           <SettingsRow label="Email" value={user?.email || "Not signed in"} />
@@ -1487,17 +1556,58 @@ export const SettingsScreen: React.FC = () => {
         {/* Custom Categories Section */}
         <SettingsSection title="Custom Categories">
           {loadingCustomCategories ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator color={theme.gold.primary} />
-              <Text
-                style={[styles.loadingText, { color: theme.text.secondary }]}
-              >
-                Loading custom categories...
-              </Text>
-            </View>
+            <ScrollView 
+              style={styles.customCategoriesScrollContainer}
+              showsVerticalScrollIndicator={true}
+              nestedScrollEnabled={true}
+            >
+              {/* Skeleton Loading Items */}
+              {[1, 2, 3].map((index) => (
+                <View
+                  key={`skeleton-${index}`}
+                  style={[
+                    styles.customCategoryRow,
+                    {
+                      backgroundColor: theme.background.primary,
+                      borderBottomColor: theme.border.primary,
+                    },
+                  ]}
+                >
+                  <View style={styles.customCategoryInfo}>
+                    {/* Skeleton Icon */}
+                    <View
+                      style={[
+                        styles.customCategoryIcon,
+                        styles.skeletonItem,
+                        { backgroundColor: theme.border.primary }
+                      ]}
+                    />
+                    {/* Skeleton Text */}
+                    <View
+                      style={[
+                        styles.skeletonText,
+                        { backgroundColor: theme.border.primary }
+                      ]}
+                    />
+                  </View>
+                  {/* Skeleton Delete Button */}
+                  <View
+                    style={[
+                      styles.skeletonButton,
+                      { backgroundColor: theme.border.primary }
+                    ]}
+                  />
+                </View>
+              ))}
+            </ScrollView>
           ) : customCategories.length > 0 ? (
             <>
-              {customCategories.map((category) => (
+              <ScrollView 
+                style={styles.customCategoriesScrollContainer}
+                showsVerticalScrollIndicator={true}
+                nestedScrollEnabled={true}
+              >
+                {customCategories.map((category) => (
                 <View
                   key={category.id}
                   style={[
@@ -1549,7 +1659,8 @@ export const SettingsScreen: React.FC = () => {
                     />
                   </TouchableOpacity>
                 </View>
-              ))}
+                ))}
+              </ScrollView>
               
               {/* Create New Category Button */}
               <View
@@ -1566,7 +1677,14 @@ export const SettingsScreen: React.FC = () => {
                       borderColor: theme.gold.primary,
                     },
                   ]}
-                  onPress={() => setShowCreateCategoryDialog(true)}
+                  onPress={() => {
+                    (navigation as any).navigate('CreateCustomCategory', {
+                      onCategoryCreated: () => {
+                        // Force reload when returning from category creation
+                        loadCustomCategories(true);
+                      }
+                    });
+                  }}
                 >
                   <Ionicons name="add" size={20} color={theme.gold.primary} />
                   <Text
@@ -2581,7 +2699,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   section: {
-    marginBottom: 24,
+    marginBottom: 58,
   },
   sectionTitle: {
     fontSize: 14,
@@ -2904,6 +3022,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   // Custom Categories Styles
+  customCategoriesScrollContainer: {
+    maxHeight: 300, // Limit height to about 4-5 categories
+    marginBottom: 8,
+    paddingTop: 12,
+  },
   customCategoryRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2919,8 +3042,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   customCategoryIcon: {
-    width: 24,
-    height: 24,
+    width: 32,
+    height: 32,
     marginRight: 16,
     justifyContent: "center",
     alignItems: "center",
@@ -3152,5 +3275,21 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 4,
+  },
+  // Skeleton loading styles
+  skeletonItem: {
+    opacity: 0.3,
+  },
+  skeletonText: {
+    height: 16,
+    width: 120,
+    borderRadius: 8,
+    opacity: 0.3,
+  },
+  skeletonButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    opacity: 0.3,
   },
 });
