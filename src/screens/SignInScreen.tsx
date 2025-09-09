@@ -62,7 +62,6 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          automaticallyAdjustKeyboardInsets={true}
         >
           {/* Flexible spacer */}
           <View style={styles.topSpacer} />

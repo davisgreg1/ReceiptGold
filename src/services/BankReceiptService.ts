@@ -650,7 +650,7 @@ export class BankReceiptService {
   ): Promise<string> {
     try {
       // Check if the current user is a team member and get team attribution
-      const teamMember = await TeamService.getTeamMemberByUserId('', userId);
+      const teamMember = await TeamService.getTeamMembershipByUserId(userId);
       let teamAttribution = undefined;
       
       if (teamMember) {

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { useAuth } from './AuthContext';
 import { useSubscription } from './SubscriptionContext';
 import { TeamService } from '../services/TeamService';
@@ -56,8 +56,12 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isTeamMember, setIsTeamMember] = useState(false);
   const [currentMembership, setCurrentMembership] = useState<TeamMember | null>(null);
   const [accountHolderId, setAccountHolderId] = useState<string | null>(null);
+  
+  // Refs to prevent infinite loops
+  const isLoadingRef = useRef(false);
+  const lastMembershipIdRef = useRef<string | null>(null);
 
-  // Load team data when user changes
+  // Load team data when user changes (only depend on user, not subscription)
   useEffect(() => {
     if (user?.uid) {
       // Always check if user is a team member, regardless of teamManagement feature
@@ -66,7 +70,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Clear data when user logs out
       clearTeamData();
     }
-  }, [user, subscription.currentTier, subscriptionLoading]);
+  }, [user?.uid]); // Only depend on user.uid to prevent loops
 
   const clearTeamData = useCallback(() => {
     setTeamMembers([]);
@@ -96,9 +100,16 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Monitor team member status in real-time for revocation detection
   useEffect(() => {
     if (!user?.uid || !isTeamMember || !currentMembership?.id) {
+      lastMembershipIdRef.current = null;
       return;
     }
 
+    // Prevent setting up duplicate listeners
+    if (lastMembershipIdRef.current === currentMembership.id) {
+      return;
+    }
+
+    lastMembershipIdRef.current = currentMembership.id;
     console.log('🔍 Setting up real-time team membership monitoring for:', currentMembership.id);
 
     // Listen to changes in the team member document
@@ -151,7 +162,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
 
     return unsubscribe;
-  }, [user?.uid, isTeamMember, currentMembership?.id, handleTeamMemberRevocation]);
+  }, [user?.uid, isTeamMember, currentMembership?.id]); // Removed handleTeamMemberRevocation to prevent loops
 
   const loadTeamData = useCallback(async () => {
     if (!user?.uid) {
@@ -159,6 +170,13 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
+    // Prevent concurrent loading
+    if (isLoadingRef.current) {
+      console.log('🔍 TeamContext.loadTeamData: Already loading, skipping');
+      return;
+    }
+
+    isLoadingRef.current = true;
     console.log('🔍 TeamContext.loadTeamData: Starting for user:', user.uid);
     setLoading(true);
     setError(null);
@@ -233,6 +251,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setError(err instanceof Error ? err.message : 'Failed to load team data');
     } finally {
       setLoading(false);
+      isLoadingRef.current = false;
     }
   }, [user]);
 
@@ -342,7 +361,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const hasReached = currentCount >= maxMembers;
     console.log('  hasReachedMemberLimit result:', hasReached);
     return hasReached;
-  }, [subscription.limits.maxTeamMembers, teamInvitations, teamMembers.length, isTeamMember, currentMembership?.role]);
+  }, [subscription.limits.maxTeamMembers, teamInvitations, teamMembers.length]);
 
   const inviteTeammate = useCallback(async (request: CreateTeamInvitationRequest): Promise<TeamInvitation> => {
     if (!user?.uid) {
@@ -384,7 +403,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('Error inviting teammate:', error);
       throw error;
     }
-  }, [user, hasReachedMemberLimit, canAccessFeature, isTeamMember, subscriptionLoading]);
+  }, [user?.uid, subscriptionLoading, isTeamMember, currentMembership, canAccessFeature, hasReachedMemberLimit]);
 
   const revokeInvitation = useCallback(async (invitationId: string): Promise<void> => {
     try {
@@ -470,7 +489,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     
     console.log('  ❌ Returning false - No permissions matched');
     return false;
-  }, [canAccessFeature, isTeamMember, currentMembership, subscriptionLoading]);
+  }, [subscriptionLoading, isTeamMember, currentMembership?.role, canAccessFeature]);
 
   const canManageTeam = useCallback((): boolean => {
     // Account holders can always manage teams if they have the feature
@@ -484,7 +503,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     
     return false;
-  }, [canAccessFeature, isTeamMember, currentMembership]);
+  }, [isTeamMember, currentMembership?.role, canAccessFeature]);
 
   const contextValue: TeamContextType = {
     // State

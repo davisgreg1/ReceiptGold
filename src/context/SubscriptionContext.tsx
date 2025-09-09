@@ -9,6 +9,9 @@ import React, {
 import {
   doc,
   onSnapshot,
+  query,
+  collection,
+  where,
 } from "firebase/firestore";
 import { useAuth } from "./AuthContext";
 import { db } from "../config/firebase";
@@ -205,6 +208,8 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   const limits = getReceiptLimits();
   const [currentReceiptCount, setCurrentReceiptCount] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isTeamMember, setIsTeamMember] = useState(false);
+  const [teamMemberRole, setTeamMemberRole] = useState<string | undefined>();
 
   // Use refs to track refresh state and abort controller
   const refreshingRef = useRef(false);
@@ -368,6 +373,39 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   }, []);
 
 
+  // Detect team members for subscription inheritance
+  useEffect(() => {
+    const checkTeamMemberStatus = async () => {
+      if (!user?.uid) {
+        setIsTeamMember(false);
+        setTeamMemberRole(undefined);
+        return;
+      }
+
+      try {
+        // Import TeamService dynamically to avoid circular dependencies
+        const { TeamService } = await import('../services/TeamService');
+        const membership = await TeamService.getTeamMembershipByUserId(user.uid);
+        
+        if (membership) {
+          console.log('📋 SubscriptionContext: User is team member with role:', membership.role);
+          setIsTeamMember(true);
+          setTeamMemberRole(membership.role);
+        } else {
+          console.log('📋 SubscriptionContext: User is not a team member');
+          setIsTeamMember(false);
+          setTeamMemberRole(undefined);
+        }
+      } catch (error) {
+        console.error('📋 SubscriptionContext: Error checking team membership:', error);
+        setIsTeamMember(false);
+        setTeamMemberRole(undefined);
+      }
+    };
+
+    checkTeamMemberStatus();
+  }, [user?.uid]);
+
   const [subscription, setSubscription] = useState<SubscriptionState>({
     currentTier: "free",
     features: getFeaturesByTier("free"),
@@ -451,11 +489,29 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       return;
     }
 
-    try {
-      // Set up real-time subscription to Firestore
-      const subscriptionRef = doc(db, "subscriptions", user.uid);
+    const setupSubscriptionListener = async () => {
+      try {
+        // Determine which subscription document to listen to
+        let subscriptionUserId = user.uid;
+        
+        if (isTeamMember) {
+          // For team members, get their account holder's subscription
+          const { TeamService } = await import('../services/TeamService');
+          const membership = await TeamService.getTeamMembershipByUserId(user.uid);
+          if (membership?.accountHolderId) {
+            subscriptionUserId = membership.accountHolderId;
+            console.log('📋 SubscriptionContext: Team member listening to account holder subscription:', subscriptionUserId);
+          } else {
+            console.error('📋 SubscriptionContext: Team member has no account holder ID');
+          }
+        } else {
+          console.log('📋 SubscriptionContext: Account holder listening to own subscription:', subscriptionUserId);
+        }
 
-      unsubscribe = onSnapshot(subscriptionRef, async (docSnapshot) => {
+        // Set up real-time subscription to Firestore
+        const subscriptionRef = doc(db, "subscriptions", subscriptionUserId);
+
+        unsubscribe = onSnapshot(subscriptionRef, async (docSnapshot) => {
         if (docSnapshot.exists()) {
           const data = docSnapshot.data();
           if (!data) return;
@@ -532,10 +588,28 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
                 : 0, // No team members for lower tiers
           };
 
+          // Override features and tier for team members
+          let finalTier = effectiveTier;
+          let finalFeatures = getFeaturesByTier(effectiveTier);
+          let finalLimits = limits;
+
+          if (isTeamMember) {
+            console.log(`🔄 Overriding subscription for team member with role: ${teamMemberRole}`);
+            finalTier = "teammate";
+            finalFeatures = getFeaturesByTier("teammate", teamMemberRole);
+            finalLimits = {
+              maxReceipts: -1, // Unlimited receipts for teammates
+              maxBusinesses: 1, // Limited to assigned business
+              apiCallsPerMonth: 0, // No API access
+              maxReports: 0, // No reports for teammates
+              maxTeamMembers: teamMemberRole === 'admin' ? 10 : 0, // Only admin teammates can manage team
+            };
+          }
+
           const newSubscriptionState = {
-            currentTier: effectiveTier,
-            features: getFeaturesByTier(effectiveTier),
-            limits,
+            currentTier: finalTier,
+            features: finalFeatures,
+            limits: finalLimits,
             isActive: effectiveTier !== "free" && (data.status === "active" || trialData.isActive),
             expiresAt: trialData.isActive 
               ? trialData.expiresAt
@@ -607,16 +681,34 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             // Don't return early - still set local state even if Firestore write fails
           }
           
+          // Override features for team members even for new users
+          let newUserTier = "trial";
+          let newUserFeatures = getFeaturesByTier("trial");
+          let newUserLimits = {
+            maxReceipts: receiptLimits.professional,
+            maxBusinesses: -1,
+            apiCallsPerMonth: -1,
+            maxReports: -1,
+            maxTeamMembers: 10,
+          };
+
+          if (isTeamMember) {
+            console.log(`🔄 New user is team member with role: ${teamMemberRole}`);
+            newUserTier = "teammate";
+            newUserFeatures = getFeaturesByTier("teammate", teamMemberRole);
+            newUserLimits = {
+              maxReceipts: -1, // Unlimited receipts for teammates
+              maxBusinesses: 1, // Limited to assigned business
+              apiCallsPerMonth: 0, // No API access
+              maxReports: 0, // No reports for teammates
+              maxTeamMembers: teamMemberRole === 'admin' ? 10 : 0, // Only admin teammates can manage team
+            };
+          }
+
           setSubscription({
-            currentTier: "trial",
-            features: getFeaturesByTier("trial"),
-            limits: {
-              maxReceipts: receiptLimits.professional,
-              maxBusinesses: -1,
-              apiCallsPerMonth: -1,
-              maxReports: -1,
-              maxTeamMembers: 10,
-            },
+            currentTier: newUserTier,
+            features: newUserFeatures,
+            limits: newUserLimits,
             isActive: true,
             expiresAt: trialExpires,
             billing: {
@@ -629,47 +721,51 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               trialEnd: null,
             },
             trial: {
-              isActive: true,
+              isActive: !isTeamMember, // Team members don't get trial
               startedAt: now,
               expiresAt: trialExpires,
-              daysRemaining: 3,
+              daysRemaining: isTeamMember ? 0 : 3,
             },
           });
         }
         setLoading(false);
       });
-    } catch (error) {
-      console.error("Error setting up subscription listener:", error);
-      setSubscription({
-        currentTier: "free",
-        features: getFeaturesByTier("free"),
-        limits: {
-          maxReceipts: limits.free,
-          maxBusinesses: 1,
-          apiCallsPerMonth: 0,
-          maxReports: 3,
-          maxTeamMembers: 0,
-        },
-        isActive: false,
-        expiresAt: null,
-        billing: {
-          customerId: null,
-          subscriptionId: null,
-          priceId: null,
-          currentPeriodStart: new Date(),
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-          trialEnd: null,
-        },
-        trial: {
+      } catch (error) {
+        console.error("Error setting up subscription listener:", error);
+        setSubscription({
+          currentTier: "free",
+          features: getFeaturesByTier("free"),
+          limits: {
+            maxReceipts: limits.free,
+            maxBusinesses: 1,
+            apiCallsPerMonth: 0,
+            maxReports: 3,
+            maxTeamMembers: 0,
+          },
           isActive: false,
-          startedAt: null,
           expiresAt: null,
-          daysRemaining: 0,
-        },
-      });
-      setLoading(false);
-    }
+          billing: {
+            customerId: null,
+            subscriptionId: null,
+            priceId: null,
+            currentPeriodStart: new Date(),
+            currentPeriodEnd: null,
+            cancelAtPeriodEnd: false,
+            trialEnd: null,
+          },
+          trial: {
+            isActive: false,
+            startedAt: null,
+            expiresAt: null,
+            daysRemaining: 0,
+          },
+        });
+        setLoading(false);
+      }
+    };
+
+    // Call the async setup function
+    setupSubscriptionListener();
 
     // Cleanup function
     return () => {
@@ -678,7 +774,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       }
       cancelRefresh();
     };
-  }, [user, limits.free, refreshReceiptCount, cancelRefresh]); // Fixed: Added proper dependencies
+  }, [user, limits.free, refreshReceiptCount, cancelRefresh, isTeamMember, teamMemberRole]); // Added team member dependencies
 
   const canAccessFeature = useCallback(
     (feature: keyof SubscriptionFeatures): boolean => {

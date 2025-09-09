@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -139,11 +139,6 @@ const TeamInvitationCard: React.FC<TeamInvitationCardProps> = ({
 export const TeamManagementScreen: React.FC = () => {
   const navigation = useNavigation();
   const { theme } = useTheme();
-  
-  // Debug render counter
-  const renderCountRef = React.useRef(0);
-  renderCountRef.current += 1;
-  console.log('🔍 TeamManagementScreen render #', renderCountRef.current);
   const { subscription } = useSubscription();
   const {
     teamMembers,
@@ -160,17 +155,37 @@ export const TeamManagementScreen: React.FC = () => {
   
   const { showError, showSuccess, showWarning } = useCustomAlert();
   const [refreshing, setRefreshing] = useState(false);
+  const lastRefreshRef = useRef<number>(0);
+  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
 
+  // Smart caching with useFocusEffect - only refresh if data is stale
   useFocusEffect(
     useCallback(() => {
-      refreshTeamData();
-    }, [refreshTeamData])
+      const now = Date.now();
+      const timeSinceLastRefresh = now - lastRefreshRef.current;
+      
+      // Only refresh if:
+      // 1. We haven't refreshed in the last 5 minutes, OR
+      // 2. We have no team data and we're not currently loading
+      const shouldRefresh = 
+        timeSinceLastRefresh > CACHE_DURATION || 
+        (teamMembers.length === 0 && teamInvitations.length === 0 && !loading);
+      
+      if (shouldRefresh) {
+        console.log('📱 TeamManagementScreen: Refreshing stale data on focus');
+        refreshTeamData();
+        lastRefreshRef.current = now;
+      } else {
+        console.log('📱 TeamManagementScreen: Using cached data (refreshed', Math.round(timeSinceLastRefresh / 1000), 'seconds ago)');
+      }
+    }, [refreshTeamData, teamMembers.length, teamInvitations.length, loading])
   );
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await refreshTeamData();
+      lastRefreshRef.current = Date.now(); // Update cache timestamp
     } catch (err) {
       console.error('Error refreshing team data:', err);
     } finally {
@@ -179,26 +194,18 @@ export const TeamManagementScreen: React.FC = () => {
   }, [refreshTeamData]);
 
   const handleInviteTeammate = () => {
-    console.log('🔍 handleInviteTeammate called');
-    console.log('  - canInviteMembers():', canInviteMembers());
-    console.log('  - hasReachedMemberLimit():', hasReachedMemberLimit());
-    
     if (!canInviteMembers()) {
-      console.log('  ❌ Blocked by canInviteMembers check');
       showError('Upgrade Required', 'Team management is available for Professional tier users only.');
       return;
     }
 
     if (hasReachedMemberLimit()) {
-      console.log('  ❌ Blocked by hasReachedMemberLimit check');
       showError(
         'Member Limit Reached', 
         `You have reached the maximum number of team members (${subscription.limits.maxTeamMembers}) for your subscription plan.`
       );
       return;
     }
-    
-    console.log('  ✅ Proceeding to navigation');
 
     // Navigate to invitation screen - we'll create this next
     navigation.navigate('InviteTeammate' as never);
@@ -215,6 +222,7 @@ export const TeamManagementScreen: React.FC = () => {
           try {
             if (member.id) {
               await removeTeamMember(member.id);
+              lastRefreshRef.current = Date.now(); // Update cache timestamp after member removal
               showSuccess('Member Removed', 'Team member has been successfully removed.');
             }
           } catch (error) {
@@ -236,6 +244,7 @@ export const TeamManagementScreen: React.FC = () => {
           try {
             if (invitation.id) {
               await revokeInvitation(invitation.id);
+              lastRefreshRef.current = Date.now(); // Update cache timestamp after invitation revocation
             }
           } catch (error) {
             showError('Error', 'Failed to revoke invitation. Please try again.');
@@ -265,10 +274,6 @@ export const TeamManagementScreen: React.FC = () => {
   console.log('🚀 ~ TeamManagementScreen ~ teamInvitations:', teamInvitations);
   console.log('🚀 ~ TeamManagementScreen ~ pendingInvitations:', pendingInvitations);
   console.log('🚀 ~ TeamManagementScreen ~ teamMembers:', teamMembers);
-  console.log('🚀 ~ TeamManagementScreen ~ loading:', loading);
-  console.log('🚀 ~ TeamManagementScreen ~ error:', error);
-  console.log('🚀 ~ TeamManagementScreen ~ subscription feature check:', subscription ? subscription.features : 'No subscription');
-  console.log('🚀 ~ TeamManagementScreen ~ canAccessTeam:', subscription?.features?.teamManagement);
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
@@ -334,12 +339,7 @@ export const TeamManagementScreen: React.FC = () => {
             </Text>
           </View>
 
-          {(() => {
-            console.log('🔍 TeamManagementScreen render check - teamMembers.length:', teamMembers.length);
-            console.log('🔍 TeamManagementScreen render check - teamMembers.length === 0:', teamMembers.length === 0);
-            console.log('🔍 TeamManagementScreen render check - teamMembers array:', teamMembers);
-            return teamMembers.length === 0;
-          })() ? (
+          {teamMembers.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons
                 name="people-outline"
@@ -351,7 +351,7 @@ export const TeamManagementScreen: React.FC = () => {
                 No Team Members Yet
               </Text>
               <Text style={[styles.emptyDescription, { color: theme.text.secondary }]}>
-                Invite team members to help manage receipts and collaborate on the account.
+                Invite team members to help manage receipts and collaborate on your account.
               </Text>
             </View>
           ) : (
@@ -391,11 +391,11 @@ export const TeamManagementScreen: React.FC = () => {
             styles.inviteButton,
             { 
               backgroundColor: theme.gold.primary,
-              opacity: (!canInviteMembers() || hasReachedMemberLimit()) ? 0.6 : 1,
+              opacity: hasReachedMemberLimit() ? 0.6 : 1,
             }
           ]}
           onPress={handleInviteTeammate}
-          disabled={!canInviteMembers() || hasReachedMemberLimit()}
+          disabled={hasReachedMemberLimit()}
         >
           <Ionicons name="person-add" size={20} color="#FFFFFF" />
           <Text style={styles.inviteButtonText}>

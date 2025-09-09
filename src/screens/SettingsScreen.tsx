@@ -1237,7 +1237,7 @@ export const SettingsScreen: React.FC = () => {
         )}
 
         {/* Bank Accounts Section */}
-        {canUseBankConnection && (
+        {canUseBankConnection && !isTeamMember && (
           <SettingsSection title="Connected Bank Accounts">
             {bankConnections.length > 0 ? (
               <>

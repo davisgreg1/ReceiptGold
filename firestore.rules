@@ -98,13 +98,18 @@ service cloud.firestore {
         match /subscriptions/{userId} {
             allow read: if isOwner(userId);
 
-            // Allow users to initialize trial from free tier
+            // Allow users to add trial information to existing subscriptions
             allow update: if isOwner(userId) && 
-            // Only allow converting from free to trial
-            resource.data.currentTier == "free" &&
-            request.resource.data.currentTier == "trial" &&
-            // Ensure trial data is being added
-            request.resource.data.keys().hasAll(['trial']) &&
+            (
+                // Allow adding trial field to free tier without changing currentTier
+                (resource.data.currentTier == "free" &&
+                 request.resource.data.currentTier == "free" &&
+                 request.resource.data.keys().hasAll(['trial'])) ||
+                // Allow converting from free to trial
+                (resource.data.currentTier == "free" &&
+                 request.resource.data.currentTier == "trial" &&
+                 request.resource.data.keys().hasAll(['trial'])) 
+            ) &&
             // Prevent users from upgrading to paid tiers
             request.resource.data.currentTier in ["free", "trial"];
 
