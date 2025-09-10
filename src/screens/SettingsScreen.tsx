@@ -26,7 +26,6 @@ import { useSubscription } from "../context/SubscriptionContext";
 import { useAuth } from "../context/AuthContext";
 import { useBusiness } from "../context/BusinessContext";
 import { useTeam } from "../context/TeamContext";
-import { useStripePayments } from "../hooks/useStripePayments";
 import { Ionicons } from "@expo/vector-icons";
 import {
   doc,
@@ -225,8 +224,6 @@ export const SettingsScreen: React.FC = () => {
   console.log("🚀 ~ SettingsScreen ~ should show team management:", 
     ((canAccessFeature("teamManagement") && !isTeamMember) || 
      (isTeamMember && currentMembership?.role === 'admin')));
-  const { handleSubscriptionWithCloudFunction, SUBSCRIPTION_TIERS } =
-    useStripePayments();
   const navigation =
     useNavigation<StackNavigationProp<SettingsStackParamList>>();
   const {
@@ -246,7 +243,6 @@ export const SettingsScreen: React.FC = () => {
     lastName?: string;
   }>({});
   const [emailUpdates, setEmailUpdates] = React.useState(true);
-  const [isUpgrading, setIsUpgrading] = React.useState(false);
   const [showNameDialog, setShowNameDialog] = React.useState(false);
   const [showPasswordDialog, setShowPasswordDialog] = React.useState(false);
   const [showDeleteAccountDialog, setShowDeleteAccountDialog] =
@@ -450,45 +446,6 @@ export const SettingsScreen: React.FC = () => {
     }
   };
 
-  const handleUpgrade = async (tierId: string) => {
-    if (!user?.email) {
-      showError("Error", "You must be logged in to upgrade");
-      return;
-    }
-
-    setIsUpgrading(true);
-    try {
-      const showAlert = (
-        type: "error" | "success" | "warning",
-        title: string,
-        message: string
-      ) => {
-        switch (type) {
-          case "error":
-            showError(title, message);
-            break;
-          case "success":
-            showSuccess(title, message);
-            break;
-          case "warning":
-            showWarning(title, message);
-            break;
-        }
-      };
-
-      await handleSubscriptionWithCloudFunction(
-        tierId as any,
-        user.email,
-        user.displayName || "User",
-        undefined,
-        showAlert
-      );
-    } catch (error) {
-      console.error("Failed to upgrade:", error);
-    } finally {
-      setIsUpgrading(false);
-    }
-  };
 
   const handleThemeChange = async (isDark: boolean) => {
     if (!user) return;
@@ -1842,91 +1799,17 @@ export const SettingsScreen: React.FC = () => {
                 : `Your plan has expired`
             }
           />
-          <View
-            style={[
-              styles.planSelector,
-              { backgroundColor: theme.background.tertiary },
-            ]}
-          >
-            {Object.values(SUBSCRIPTION_TIERS)
-              .filter((tier) => tier.id !== "free")
-              .map((tierInfo) => {
-                const isSelected = subscription.currentTier === tierInfo.id;
-                const tierDescription = tierInfo.features[0];
-
-                return (
-                  <TouchableOpacity
-                    key={tierInfo.id}
-                    style={[
-                      styles.planOption,
-                      {
-                        borderColor: isSelected
-                          ? theme.gold.primary
-                          : theme.border.primary,
-                        backgroundColor: isSelected
-                          ? theme.gold.primary + "10"
-                          : "transparent",
-                      },
-                    ]}
-                    onPress={() => handleUpgrade(tierInfo.id)}
-                    disabled={isUpgrading || isSelected}
-                  >
-                    <View style={styles.planHeader}>
-                      <Text
-                        style={[
-                          styles.planName,
-                          {
-                            color: isSelected
-                              ? theme.gold.primary
-                              : theme.text.primary,
-                            fontWeight: isSelected ? "700" : "600",
-                          },
-                        ]}
-                      >
-                        {tierInfo.name}
-                      </Text>
-                      {isSelected && (
-                        <View
-                          style={[
-                            styles.currentPlanBadge,
-                            { backgroundColor: theme.gold.primary },
-                          ]}
-                        >
-                          <Text style={styles.currentPlanText}>
-                            Current Plan
-                          </Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text
-                      style={[
-                        styles.planPrice,
-                        {
-                          color: isSelected
-                            ? theme.gold.primary
-                            : theme.text.primary,
-                        },
-                      ]}
-                    >
-                      ${tierInfo.price}/mo
-                    </Text>
-                    <Text
-                      style={[
-                        styles.planDescription,
-                        { color: theme.text.secondary },
-                      ]}
-                    >
-                      {tierDescription}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-          </View>
-          {isUpgrading && (
-            <View style={styles.loadingOverlay}>
-              <ActivityIndicator color={theme.gold.primary} size="large" />
-            </View>
-          )}
+          <SettingsRow
+            label="Manage Subscription"
+            onPress={() => navigationHelpers.navigateToSubscription(tabNavigation)}
+            rightElement={
+              <Ionicons
+                name="chevron-forward"
+                size={20}
+                color={theme.text.tertiary}
+              />
+            }
+          />
         </SettingsSection>
         )}
 

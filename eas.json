@@ -16,6 +16,12 @@
         "gradleCommand": ":app:assembleDebug"
       }
     },
+    "ios-simulator": {
+      "extends": "development",
+      "ios": {
+        "simulator": true
+      }
+    },
     "preview": {
       "distribution": "internal",
       "prebuildCommand": "npx expo prebuild --clean",

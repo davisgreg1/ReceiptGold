@@ -1,25 +1,34 @@
-import React from 'react';
-import { StripeProvider } from '@stripe/stripe-react-native';
+import React, { useEffect } from 'react';
+import { revenueCatService } from '../services/revenuecatService';
+import { useAuth } from '../context/AuthContext';
 
-interface StripeWrapperProps {
+interface RevenueCatWrapperProps {
   children: React.ReactNode;
 }
 
-export const StripeWrapper: React.FC<StripeWrapperProps> = ({ children }) => {
-  const publishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+export const RevenueCatWrapper: React.FC<RevenueCatWrapperProps> = ({ children }) => {
+  const { user } = useAuth();
 
-  if (!publishableKey) {
-    console.warn('Stripe publishable key not found. Stripe features will be disabled.');
-    return <>{children}</>;
-  }
+  useEffect(() => {
+    const initializeRevenueCat = async () => {
+      try {
+        // Initialize RevenueCat with user ID if available
+        await revenueCatService.initialize(user?.uid);
+        
+        // If user is logged in, identify them to RevenueCat
+        if (user?.uid) {
+          await revenueCatService.loginUser(user.uid);
+        }
+      } catch (error) {
+        console.error('Failed to initialize RevenueCat:', error);
+      }
+    };
 
-  return (
-    <StripeProvider
-      publishableKey={publishableKey}
-      merchantIdentifier="merchant.com.receiptgold" // Replace with your merchant ID
-      urlScheme="receiptgold.stripe" // Specific scheme for Stripe to avoid conflicts
-    >
-      {children as React.ReactElement}
-    </StripeProvider>
-  );
+    initializeRevenueCat();
+  }, [user?.uid]);
+
+  return <>{children}</>;
 };
+
+// Export both names for backward compatibility
+export const StripeWrapper = RevenueCatWrapper;

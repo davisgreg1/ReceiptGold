@@ -32,7 +32,7 @@ import { formatCurrency } from "../utils/formatCurrency";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription } from "../context/SubscriptionContext";
-import { useStripePayments } from "../hooks/useStripePayments";
+import { useRevenueCatPayments } from "../hooks/useRevenueCatPayments";
 import { useAuth } from "../context/AuthContext";
 import { useTeam } from "../context/TeamContext";
 import { useReceiptSync } from "../services/ReceiptSyncService";
@@ -53,7 +53,7 @@ export const ReceiptsListScreen: React.FC = () => {
   const navigation = useReceiptsNavigation();
   const { subscription, getRemainingReceipts, currentReceiptCount, refreshReceiptCount } =
     useSubscription();
-  const { handleSubscriptionWithCloudFunction } = useStripePayments();
+  const { handleSubscriptionWithRevenueCat } = useRevenueCatPayments();
   const { user } = useAuth();
   const { isTeamMember, currentMembership, accountHolderId, teamMembers } = useTeam();
   const { showError, showSuccess, showWarning, showFirebaseError, hideAlert } =
@@ -1285,7 +1285,7 @@ export const ReceiptsListScreen: React.FC = () => {
 
     setIsUpgrading(true);
     try {
-      const success = await handleSubscriptionWithCloudFunction(
+      const success = await handleSubscriptionWithRevenueCat(
         "starter",
         user.email || "",
         user.displayName || "User"
@@ -2034,7 +2034,7 @@ export const ReceiptsListScreen: React.FC = () => {
                         setIsUpgrading(true);
                         try {
                           const success =
-                            await handleSubscriptionWithCloudFunction(
+                            await handleSubscriptionWithRevenueCat(
                               "growth",
                               user?.email || "",
                               user?.displayName || "User"
@@ -2269,7 +2269,7 @@ export const ReceiptsListScreen: React.FC = () => {
                         setIsUpgrading(true);
                         try {
                           const success =
-                            await handleSubscriptionWithCloudFunction(
+                            await handleSubscriptionWithRevenueCat(
                               "growth",
                               user?.email || "",
                               user?.displayName || "User"
