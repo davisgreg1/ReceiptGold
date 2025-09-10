@@ -3,7 +3,7 @@ export default ({ config }) => {
     ...config,
     ios: {
       ...config.ios,
-      googleServicesFile: process.env.GOOGLE_SERVICES_PLIST,
+      googleServicesFile: "./GoogleService-Info.plist",
     },
   };
 };

@@ -31,7 +31,7 @@
       }
     },
     "production": {
-      "prebuildCommand": "npx expo prebuild --clean",
+      "prebuildCommand": "node scripts/generate-google-services.js && npx expo prebuild --clean",
       "ios": {
         "resourceClass": "m-medium",
         "cache": {
