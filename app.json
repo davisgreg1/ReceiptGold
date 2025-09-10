@@ -38,7 +38,6 @@
       "entitlements": {
         "aps-environment": "development"
       },
-      "googleServicesFile": "./ios/ReceiptGold/GoogleService-Info.plist",
       "appleTeamId": "UGZ3U996YX"
     },
     "android": {
