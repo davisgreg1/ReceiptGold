@@ -59,7 +59,7 @@ export const SUBSCRIPTION_TIERS = {
     annualPrice: 90.00,
     productIds: {
       monthly: 'rc_starter',
-      annual: 'rc_starter_annual'
+      annual: null
     },
     features: [
       'Unlimited receipt storage',
@@ -185,12 +185,10 @@ class RevenueCatService {
   // Fetch available offerings from RevenueCat
   async fetchOfferings(): Promise<PurchasesOffering | null> {
     try {
-      console.log('Fetching RevenueCat offerings...');
       const offerings = await Purchases.getOfferings();
       
       if (offerings.current) {
         this.offerings = offerings.current;
-        console.log('✅ Retrieved offerings:', Object.keys(offerings.current.availablePackages));
         return offerings.current;
       } else {
         console.warn('No current offering configured in RevenueCat');
@@ -229,18 +227,19 @@ class RevenueCatService {
     try {
       const customerInfo = await this.getCustomerInfo();
       const activeEntitlements = customerInfo.entitlements.active;
+      const activeSubscriptions = customerInfo.activeSubscriptions;
 
       // Check if user has the professional entitlement (all paid tiers)
       if (activeEntitlements[ENTITLEMENTS.PROFESSIONAL_ACCESS]) {
-        // Determine specific tier based on active product
-        const activeSubscriptions = customerInfo.activeSubscriptions;
         
+        // Determine specific tier based on active product
         for (const productId of activeSubscriptions) {
+          
           if (productId === 'rc_professional_monthly' || productId === 'rc_professional_annual') {
             return 'professional';
           } else if (productId === 'rc_growth_monthly' || productId === 'rc_growth_annual') {
             return 'growth';
-          } else if (productId === 'rc_starter' || productId === 'rc_starter_annual') {
+          } else if (productId === 'rc_starter') {
             return 'starter';
           }
         }
@@ -249,9 +248,6 @@ class RevenueCatService {
         return 'starter';
       }
       
-      // Check if user has trial period remaining
-      // This would need to be implemented based on your trial logic
-      // For now, default to free
       return 'free';
     } catch (error) {
       console.error('❌ Error getting current tier:', error);
@@ -266,32 +262,33 @@ class RevenueCatService {
     error?: string;
   }> {
     try {
-      console.log(`🚀 Starting purchase for product: ${productId}`);
 
-      if (!this.offerings) {
-        await this.fetchOfferings();
-      }
-
-      if (!this.offerings) {
+      // Get all offerings to search across them
+      const offerings = await Purchases.getOfferings();
+      if (!offerings || Object.keys(offerings.all).length === 0) {
         throw new Error('No offerings available');
       }
 
-      // Find the package with the specified product ID
-      const packageToPurchase = this.offerings.availablePackages.find(
-        pkg => pkg.product.identifier === productId
-      );
+      // Find the package with the specified product ID across ALL offerings
+      let packageToPurchase: PurchasesPackage | undefined;
+      
+      for (const [, offering] of Object.entries(offerings.all)) {
+        const foundPackage = offering.availablePackages.find(
+          pkg => pkg.product.identifier === productId
+        );
+        
+        if (foundPackage) {
+          packageToPurchase = foundPackage;
+          break;
+        }
+      }
 
       if (!packageToPurchase) {
         throw new Error(`Product ${productId} not found in offerings`);
       }
 
-      console.log(`📦 Found package: ${packageToPurchase.identifier}`);
-
       // Make the purchase
       const { customerInfo } = await Purchases.purchasePackage(packageToPurchase);
-      
-      console.log('✅ Purchase successful!');
-      console.log('Active entitlements:', Object.keys(customerInfo.entitlements.active));
 
       return {
         success: true,
@@ -321,11 +318,7 @@ class RevenueCatService {
     error?: string;
   }> {
     try {
-      console.log('🔄 Restoring purchases...');
       const customerInfo = await Purchases.restorePurchases();
-      
-      console.log('✅ Purchases restored successfully');
-      console.log('Active entitlements:', Object.keys(customerInfo.entitlements.active));
 
       return {
         success: true,
@@ -343,9 +336,7 @@ class RevenueCatService {
   // Login user (identify user to RevenueCat)
   async loginUser(userId: string): Promise<void> {
     try {
-      console.log(`🔑 Logging in user: ${userId}`);
       await Purchases.logIn(userId);
-      console.log('✅ User logged in successfully');
     } catch (error) {
       console.error('❌ Failed to login user:', error);
       throw error;
@@ -355,9 +346,7 @@ class RevenueCatService {
   // Logout user
   async logoutUser(): Promise<void> {
     try {
-      console.log('🔑 Logging out user...');
       await Purchases.logOut();
-      console.log('✅ User logged out successfully');
     } catch (error) {
       console.error('❌ Failed to logout user:', error);
       throw error;
