@@ -17,7 +17,7 @@ import {
   SubscriptionTier,
 } from "../context/SubscriptionContext";
 import { useAuth } from "../context/AuthContext";
-import { useStripePayments } from "../hooks/useStripePayments";
+import { useRevenueCatPayments } from "../hooks/useRevenueCatPayments";
 import {
   HeadingText,
   BodyText,
@@ -54,8 +54,8 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
   const { showNotification } = useInAppNotifications();
 
   const { user } = useAuth();
-  const { handleSubscriptionWithCloudFunction, formatPrice } =
-    useStripePayments();
+  const { handleSubscriptionWithRevenueCat, formatPrice } =
+    useRevenueCatPayments();
 
   const [selectedTier, setSelectedTier] = useState<SubscriptionTier | null>(
     null
@@ -163,7 +163,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       const customerName = user.displayName || "Customer";
 
       // Use the Stripe service to handle subscription
-      const success = await handleSubscriptionWithCloudFunction(
+      const success = await handleSubscriptionWithRevenueCat(
         tier.id,
         customerEmail,
         customerName

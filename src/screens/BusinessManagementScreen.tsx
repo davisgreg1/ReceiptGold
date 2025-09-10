@@ -19,7 +19,7 @@ import { BusinessData } from '../types/business';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTeam } from '../context/TeamContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
-import { useStripePayments } from '../hooks/useStripePayments';
+import { useRevenueCatPayments } from '../hooks/useRevenueCatPayments';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency } from '../utils/formatCurrency';
 
@@ -155,7 +155,7 @@ const BusinessManagementScreen: React.FC = () => {
   const { subscription, canAccessFeature } = useSubscription();
   const { teamMembers } = useTeam();
   const { showError, showSuccess, showWarning, showInfo, hideAlert } = useCustomAlert();
-  const { handleSubscriptionWithCloudFunction } = useStripePayments();
+  const { handleSubscriptionWithRevenueCat } = useRevenueCatPayments();
   const { user } = useAuth();
 
   const [refreshing, setRefreshing] = useState(false);
@@ -211,7 +211,7 @@ const BusinessManagementScreen: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 500));
 
     try {
-      const success = await handleSubscriptionWithCloudFunction(
+      const success = await handleSubscriptionWithRevenueCat(
         'professional',
         user.email,
         user.displayName || 'User',

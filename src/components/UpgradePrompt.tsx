@@ -10,9 +10,9 @@ import {
 } from "react-native";
 import { useTheme } from "../theme/ThemeProvider";
 import { SubscriptionTier } from "../context/SubscriptionContext";
-import { useStripePayments } from "../hooks/useStripePayments";
+import { useRevenueCatPayments } from "../hooks/useRevenueCatPayments";
 import { useAuth } from "../context/AuthContext";
-import { SubscriptionTierKey } from "../services/stripe";
+import { SubscriptionTierKey } from "../services/revenuecatService";
 import { useInAppNotifications } from "./InAppNotificationProvider";
 
 interface UpgradePromptProps {
@@ -31,14 +31,14 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
   requiredTier = "starter",
 }) => {
   const { theme } = useTheme();
-  const { handleSubscriptionWithCloudFunction } = useStripePayments();
+  const { handleSubscriptionWithRevenueCat } = useRevenueCatPayments();
   const { showNotification } = useInAppNotifications();
 
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
 
-  // Map SubscriptionTier to SubscriptionTierKey for Stripe
-  const mapTierToStripeKey = (tier: SubscriptionTier): SubscriptionTierKey => {
+  // Map SubscriptionTier to SubscriptionTierKey for RevenueCat
+  const mapTierToRevenueCatKey = (tier: SubscriptionTier): SubscriptionTierKey => {
     switch (tier) {
       case "starter":
         return "starter";
@@ -59,9 +59,9 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
 
     setLoading(true);
     try {
-      // Start the Stripe payment flow
-      const success = await handleSubscriptionWithCloudFunction(
-        mapTierToStripeKey(requiredTier),
+      // Start the RevenueCat payment flow
+      const success = await handleSubscriptionWithRevenueCat(
+        mapTierToRevenueCatKey(requiredTier),
         user.email,
         user.displayName || "User"
       );

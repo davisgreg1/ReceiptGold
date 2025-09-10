@@ -26,6 +26,11 @@ export const useTabNavigation = () => useNavigation<TabNavigation>();
 // Generic navigation hook
 export const useAppNavigation = () => useNavigation();
 
+// Cross-stack navigation helper
+export const navigateToHomeStackScreen = (tabNavigation: TabNavigation, screen: keyof HomeStackParamList) => {
+  (tabNavigation as any).navigate('HomeTab', { screen });
+};
+
 // Navigation helpers
 export const navigationHelpers = {
   // Quick navigation to common screens
@@ -60,5 +65,10 @@ export const navigationHelpers = {
   
   switchToSettingsTab: (navigation: TabNavigation) => {
     navigation.navigate('SettingsTab');
+  },
+
+  // Cross-stack navigation
+  navigateToSubscription: (tabNavigation: TabNavigation) => {
+    navigateToHomeStackScreen(tabNavigation, 'Subscription');
   },
 };

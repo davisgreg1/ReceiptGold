@@ -179,9 +179,9 @@ const NotificationInitializer: React.FC = () => {
 export default function App() {
   return (
     <SafeAreaProvider>
-      <StripeWrapper>
-        <ThemeProvider>
-          <AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <StripeWrapper>
             <SubscriptionProvider>
               <BusinessProvider>
                 <CustomAlertProvider>
@@ -195,9 +195,9 @@ export default function App() {
                 </CustomAlertProvider>
               </BusinessProvider>
             </SubscriptionProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </StripeWrapper>
+          </StripeWrapper>
+        </AuthProvider>
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }
