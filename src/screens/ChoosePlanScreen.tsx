@@ -130,6 +130,18 @@ const PlanCard: React.FC<PlanCardProps> = ({
     return null; // Don't show these tiers in the plan selection
   }
 
+  // Check if this tier supports the current billing period
+  const monthlyProductId = tierData.productIds.monthly;
+  const annualProductId = tierData.productIds.annual;
+  
+  if (billingPeriod === 'annual' && !annualProductId) {
+    return null; // Don't show tier if annual billing is selected but tier doesn't support annual
+  }
+  
+  if (billingPeriod === 'monthly' && !monthlyProductId) {
+    return null; // Don't show tier if monthly billing is selected but tier doesn't support monthly
+  }
+
   const price = billingPeriod === 'monthly' ? tierData.monthlyPrice : tierData.annualPrice;
   const displayPrice = price.toFixed(2);
   const annualSavings = billingPeriod === 'annual' ? 
