@@ -56,7 +56,6 @@ export const SUBSCRIPTION_TIERS = {
     id: 'starter',
     name: 'Starter',
     monthlyPrice: 9.00,
-    annualPrice: 90.00,
     productIds: {
       monthly: 'rc_starter',
       annual: null
@@ -144,6 +143,7 @@ export const ENTITLEMENTS = {
 class RevenueCatService {
   private isInitialized = false;
   private offerings: PurchasesOffering | null = null;
+  private isConfigurationValid = false;
 
   // Initialize RevenueCat
   async initialize(userId?: string): Promise<void> {
@@ -171,11 +171,17 @@ class RevenueCatService {
       // Configure RevenueCat
       Purchases.configure({ apiKey, appUserID: userId });
       
-      // Fetch offerings
-      await this.fetchOfferings();
+      // Fetch offerings and check configuration
+      const offeringsResult = await this.fetchOfferings();
+      this.isConfigurationValid = offeringsResult !== null;
       
       this.isInitialized = true;
-      console.log('✅ RevenueCat initialized successfully');
+      
+      if (this.isConfigurationValid) {
+        console.log('✅ RevenueCat initialized successfully with valid configuration');
+      } else {
+        console.warn('⚠️ RevenueCat initialized but configuration may have issues (no offerings found)');
+      }
     } catch (error) {
       console.error('❌ RevenueCat initialization failed:', error);
       throw error;
@@ -185,17 +191,53 @@ class RevenueCatService {
   // Fetch available offerings from RevenueCat
   async fetchOfferings(): Promise<PurchasesOffering | null> {
     try {
+      console.log('🔍 Fetching offerings from RevenueCat...');
       const offerings = await Purchases.getOfferings();
       
+      console.log('🔍 Raw offerings received:', {
+        current: offerings.current?.identifier,
+        allOfferings: Object.keys(offerings.all),
+        totalOfferings: Object.keys(offerings.all).length
+      });
+      
       if (offerings.current) {
+        console.log('✅ Found current offering:', offerings.current.identifier);
+        console.log('📦 Available packages:', offerings.current.availablePackages.map(pkg => ({
+          identifier: pkg.identifier,
+          productId: pkg.product.identifier,
+          productType: pkg.product.productType,
+          price: pkg.product.priceString
+        })));
+        
         this.offerings = offerings.current;
         return offerings.current;
       } else {
-        console.warn('No current offering configured in RevenueCat');
+        console.warn('⚠️ No current offering configured in RevenueCat dashboard');
+        
+        // Try to use the first available offering
+        const allOfferingKeys = Object.keys(offerings.all);
+        if (allOfferingKeys.length > 0) {
+          const firstOffering = offerings.all[allOfferingKeys[0]];
+          console.log('🔄 Using first available offering:', firstOffering.identifier);
+          this.offerings = firstOffering;
+          return firstOffering;
+        }
+        
         return null;
       }
     } catch (error) {
       console.error('❌ Failed to fetch offerings:', error);
+      
+      // Enhanced error logging for common RevenueCat issues
+      if (error instanceof Error) {
+        if (error.message.includes('No products found')) {
+          console.error('💡 RevenueCat Fix: Products not configured in App Store Connect or Google Play Console');
+          console.error('💡 Expected product IDs:', ['rc_starter', 'rc_growth_monthly', 'rc_growth_annual', 'rc_professional_monthly', 'rc_professional_annual']);
+        } else if (error.message.includes('configuration')) {
+          console.error('💡 RevenueCat Fix: Check dashboard configuration and API keys');
+        }
+      }
+      
       return null;
     }
   }
@@ -422,34 +464,61 @@ class RevenueCatService {
     error?: string;
   }> {
     try {
+      console.log(`🛒 Attempting to purchase product: ${productId}`);
 
       // Get all offerings to search across them
       const offerings = await Purchases.getOfferings();
+      console.log('🔍 Available offerings for purchase:', {
+        current: offerings.current?.identifier,
+        all: Object.keys(offerings.all),
+        total: Object.keys(offerings.all).length
+      });
+      
       if (!offerings || Object.keys(offerings.all).length === 0) {
-        throw new Error('No offerings available');
+        throw new Error('RevenueCat configuration issue: No offerings available. Please check your RevenueCat dashboard setup.');
       }
 
       // Find the package with the specified product ID across ALL offerings
       let packageToPurchase: PurchasesPackage | undefined;
       
-      for (const [, offering] of Object.entries(offerings.all)) {
+      for (const [offeringId, offering] of Object.entries(offerings.all)) {
+        console.log(`🔍 Searching offering ${offeringId} for product ${productId}`);
+        console.log(`📦 Available packages in ${offeringId}:`, offering.availablePackages.map(pkg => ({
+          id: pkg.identifier,
+          productId: pkg.product.identifier,
+          price: pkg.product.priceString
+        })));
+        
         const foundPackage = offering.availablePackages.find(
           pkg => pkg.product.identifier === productId
         );
         
         if (foundPackage) {
+          console.log(`✅ Found package for ${productId} in offering ${offeringId}`);
           packageToPurchase = foundPackage;
           break;
         }
       }
 
       if (!packageToPurchase) {
-        throw new Error(`Product ${productId} not found in offerings`);
+        const allAvailableProducts = Object.values(offerings.all)
+          .flatMap(offering => offering.availablePackages.map(pkg => pkg.product.identifier));
+        
+        console.error(`❌ Product ${productId} not found in any offering`);
+        console.error('💡 Available products:', allAvailableProducts);
+        console.error('💡 Expected product IDs:', ['rc_starter', 'rc_growth_monthly', 'rc_growth_annual', 'rc_professional_monthly', 'rc_professional_annual']);
+        
+        throw new Error(
+          `Product "${productId}" not found. This usually means the product isn't configured in your RevenueCat dashboard or App Store Connect. Available products: ${allAvailableProducts.join(', ')}`
+        );
       }
 
+      console.log(`🚀 Initiating purchase for package: ${packageToPurchase.identifier}`);
+      
       // Make the purchase
       const { customerInfo } = await Purchases.purchasePackage(packageToPurchase);
 
+      console.log('✅ Purchase completed successfully!');
       return {
         success: true,
         customerInfo,
@@ -458,6 +527,14 @@ class RevenueCatService {
       console.error('❌ Purchase failed:', error);
       
       if (error instanceof Error) {
+        // Handle user cancellation gracefully
+        if (error.message.includes('user cancelled') || error.message.includes('cancelled')) {
+          return {
+            success: false,
+            error: 'Purchase was cancelled by user',
+          };
+        }
+        
         return {
           success: false,
           error: error.message,
@@ -579,6 +656,91 @@ class RevenueCatService {
     }
   }
 
+  // Check if RevenueCat is properly configured
+  async isConfiguredProperly(): Promise<boolean> {
+    try {
+      if (!this.isInitialized) {
+        return false;
+      }
+      
+      const offerings = await Purchases.getOfferings();
+      return offerings && Object.keys(offerings.all).length > 0;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  // Get actual pricing from RevenueCat offerings
+  async getRevenueCatPricing(): Promise<{
+    [key: string]: {
+      monthly?: { price: string; pricePerMonth?: string };
+      annual?: { price: string; pricePerMonth?: string };
+    }
+  }> {
+    try {
+      if (!this.isInitialized) {
+        await this.initialize();
+      }
+
+      const offerings = await Purchases.getOfferings();
+      const pricing: any = {};
+
+      if (!offerings || Object.keys(offerings.all).length === 0) {
+        console.warn('⚠️ No RevenueCat offerings available for pricing');
+        return {};
+      }
+
+      // Search through all offerings for our products
+      for (const [, offering] of Object.entries(offerings.all)) {
+        for (const pkg of offering.availablePackages) {
+          const productId = pkg.product.identifier;
+          const priceString = pkg.product.priceString;
+          
+          console.log(`💰 Found product: ${productId} = ${priceString}`);
+
+          // Map product IDs to tiers
+          if (productId === 'rc_starter') {
+            pricing.starter = pricing.starter || {};
+            pricing.starter.monthly = { 
+              price: priceString,
+              pricePerMonth: priceString 
+            };
+          } else if (productId === 'rc_growth_monthly') {
+            pricing.growth = pricing.growth || {};
+            pricing.growth.monthly = { 
+              price: priceString,
+              pricePerMonth: priceString 
+            };
+          } else if (productId === 'rc_growth_annual') {
+            pricing.growth = pricing.growth || {};
+            pricing.growth.annual = { 
+              price: priceString,
+              pricePerMonth: pkg.product.pricePerMonth?.priceString || 'N/A'
+            };
+          } else if (productId === 'rc_professional_monthly') {
+            pricing.professional = pricing.professional || {};
+            pricing.professional.monthly = { 
+              price: priceString,
+              pricePerMonth: priceString 
+            };
+          } else if (productId === 'rc_professional_annual') {
+            pricing.professional = pricing.professional || {};
+            pricing.professional.annual = { 
+              price: priceString,
+              pricePerMonth: pkg.product.pricePerMonth?.priceString || 'N/A'
+            };
+          }
+        }
+      }
+
+      console.log('💰 Final pricing mapping:', pricing);
+      return pricing;
+    } catch (error) {
+      console.error('❌ Failed to get RevenueCat pricing:', error);
+      return {};
+    }
+  }
+
   // Start subscription process for mobile
   async startSubscription(
     tierId: SubscriptionTierKey,
@@ -594,6 +756,43 @@ class RevenueCatService {
 
       if (!this.isInitialized) {
         await this.initialize(userId);
+      }
+
+      // Check if RevenueCat is properly configured
+      if (!this.isConfigurationValid) {
+        const detailedError = `
+RevenueCat Configuration Required:
+
+❌ RevenueCat is not properly configured for this app.
+
+🔧 To fix this issue:
+
+1. **App Store Connect Setup**:
+   - Create these subscription products in App Store Connect:
+     • rc_starter (Monthly subscription - $9/month)
+     • rc_growth_monthly (Monthly subscription - $19/month)  
+     • rc_growth_annual (Annual subscription - $190/year)
+     • rc_professional_monthly (Monthly subscription - $39/month)
+     • rc_professional_annual (Annual subscription - $390/year)
+
+2. **RevenueCat Dashboard Setup**:
+   - Go to https://app.revenuecat.com/
+   - Add the above products to your project
+   - Create an offering and add these products to it
+   - Set one offering as the "Current" offering
+
+3. **Verify API Keys**:
+   - Apple API Key: ${process.env.EXPO_PUBLIC_REVENUECAT_APPLE_API_KEY ? '✅ Found' : '❌ Missing'}
+   - Google API Key: ${process.env.EXPO_PUBLIC_REVENUECAT_GOOGLE_API_KEY ? '✅ Found' : '❌ Missing'}
+
+Once configured, the subscription buttons will work properly.
+        `.trim();
+        
+        console.error(detailedError);
+        return {
+          success: false,
+          error: 'RevenueCat configuration required. Check console for setup instructions.',
+        };
       }
 
       const productId = this.getProductId(tierId, billingPeriod);

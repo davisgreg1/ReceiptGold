@@ -157,8 +157,8 @@ const HomeStackNavigator = () => {
       />
       <HomeStack.Screen
         name="Subscription"
-        component={require("../screens/ChoosePlanScreen").default}
-        options={{ title: "Choose Your Plan" }}
+        component={require("../screens/SubscriptionRouter").default}
+        options={{ headerShown: false }}
       />
       <HomeStack.Screen
         name="BankTransactions"
@@ -361,8 +361,8 @@ const SettingsStackNavigator = () => {
       />
       <SettingsStack.Screen
         name="Subscription"
-        component={require("../screens/ChoosePlanScreen").default}
-        options={{ title: "Choose Your Plan" }}
+        component={require("../screens/SubscriptionRouter").default}
+        options={{ headerShown: false }}
       />
     </SettingsStack.Navigator>
   );
