@@ -76,6 +76,7 @@ interface SubscriptionContextType {
     count?: number;
     error?: string;
   }>;
+  refreshSubscription: () => Promise<{ success: boolean; error?: string }>;
   isRefreshing: boolean;
   startTrial: () => Promise<{ success: boolean; error?: string }>;
   canAccessPremiumFeatures: () => boolean;
@@ -643,7 +644,23 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
         } else {
           // New user - start with trial
-          console.log("🆕 New user detected, creating trial subscription for:", user.uid);
+          console.log("🆕 New user detected, checking RevenueCat for existing subscription:", user.uid);
+          
+          // Check if there might be existing RevenueCat subscriptions to restore
+          try {
+            const { revenueCatService } = await import('../services/revenuecatService');
+            const currentTier = await revenueCatService.getCurrentTier(true); // force refresh
+            
+            if (currentTier !== 'free') {
+              console.log("🔍 Found existing RevenueCat subscription available for restore:", currentTier);
+              // Don't auto-sync - let user manually restore purchases
+              // This will be handled by the restorePurchases function in useRevenueCatPayments
+            }
+          } catch (error) {
+            console.warn("⚠️ Failed to check RevenueCat:", error);
+          }
+
+          console.log("🆕 No existing subscription found, creating trial subscription for:", user.uid);
           const now = new Date();
           const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
           const receiptLimits = getReceiptLimits();
@@ -857,6 +874,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     loading,
     currentReceiptCount,
     refreshReceiptCount,
+    refreshSubscription: refreshReceiptCount, // Use refreshReceiptCount as refreshSubscription
     isRefreshing,
     startTrial,
     canAccessPremiumFeatures,

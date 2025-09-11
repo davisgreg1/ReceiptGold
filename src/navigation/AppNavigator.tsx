@@ -72,6 +72,7 @@ export type SettingsStackParamList = {
   CreateCustomCategory: { onCategoryCreated?: (categoryName: string) => void } | undefined;
   TeamManagement: undefined;
   InviteTeammate: undefined;
+  Subscription: undefined;
 };
 
 const Tab = createBottomTabNavigator<BottomTabParamList>();
@@ -357,6 +358,11 @@ const SettingsStackNavigator = () => {
         name="CreateCustomCategory"
         component={CreateCustomCategoryScreen}
         options={{ headerShown: false }}
+      />
+      <SettingsStack.Screen
+        name="Subscription"
+        component={require("../screens/ChoosePlanScreen").default}
+        options={{ title: "Choose Your Plan" }}
       />
     </SettingsStack.Navigator>
   );

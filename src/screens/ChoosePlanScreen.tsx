@@ -14,10 +14,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription } from "../context/SubscriptionContext";
 import { HeadingText, BodyText, ButtonText } from "../components/Typography";
-import { SubscriptionTier } from "../context/SubscriptionContext";
 import { useRevenueCatPayments } from "../hooks/useRevenueCatPayments";
 import { useInAppNotifications } from "../components/InAppNotificationProvider";
-import { SUBSCRIPTION_TIERS } from "../services/revenuecatService";
+import { SUBSCRIPTION_TIERS, revenueCatService } from "../services/revenuecatService";
 
 const { width } = Dimensions.get("window");
 
@@ -106,9 +105,6 @@ const BillingToggle: React.FC<{
           >
             Annual
           </Text>
-          <View style={[styles.savingsBadge, { backgroundColor: theme.status.success }]}>
-            <Text style={styles.savingsText}>Save 17%</Text>
-          </View>
         </View>
       </Pressable>
     </View>
@@ -125,14 +121,55 @@ const PlanCard: React.FC<PlanCardProps> = ({
 }) => {
   const { theme } = useTheme();
   const tierData = SUBSCRIPTION_TIERS[tier];
+  const [pricing, setPricing] = React.useState<{
+    monthly?: { price: string; amount: number; };
+    annual?: { price: string; amount: number; };
+  }>({});
+  const [loadingPricing, setLoadingPricing] = React.useState(true);
   
-  if (tier === 'trial' || tier === 'free' || tier === 'teammate') {
-    return null; // Don't show these tiers in the plan selection
-  }
-
   // Check if this tier supports the current billing period
   const monthlyProductId = tierData.productIds.monthly;
   const annualProductId = tierData.productIds.annual;
+  
+  // Fetch pricing from RevenueCat - MUST be called before any early returns
+  React.useEffect(() => {
+    const fetchPricing = async () => {
+      setLoadingPricing(true);
+      const newPricing: { monthly?: { price: string; amount: number; }; annual?: { price: string; amount: number; }; } = {};
+      
+      // Fetch monthly pricing
+      if (monthlyProductId) {
+        const monthlyPricing = await revenueCatService.getProductPricing(monthlyProductId);
+        if (monthlyPricing) {
+          newPricing.monthly = {
+            price: monthlyPricing.price,
+            amount: monthlyPricing.priceAmountMicros
+          };
+        }
+      }
+      
+      // Fetch annual pricing
+      if (annualProductId) {
+        const annualPricing = await revenueCatService.getProductPricing(annualProductId);
+        if (annualPricing) {
+          newPricing.annual = {
+            price: annualPricing.price,
+            amount: annualPricing.priceAmountMicros
+          };
+        }
+      }
+      
+      setPricing(newPricing);
+      setLoadingPricing(false);
+    };
+    
+    fetchPricing();
+  }, [monthlyProductId, annualProductId]);
+
+  // Early returns after all hooks are called
+  if (tier === 'trial' || tier === 'free' || tier === 'teammate') {
+    return null; // Don't show these tiers in the plan selection
+  }
   
   if (billingPeriod === 'annual' && !annualProductId) {
     return null; // Don't show tier if annual billing is selected but tier doesn't support annual
@@ -142,10 +179,15 @@ const PlanCard: React.FC<PlanCardProps> = ({
     return null; // Don't show tier if monthly billing is selected but tier doesn't support monthly
   }
 
-  const price = billingPeriod === 'monthly' ? tierData.monthlyPrice : tierData.annualPrice;
-  const displayPrice = price.toFixed(2);
-  const annualSavings = billingPeriod === 'annual' ? 
-    Math.round((1 - (price / 12) / tierData.monthlyPrice) * 100) : 0;
+  // Use RevenueCat pricing if available, fallback to hardcoded
+  const currentPricing = billingPeriod === 'monthly' ? pricing.monthly : pricing.annual;
+  const displayPrice = currentPricing ? currentPricing.price : 
+    (billingPeriod === 'monthly' ? `$${tierData.monthlyPrice.toFixed(2)}` : `$${tierData.annualPrice.toFixed(2)}`);
+  
+  // Calculate savings for annual plans
+  const annualSavings = (billingPeriod === 'annual' && pricing.monthly && pricing.annual) ? 
+    Math.round((1 - (pricing.annual.amount / 12) / pricing.monthly.amount) * 100) : 
+    (billingPeriod === 'annual' ? Math.round((1 - (tierData.annualPrice / 12) / tierData.monthlyPrice) * 100) : 0);
 
   return (
     <View style={styles.cardWrapper}>
@@ -183,13 +225,6 @@ const PlanCard: React.FC<PlanCardProps> = ({
         start={{ x: 0, y: 0 }}
         end={{ x: 0, y: 1 }}
       >
-        {isCurrentPlan && (
-          <View style={[styles.currentBadge, { backgroundColor: theme.background.secondary }]}>
-            <Text style={[styles.currentBadgeText, { color: theme.status.success }]}>
-              CURRENT PLAN
-            </Text>
-          </View>
-        )}
 
         <View style={styles.cardHeader}>
           <HeadingText size="large" color="primary" style={styles.planName}>
@@ -197,18 +232,18 @@ const PlanCard: React.FC<PlanCardProps> = ({
           </HeadingText>
           
           <View style={styles.priceContainer}>
-            <HeadingText size="xlarge" color="gold" style={styles.price}>
-              ${displayPrice}
+            <HeadingText size="large" color="gold" style={styles.price}>
+              {loadingPricing ? '...' : displayPrice}
             </HeadingText>
             <BodyText size="small" color="tertiary" style={styles.pricePeriod}>
               /{billingPeriod === 'monthly' ? 'month' : 'year'}
             </BodyText>
           </View>
 
-          {billingPeriod === 'annual' && annualSavings > 0 && (
+          {billingPeriod === 'annual' && annualSavings > 0 && !loadingPricing && (
             <View style={[styles.savingsContainer, { backgroundColor: theme.status.success }]}>
               <Text style={styles.savingsMainText}>
-                Save {annualSavings}% • Billed ${price.toFixed(0)} annually
+                Save {annualSavings}% • Billed {currentPricing?.price || displayPrice} annually
               </Text>
             </View>
           )}
@@ -280,10 +315,12 @@ const ChoosePlanScreen: React.FC = () => {
   const { theme } = useTheme();
   const { subscription } = useSubscription();
   const { user } = require("../context/AuthContext").useAuth();
-  const { handleSubscriptionWithRevenueCat } = useRevenueCatPayments();
+  const { handleSubscriptionWithRevenueCat, restorePurchases } = useRevenueCatPayments();
 
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [restoringPurchases, setRestoringPurchases] = useState(false);
+  const rotationValue = React.useRef(new Animated.Value(0)).current;
 
   const handlePlanSelect = async (planId: keyof typeof SUBSCRIPTION_TIERS) => {
     if (!user) {
@@ -327,6 +364,45 @@ const ChoosePlanScreen: React.FC = () => {
     }
   };
 
+  const handleRestorePurchases = async () => {
+    setRestoringPurchases(true);
+    
+    // Start rotation animation
+    const rotateAnimation = Animated.loop(
+      Animated.timing(rotationValue, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      })
+    );
+    rotateAnimation.start();
+    try {
+      const success = await restorePurchases((type, title, message) => {
+        showNotification({ type, title, message });
+      });
+      
+      if (success) {
+        showNotification({
+          type: "success",
+          title: "Purchases Restored",
+          message: "Your subscription has been restored successfully!",
+        });
+      }
+    } catch (error) {
+      console.error('Restore purchases error:', error);
+      showNotification({
+        type: "error",
+        title: "Restore Failed",
+        message: "Unable to restore purchases. Please try again.",
+      });
+    } finally {
+      setRestoringPurchases(false);
+      // Stop rotation animation
+      rotationValue.stopAnimation();
+      rotationValue.setValue(0);
+    }
+  };
+
   return (
     <ScrollView
       style={[styles.container, { backgroundColor: theme.background.primary }]}
@@ -335,7 +411,7 @@ const ChoosePlanScreen: React.FC = () => {
     >
       {/* Header */}
       <View style={styles.header}>
-        <HeadingText size="xlarge" color="gold" align="center" style={styles.title}>
+        <HeadingText size="large" color="gold" align="center" style={styles.title}>
           Choose Your Plan
         </HeadingText>
         <BodyText size="medium" color="secondary" align="center" style={styles.subtitle}>
@@ -365,7 +441,6 @@ const ChoosePlanScreen: React.FC = () => {
           tier="growth"
           billingPeriod={billingPeriod}
           isCurrentPlan={subscription.currentTier === "growth"}
-          isPopular={true}
           onSelect={() => handlePlanSelect("growth")}
           loading={loadingPlan === "growth"}
         />
@@ -374,15 +449,57 @@ const ChoosePlanScreen: React.FC = () => {
           tier="professional"
           billingPeriod={billingPeriod}
           isCurrentPlan={subscription.currentTier === "professional"}
+          isPopular={true}
           onSelect={() => handlePlanSelect("professional")}
           loading={loadingPlan === "professional"}
         />
       </View>
 
+      {/* Restore Purchases Button */}
+      <View style={styles.restoreSection}>
+        <Pressable
+          onPress={handleRestorePurchases}
+          disabled={restoringPurchases}
+          style={({ pressed }) => [
+            styles.restoreButton,
+            {
+              backgroundColor: theme.background.secondary,
+              borderColor: theme.border.primary,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+        >
+          <Animated.View
+            style={[
+              styles.restoreIcon,
+              {
+                transform: [
+                  {
+                    rotate: rotationValue.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: ['0deg', '360deg'],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Ionicons 
+              name="refresh" 
+              size={18} 
+              color={theme.text.secondary}
+            />
+          </Animated.View>
+          <BodyText size="medium" color="secondary">
+            {restoringPurchases ? "Restoring..." : "Restore Purchases"}
+          </BodyText>
+        </Pressable>
+      </View>
+
       {/* Footer */}
       <View style={styles.footer}>
         <BodyText size="small" color="tertiary" align="center" style={styles.footerText}>
-          Cancel anytime • Secure payment • 30-day money-back guarantee
+          Cancel anytime • Secure payment
         </BodyText>
       </View>
     </ScrollView>
@@ -622,6 +739,23 @@ const styles = StyleSheet.create({
   footerText: {
     lineHeight: 20,
     textAlign: "center",
+  },
+  restoreSection: {
+    paddingHorizontal: 40,
+    paddingTop: 20,
+    alignItems: "center",
+  },
+  restoreButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  restoreIcon: {
+    marginRight: 8,
   },
 });
 

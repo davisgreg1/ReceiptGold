@@ -24,7 +24,7 @@
     "stripe:webhook": "stripe listen --forward-to http://localhost:8081/receiptgold/us-central1/stripeWebhook"
   },
   "engines": {
-    "node": "18"
+    "node": "20"
   },
   "main": "lib/index.js",
   "dependencies": {

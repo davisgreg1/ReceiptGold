@@ -201,8 +201,13 @@ class RevenueCatService {
   }
 
   // Get customer info
-  async getCustomerInfo(): Promise<CustomerInfo> {
+  async getCustomerInfo(forceRefresh: boolean = false): Promise<CustomerInfo> {
     try {
+      if (forceRefresh) {
+        console.log('🔄 Force refreshing customer info from RevenueCat servers...');
+        // Force a fresh fetch by calling restorePurchases which updates the cache
+        await Purchases.restorePurchases();
+      }
       const customerInfo = await Purchases.getCustomerInfo();
       return customerInfo;
     } catch (error) {
@@ -223,34 +228,134 @@ class RevenueCatService {
   }
 
   // Get current subscription tier based on active entitlements and products
-  async getCurrentTier(): Promise<SubscriptionTierKey> {
+  async getCurrentTier(forceRefresh: boolean = false): Promise<SubscriptionTierKey> {
     try {
-      const customerInfo = await this.getCustomerInfo();
+      const customerInfo = await this.getCustomerInfo(forceRefresh);
       const activeEntitlements = customerInfo.entitlements.active;
       const activeSubscriptions = customerInfo.activeSubscriptions;
 
+      console.log('🔍 === TIER DETECTION DEBUG START ===');
+      console.log('🔍 Raw customer info keys:', Object.keys(customerInfo));
+      console.log('🔍 Active entitlements:', Object.keys(activeEntitlements));
+      console.log('🔍 Active entitlements details:', activeEntitlements);
+      console.log('🔍 Active subscriptions array:', activeSubscriptions);
+
       // Check if user has the professional entitlement (all paid tiers)
       if (activeEntitlements[ENTITLEMENTS.PROFESSIONAL_ACCESS]) {
+        console.log('✅ User has Pro entitlement, determining specific tier...');
         
-        // Determine specific tier based on active product
+        // In sandbox mode, users can have multiple active subscriptions
+        // Get detailed subscription info to find the most recent purchase
+        const allPurchaseDates = customerInfo.allPurchaseDates;
+        const entitlementsInfo = customerInfo.entitlements.all;
+        const allPurchaseKeys = Object.keys(allPurchaseDates);
+        
+        console.log('🔍 All purchase dates keys:', allPurchaseKeys);
+        console.log('🔍 All purchase dates full object:', allPurchaseDates);
+        console.log('🔍 All entitlements info:', Object.keys(entitlementsInfo));
+        
+        // Check if we have fresh purchase data vs cached data
+        console.log('🔍 All purchased product identifiers:', customerInfo.allPurchasedProductIdentifiers);
+        console.log('🔍 Latest expiration date:', customerInfo.latestExpirationDate);
+        console.log('🔍 Request date:', customerInfo.requestDate);
+        
+        // Enhanced logging for each active subscription
         for (const productId of activeSubscriptions) {
+          const purchaseDateRaw = allPurchaseDates[productId];
+          console.log(`🔍 Product ID: ${productId}`);
+          console.log(`   - Purchase Date Raw: ${purchaseDateRaw}`);
+          console.log(`   - Purchase Date Type: ${typeof purchaseDateRaw}`);
           
-          if (productId === 'rc_professional_monthly' || productId === 'rc_professional_annual') {
+          // Handle both string and Date types
+          if (purchaseDateRaw) {
+            const purchaseDate = typeof purchaseDateRaw === 'string' ? new Date(purchaseDateRaw) : purchaseDateRaw;
+            console.log(`   - Purchase Date Parsed: ${purchaseDate.toISOString()}`);
+          } else {
+            console.log('   - Purchase Date: N/A');
+          }
+        }
+        
+        // Find the most recent subscription purchase from ALL purchases, not just active ones
+        let mostRecentProductId: string | null = null;
+        let mostRecentDate: Date = new Date(0); // Start with epoch
+        
+        // Check all purchase dates, not just active subscriptions
+        for (const [productId, purchaseDateRaw] of Object.entries(allPurchaseDates)) {
+          if (!purchaseDateRaw) continue;
+          
+          // Convert to Date object for comparison
+          const purchaseDate = typeof purchaseDateRaw === 'string' ? new Date(purchaseDateRaw) : purchaseDateRaw;
+          
+          console.log(`🔍 Comparing ${productId}: ${purchaseDate.toISOString()} vs current most recent: ${mostRecentDate.toISOString()}`);
+          
+          if (purchaseDate > mostRecentDate) {
+            console.log(`🔍 New most recent found: ${productId} (${purchaseDate.toISOString()})`);
+            mostRecentDate = purchaseDate;
+            mostRecentProductId = productId;
+          }
+        }
+        
+        console.log(`🔍 Final most recent subscription: ${mostRecentProductId} (purchased: ${mostRecentDate})`);
+        
+        // Use the most recent subscription to determine tier
+        if (mostRecentProductId) {
+          console.log(`🔍 Checking most recent product ID: ${mostRecentProductId}`);
+          
+          // Check against all possible product IDs for each tier
+          if (mostRecentProductId === 'rc_professional_monthly' || mostRecentProductId === 'rc_professional_annual') {
+            console.log('✅ Detected professional tier (most recent)');
+            console.log('🔍 === TIER DETECTION DEBUG END: PROFESSIONAL ===');
             return 'professional';
-          } else if (productId === 'rc_growth_monthly' || productId === 'rc_growth_annual') {
+          } else if (mostRecentProductId === 'rc_growth_monthly' || mostRecentProductId === 'rc_growth_annual') {
+            console.log('✅ Detected growth tier (most recent)'); 
+            console.log('🔍 === TIER DETECTION DEBUG END: GROWTH ===');
             return 'growth';
-          } else if (productId === 'rc_starter') {
+          } else if (mostRecentProductId === 'rc_starter') {
+            console.log('✅ Detected starter tier (most recent)');
+            console.log('🔍 === TIER DETECTION DEBUG END: STARTER ===');
             return 'starter';
+          } else {
+            console.log(`⚠️ Unknown product ID: ${mostRecentProductId}`);
+          }
+        }
+        
+        // Fallback: check all subscriptions in reverse order (most recently added first)
+        console.log('⚠️ Could not determine tier from purchase dates, using fallback logic');
+        const subscriptionsToCheck = [...activeSubscriptions].reverse();
+        console.log('🔍 Subscriptions to check in fallback:', subscriptionsToCheck);
+        
+        for (const productId of subscriptionsToCheck) {
+          console.log(`🔍 Fallback - Checking product ID: ${productId}`);
+          
+          if (productId === 'rc_starter') {
+            console.log('✅ Detected starter tier (fallback)');
+            console.log('🔍 === TIER DETECTION DEBUG END: STARTER (FALLBACK) ===');
+            return 'starter';
+          } else if (productId === 'rc_growth_monthly' || productId === 'rc_growth_annual') {
+            console.log('✅ Detected growth tier (fallback)'); 
+            console.log('🔍 === TIER DETECTION DEBUG END: GROWTH (FALLBACK) ===');
+            return 'growth';
+          } else if (productId === 'rc_professional_monthly' || productId === 'rc_professional_annual') {
+            console.log('✅ Detected professional tier (fallback)');
+            console.log('🔍 === TIER DETECTION DEBUG END: PROFESSIONAL (FALLBACK) ===');
+            return 'professional';
+          } else {
+            console.log(`⚠️ Unknown product ID in fallback: ${productId}`);
           }
         }
         
         // If we have the entitlement but can't determine the specific tier, default to starter
+        console.log('⚠️ Have Pro entitlement but no matching product ID found, defaulting to starter');
+        console.log('🔍 === TIER DETECTION DEBUG END: DEFAULT STARTER ===');
         return 'starter';
       }
       
+      console.log('🔍 No Pro entitlement found, returning free tier');
+      console.log('🔍 === TIER DETECTION DEBUG END: FREE ===');
       return 'free';
     } catch (error) {
       console.error('❌ Error getting current tier:', error);
+      console.log('🔍 === TIER DETECTION DEBUG END: ERROR ===');
       return 'free';
     }
   }
@@ -375,6 +480,48 @@ class RevenueCatService {
   // Get available packages from current offering
   getAvailablePackages(): PurchasesPackage[] {
     return this.offerings?.availablePackages || [];
+  }
+
+  // Get all available packages from all offerings
+  async getAllAvailablePackages(): Promise<PurchasesPackage[]> {
+    try {
+      const offerings = await Purchases.getOfferings();
+      const allPackages: PurchasesPackage[] = [];
+      
+      Object.values(offerings.all).forEach(offering => {
+        allPackages.push(...offering.availablePackages);
+      });
+      
+      return allPackages;
+    } catch (error) {
+      console.error('❌ Failed to get all packages:', error);
+      return [];
+    }
+  }
+
+  // Get product pricing from RevenueCat
+  async getProductPricing(productId: string): Promise<{
+    price: string;
+    priceAmountMicros: number;
+    priceCurrencyCode: string;
+  } | null> {
+    try {
+      const allPackages = await this.getAllAvailablePackages();
+      const packageInfo = allPackages.find(pkg => pkg.product.identifier === productId);
+      
+      if (packageInfo) {
+        return {
+          price: packageInfo.product.priceString,
+          priceAmountMicros: packageInfo.product.price,
+          priceCurrencyCode: packageInfo.product.currencyCode || 'USD'
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error(`❌ Failed to get pricing for ${productId}:`, error);
+      return null;
+    }
   }
 
   // Start subscription process for mobile
