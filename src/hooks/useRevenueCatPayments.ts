@@ -67,9 +67,25 @@ export const useRevenueCatPayments = () => {
           CloudFunctionResponse
         >(functions, 'updateSubscriptionAfterPayment');
 
-        // Get the subscription ID from RevenueCat customer info
-        const subscriptionId = subscriptionResult.customerInfo?.activeSubscriptions?.[0] || 'revenuecat_subscription';
-
+        // Get the product ID that was just purchased
+        // We know exactly which product was purchased based on the parameters we passed to startSubscription
+        const getProductId = (tier: string, billing: 'monthly' | 'annual'): string => {
+          const productMap: { [key: string]: { [key: string]: string } } = {
+            'starter': { 'monthly': 'rc_starter', 'annual': 'rc_starter' },
+            'growth': { 'monthly': 'rc_growth_monthly', 'annual': 'rc_growth_annual' },
+            'professional': { 'monthly': 'rc_professional_monthly', 'annual': 'rc_professional_annual' }
+          };
+          return productMap[tier]?.[billing] || 'revenuecat_subscription';
+        };
+        
+        const subscriptionId = getProductId(tierId, billingPeriod);
+        
+        console.log('🔍 Using purchased product ID:', {
+          tierId,
+          billingPeriod,
+          productId: subscriptionId,
+          currentTier
+        });
 
         const result = await updateSubscription({
           subscriptionId: subscriptionId,
@@ -78,24 +94,13 @@ export const useRevenueCatPayments = () => {
           revenueCatData: subscriptionResult.customerInfo
         });
 
-
         if (result.data?.success) {
-          const { receiptsExcluded, tierChange } = result.data;
-          
-          // Refresh the receipt count to reflect the changes
-          try {
-            const delay = tierChange ? 3000 : 1500;
-            await new Promise(resolve => setTimeout(resolve, delay));
+          // Wait for RevenueCat webhook to process tier change via new_product_id
+          // This ensures Firestore tier is updated by webhook before UI refresh
+          await new Promise(resolve => setTimeout(resolve, 1000));
 
-            const refreshResult = await refreshReceiptCount();
-
-            if (tierChange) {
-              await new Promise(resolve => setTimeout(resolve, 1000));
-              const secondRefreshResult = await refreshReceiptCount();
-            }
-          } catch (refreshError) {
-            console.warn('Failed to refresh receipt count after upgrade:', refreshError);
-          }
+          // Refresh local state to pick up webhook-driven tier changes
+          await refreshReceiptCount();
 
           showAlert?.('success', 'Success', 'Your subscription has been activated!');
           return true;

@@ -3002,40 +3002,95 @@ export const updateSubscriptionAfterPayment = onCall(
 
       functions.logger.info('📝 Prepared subscription update data for billing');
 
-      // Update subscription document (tier changes handled by RevenueCat webhook)
-      try {
-        if (currentSub.exists) {
-          await subscriptionRef.update(subscriptionUpdateData as FirestoreUpdateData);
-        } else {
-          // Create new subscription document if it doesn't exist
-          const createData: FirestoreDocumentData = {
-            ...subscriptionUpdateData,
-            userId: userId,
-            createdAt: admin.firestore.FieldValue.serverTimestamp()
-          };
-          await subscriptionRef.set(createData);
-        }
-
-        functions.logger.info('✅ Subscription billing updated successfully', {
-          subscriptionUpdated: true,
-          userId,
-          subscriptionId
+      // OPTIMIZATION: Merge onSubscriptionChange logic here to avoid separate trigger
+      if (isTierChange) {
+        functions.logger.info('🔄 Adding usage limits and history updates to batch for tier change');
+        
+        // Update current month's usage limits (previously done in onSubscriptionChange)
+        const currentMonth: string = new Date().toISOString().slice(0, 7);
+        const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
+        const receiptLimits = getReceiptLimits();
+        const tierLimits = {
+          maxReceipts: receiptLimits[finalTierId as keyof typeof receiptLimits] || receiptLimits.free,
+          maxBusinesses: finalTierId === 'professional' ? -1 : 1,
+          apiCallsPerMonth: finalTierId === 'professional' ? -1 : finalTierId === 'growth' ? 1000 : 0,
+        };
+        
+        batch.update(usageRef, {
+          limits: tierLimits,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-      } catch (updateError) {
-        functions.logger.error('❌ Subscription update failed', updateError);
-        throw new HttpsError('internal', 'Failed to update subscription');
+
+        // Add subscription history entry (previously done in onSubscriptionChange)
+        const newHistoryEntry = {
+          tier: finalTierId,
+          startDate: now,
+          endDate: null,
+          reason: "tier_change",
+        };
+
+        // Include history in subscription update
+        subscriptionUpdateData.history = admin.firestore.FieldValue.arrayUnion(newHistoryEntry);
+
+        // End previous tier in history if exists
+        if (currentSub.exists && currentSub.data()?.history && currentSub.data()?.history.length > 0) {
+          const currentHistory = currentSub.data()?.history || [];
+          const updatedHistory = currentHistory.map((entry: any, index: number) => {
+            if (index === currentHistory.length - 1) {
+              return {
+                ...entry,
+                endDate: now,
+              };
+            }
+            return entry;
+          });
+          subscriptionUpdateData.history = updatedHistory;
+          // Then add the new entry
+          subscriptionUpdateData.history = admin.firestore.FieldValue.arrayUnion(newHistoryEntry);
+        }
+      }
+
+      // Add subscription update to batch
+      if (currentSub.exists) {
+        batch.update(subscriptionRef, subscriptionUpdateData as FirestoreUpdateData);
+      } else {
+        // Create new subscription document if it doesn't exist
+        const createData: FirestoreDocumentData = {
+          ...subscriptionUpdateData,
+          userId: userId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        };
+        batch.set(subscriptionRef, createData);
+      }
+
+      // Execute all updates atomically (including usage limits and history)
+      try {
+        await batch.commit();
+        functions.logger.info('✅ Optimized batch commit successful', {
+          subscriptionUpdated: true,
+          usageLimitsUpdated: isTierChange,
+          historyUpdated: isTierChange,
+          receiptsExcluded: receiptsExcludedCount,
+          tierChange: isTierChange
+        });
+      } catch (batchError) {
+        functions.logger.error('❌ Batch commit failed', batchError);
+        throw new HttpsError('internal', 'Failed to update subscription, receipts, and usage data');
       }
 
       // Log successful completion
-      functions.logger.info('🎉 Subscription billing update completed successfully', {
+      functions.logger.info('🎉 Subscription update completed successfully', {
         userId,
+        oldTier: currentTier,
+        newTier: finalTierId,
+        receiptsExcluded: receiptsExcludedCount,
         subscriptionId
       });
 
       return {
         success: true,
-        receiptsExcluded: 0,
-        tierChange: false
+        receiptsExcluded: receiptsExcludedCount,
+        tierChange: isTierChange
       };
 
     } catch (error: unknown) {
