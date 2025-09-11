@@ -809,7 +809,6 @@ export const BankTransactionsScreen: React.FC = () => {
   };
 
   const handlePlaidExit = (exit: LinkExit) => {
-    console.log("Plaid Link exited:", exit);
     if (exit.error) {
       showNotification({
         type: "error",

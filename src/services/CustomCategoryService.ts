@@ -19,21 +19,12 @@ export class CustomCategoryService {
     // Since the UI components already have validated team member access through TeamContext,
     // we can trust that if they have the accountHolderId, they have permission to access it
     private static async validateAccountAccess(currentUserId: string, accountHolderId: string): Promise<boolean> {
-        console.log('🔍 CustomCategoryService.validateAccountAccess:', {
-            currentUserId,
-            accountHolderId,
-            isAccountHolder: currentUserId === accountHolderId
-        });
 
         // Account holders can always access their own categories
         if (currentUserId === accountHolderId) {
-            console.log('✅ Access granted: User is the account holder');
             return true;
         }
-        
-        // For team members, since they got the accountHolderId from TeamContext which already
-        // validates team membership, we can trust they have access
-        console.log('✅ Access granted: Team member access validated by TeamContext');
+
         return true;
     }
 
@@ -70,24 +61,12 @@ export class CustomCategoryService {
         icon: string = '📁'
     ): Promise<CustomCategory | null> {
         try {
-            console.log('🔍 CustomCategoryService.createCustomCategory called with:', {
-                accountHolderId,
-                createdByUserId,
-                name,
-                icon
-            });
-
             // Validate access
-            console.log('🔍 Validating access for category creation...');
             const hasAccess = await this.validateAccountAccess(createdByUserId, accountHolderId);
-            console.log('🔍 Access validation result:', hasAccess);
             
             if (!hasAccess) {
-                console.log('❌ Access validation failed - throwing error');
                 throw new Error('Access denied: User is not authorized to create categories for this account');
             }
-            
-            console.log('✅ Access validation passed - proceeding with category creation');
 
             // Validate input
             const trimmedName = name.trim();
@@ -120,12 +99,6 @@ export class CustomCategoryService {
                 createdByUserId: createdByUserId,
                 createdAt: new Date(),
             };
-
-            console.log('🔍 Creating Firestore document with data:', newCategory);
-            console.log('🔍 Current user auth ID should match createdByUserId:', {
-                createdByUserId: createdByUserId,
-                shouldMatch: 'request.auth.uid in Firestore rules'
-            });
 
             const docRef = await addDoc(collection(db, this.COLLECTION_NAME), newCategory);
             

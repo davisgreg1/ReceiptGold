@@ -29,8 +29,6 @@ export default async function handler(req: any, res: any) {
     };
 
     const response = await client.accountsGet(request);
-    
-    console.log(`✅ Fetched ${response.data.accounts.length} accounts`);
 
     res.status(200).json({
       accounts: response.data.accounts,

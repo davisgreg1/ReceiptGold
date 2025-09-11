@@ -31,8 +31,6 @@ export default async function handler(req: any, res: any) {
     const response = await client.itemPublicTokenExchange(request);
     const accessToken = response.data.access_token;
 
-    console.log('✅ Access token created successfully');
-
     res.status(200).json({
       access_token: accessToken,
       item_id: response.data.item_id,

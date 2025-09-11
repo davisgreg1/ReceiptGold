@@ -399,12 +399,6 @@ const BaseAppNavigator: React.FC = () => {
   return (
     <NavigationContainer 
       linking={linking}
-      onStateChange={(state) => {
-        // Optional: Log navigation state changes for debugging
-        if (__DEV__) {
-          console.log('Navigation state changed:', state);
-        }
-      }}
       onUnhandledAction={(action) => {
         // Handle unhandled navigation actions
         if (__DEV__) {

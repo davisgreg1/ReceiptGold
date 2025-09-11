@@ -11,7 +11,6 @@
     "logs": "npm run build && npx firebase functions:log",
     "init:categories": "node scripts/initializeCategories.js",
     "init:categories:ts": "npx ts-node scripts/initializeCategories.ts",
-    "init:test-user": "npx ts-node scripts/setupTestUser.ts",
     "init:usage": "npx ts-node scripts/initializeUsage.ts",
     "init:all": "npm run init:categories && npm run init:test-user",
     "dev:setup": "npm run init:categories && npm run init:test-user && npm run serve",
