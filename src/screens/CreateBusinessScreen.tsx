@@ -168,13 +168,6 @@ const CreateBusinessScreen: React.FC = () => {
         const estimatedInputPosition = getInputEstimatedPosition(inputKey);
         const targetY = Math.max(0, estimatedInputPosition - 80); // 80px from top
         
-        console.log('Scrolling to estimated position:', {
-          inputKey,
-          estimatedPosition: estimatedInputPosition,
-          scrollTarget: targetY,
-          keyboardHeight,
-        });
-        
         scrollViewRef.current?.scrollTo({
           y: targetY,
           animated: true,

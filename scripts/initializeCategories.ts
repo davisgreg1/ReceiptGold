@@ -34,7 +34,6 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 
 async function initializeMasterCategories(): Promise<void> {
-  console.log("🏷️  Initializing master categories...");
 
   const categories: CategoryDocument[] = [
     {

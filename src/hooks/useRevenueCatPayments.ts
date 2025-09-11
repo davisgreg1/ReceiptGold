@@ -107,7 +107,7 @@ export const useRevenueCatPayments = () => {
           // Refresh local state to pick up webhook-driven tier changes
           await refreshReceiptCount();
 
-          showAlert?.('success', 'Success', 'Your subscription has been activated!');
+          // showAlert?.('success', 'Success', 'Your subscription has been activated!');
           return true;
         } else {
           const errorMessage = result.data?.error || 'Failed to update subscription';

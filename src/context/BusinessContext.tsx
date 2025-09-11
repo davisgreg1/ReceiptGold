@@ -318,7 +318,6 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           allBusinesses.push(business);
         }
       });
-      console.log('🏢 BusinessContext: Loaded businesses:', allBusinesses.map(b => ({ id: b.id, name: b.name, userId: b.userId })));
       setBusinesses(allBusinesses);
 
       // Restore selected business from AsyncStorage with access restrictions
@@ -339,7 +338,6 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 setSelectedBusiness(savedBusiness);
               } else {
                 // Saved business no longer exists or is not accessible, clear it and select first accessible
-                console.log('🔄 Switching to accessible business due to tier restriction or missing business');
                 await AsyncStorage.removeItem('selectedBusinessId');
                 if (tempAccessibleBusinesses.length > 0) {
                   setSelectedBusiness(tempAccessibleBusinesses[0]);
@@ -354,7 +352,6 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
               await AsyncStorage.setItem('selectedBusinessId', tempAccessibleBusinesses[0].id!);
             } else if (tempAccessibleBusinesses.length === 0) {
               // No accessible businesses
-              console.log('⚠️ No accessible businesses found.');
               setSelectedBusiness(null);
             }
           } catch (error) {
@@ -388,8 +385,6 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         snapshot.forEach((doc) => {
           teamMemberships.push({ id: doc.id, ...doc.data() });
         });
-
-        console.log('👥 BusinessContext: Found team memberships:', teamMemberships);
 
         // Load businesses associated with team memberships
         if (teamMemberships.length > 0) {
