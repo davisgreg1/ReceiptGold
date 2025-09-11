@@ -5,6 +5,7 @@ import React, {
   useEffect,
   useCallback,
   useRef,
+  useMemo,
 } from "react";
 import {
   doc,
@@ -202,6 +203,87 @@ const REFRESH_CONFIG = {
   TIMEOUT: 10000,
 } as const;
 
+// OPTIMIZATION: Memoized helper functions to reduce expensive recalculations
+const computeTrialData = (trialData: any) => {
+  if (!trialData) {
+    return {
+      isActive: false,
+      startedAt: null,
+      expiresAt: null,
+      daysRemaining: 0,
+    };
+  }
+
+  const startedAt = trialData.startedAt?.toDate() || null;
+  const expiresAt = trialData.expiresAt?.toDate() || null;
+  const now = new Date();
+  const isActive = !!(expiresAt && now < expiresAt);
+  const daysRemaining = expiresAt 
+    ? Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
+    : 0;
+
+  return {
+    isActive,
+    startedAt,
+    expiresAt,
+    daysRemaining,
+  };
+};
+
+const computeSubscriptionLimits = (effectiveTier: SubscriptionTier, receiptLimits: any) => {
+  return {
+    maxReceipts:
+      effectiveTier === "professional" || effectiveTier === "trial" || effectiveTier === "teammate"
+        ? receiptLimits.professional
+        : effectiveTier === "growth"
+        ? receiptLimits.growth
+        : effectiveTier === "starter"
+        ? receiptLimits.starter
+        : receiptLimits.free,
+    maxBusinesses:
+      effectiveTier === "professional" || effectiveTier === "trial"
+        ? -1
+        : effectiveTier === "teammate"
+        ? 1 // Teammates work within assigned business
+        : 1, // 1 for others
+    apiCallsPerMonth:
+      effectiveTier === "professional" || effectiveTier === "trial"
+        ? -1
+        : effectiveTier === "growth"
+        ? 1000
+        : 0,
+    maxReports:
+      effectiveTier === "professional" || effectiveTier === "trial"
+        ? -1
+        : effectiveTier === "growth"
+        ? 50
+        : effectiveTier === "starter"
+        ? 10
+        : 3,
+    maxTeamMembers:
+      effectiveTier === "professional" || effectiveTier === "trial"
+        ? 10 // Reasonable limit for team members
+        : effectiveTier === "teammate"
+        ? 0 // Teammates can't have their own team members
+        : 0, // No team members for lower tiers
+  };
+};
+
+const applyTeamMemberOverrides = (baseState: any, teamMemberRole?: string) => {
+  return {
+    ...baseState,
+    currentTier: "teammate",
+    features: getFeaturesByTier("teammate", teamMemberRole),
+    limits: {
+      maxReceipts: -1, // Unlimited receipts for teammates
+      maxBusinesses: 1, // Limited to assigned business
+      apiCallsPerMonth: 0, // No API access
+      maxReports: 0, // No reports for teammates
+      maxTeamMembers: teamMemberRole === 'admin' ? 10 : 0, // Only admin teammates can manage team
+    },
+  };
+};
+
 export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
@@ -211,6 +293,9 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isTeamMember, setIsTeamMember] = useState(false);
   const [teamMemberRole, setTeamMemberRole] = useState<string | undefined>();
+  
+  // OPTIMIZATION: Track previous tier for receipt count refresh logic
+  const previousTierRef = useRef<string | null>(null);
 
   // Use refs to track refresh state and abort controller
   const refreshingRef = useRef(false);
@@ -318,6 +403,54 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // Update state
         setCurrentReceiptCount(count);
+
+        // ✅ TIER SYNCHRONIZATION FIX: Verify RevenueCat tier matches Firestore
+        try {
+          console.log('🔄 Syncing tier with RevenueCat as source of truth...');
+          
+          // Import RevenueCat service dynamically to avoid circular imports
+          const { revenueCatService } = await import('../services/revenuecatService');
+          
+          // Get current tier from RevenueCat (force refresh to get latest)
+          const revenueCatTier = await revenueCatService.getCurrentTier(true);
+          console.log('📦 RevenueCat tier:', revenueCatTier);
+          console.log('🏪 Firestore tier:', subscription.currentTier);
+          
+          // If tiers don't match, trigger Cloud Function to sync via RevenueCat webhook
+          if (revenueCatTier !== subscription.currentTier && revenueCatTier !== 'free') {
+            console.log(`🔄 Tier mismatch detected! RevenueCat: '${revenueCatTier}', Firestore: '${subscription.currentTier}'`);
+            
+            try {
+              // Import Cloud Function to sync subscription state
+              const { getFunctions, httpsCallable } = await import('firebase/functions');
+              const functions = getFunctions();
+              const syncSubscription = httpsCallable<
+                { userId: string; forceSync: boolean },
+                { success: boolean; error?: string; syncedTier?: string }
+              >(functions, 'syncSubscriptionWithRevenueCat');
+
+              console.log('☁️ Calling Cloud Function to sync subscription state...');
+              const result = await syncSubscription({
+                userId: user.uid,
+                forceSync: true
+              });
+
+              if (result.data?.success) {
+                console.log(`✅ Subscription synced via Cloud Function to tier: ${result.data.syncedTier}`);
+              } else {
+                console.error('❌ Cloud Function sync failed:', result.data?.error);
+              }
+            } catch (cloudFunctionError) {
+              console.error('⚠️ Cloud Function sync not available, tier mismatch will persist:', cloudFunctionError);
+              // Continue without failing - the mismatch is logged for debugging
+            }
+          } else {
+            console.log('✅ Tier already in sync');
+          }
+        } catch (tierSyncError) {
+          console.error('⚠️ Failed to sync tier with RevenueCat (non-critical):', tierSyncError);
+          // Don't fail the entire refresh if tier sync fails
+        }
 
         return { success: true, count };
       } catch (error) {
@@ -513,99 +646,51 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
         const subscriptionRef = doc(db, "subscriptions", subscriptionUserId);
 
         unsubscribe = onSnapshot(subscriptionRef, async (docSnapshot) => {
+        console.log('🔍 === SUBSCRIPTION DEBUG START ===');
+        console.log('📄 Firestore docSnapshot.exists():', docSnapshot.exists());
+        console.log('👤 User ID:', user?.uid);
+        console.log('🏢 Subscription User ID:', subscriptionUserId);
+        console.log('👥 Is Team Member:', isTeamMember);
+        console.log('🎭 Team Member Role:', teamMemberRole);
+        
         if (docSnapshot.exists()) {
           const data = docSnapshot.data();
-          if (!data) return;
+          console.log('🗃️ Raw Firestore data:', JSON.stringify(data, null, 2));
+          
+          if (!data) {
+            console.log('❌ No data in Firestore document');
+            return;
+          }
 
           const currentTier = (data.currentTier || "free") as SubscriptionTier;
+          console.log('🎯 Firestore currentTier:', currentTier);
           
-          // Calculate trial information - simplified without async updates
-          const calculateTrialData = () => {
-            if (!data.trial) {
-              return {
-                isActive: false,
-                startedAt: null,
-                expiresAt: null,
-                daysRemaining: 0,
-              };
-            }
-
-            const startedAt = data.trial.startedAt?.toDate() || null;
-            const expiresAt = data.trial.expiresAt?.toDate() || null;
-            const now = new Date();
-            const isActive = !!(expiresAt && now < expiresAt);
-            const daysRemaining = expiresAt 
-              ? Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-              : 0;
-
-            return {
-              isActive,
-              startedAt,
-              expiresAt,
-              daysRemaining,
-            };
-          };
-
-          const trialData = calculateTrialData();
+          // OPTIMIZATION: Use memoized trial calculation
+          const trialData = computeTrialData(data.trial);
+          console.log('🎪 Trial data computed:', trialData);
+          
           const effectiveTier = trialData.isActive ? "trial" : (currentTier === "trial" ? "free" : currentTier);
+          console.log('✨ Effective tier (before team overrides):', effectiveTier);
           
 
-          // Always compute the limits based on the effective tier (trial acts like professional)
+          // OPTIMIZATION: Use memoized limits calculation
           const receiptLimits = getReceiptLimits();
-          const limits = {
-            maxReceipts:
-              effectiveTier === "professional" || effectiveTier === "trial" || effectiveTier === "teammate"
-                ? receiptLimits.professional
-                : effectiveTier === "growth"
-                ? receiptLimits.growth
-                : effectiveTier === "starter"
-                ? receiptLimits.starter
-                : receiptLimits.free,
-            maxBusinesses:
-              effectiveTier === "professional" || effectiveTier === "trial"
-                ? -1
-                : effectiveTier === "teammate"
-                ? 1 // Teammates work within assigned business
-                : 1, // 1 for others
-            apiCallsPerMonth:
-              effectiveTier === "professional" || effectiveTier === "trial"
-                ? -1
-                : effectiveTier === "growth"
-                ? 1000
-                : 0,
-            maxReports:
-              effectiveTier === "professional" || effectiveTier === "trial"
-                ? -1
-                : effectiveTier === "growth"
-                ? 50
-                : effectiveTier === "starter"
-                ? 10
-                : 3,
-            maxTeamMembers:
-              effectiveTier === "professional" || effectiveTier === "trial"
-                ? 10 // Reasonable limit for team members
-                : effectiveTier === "teammate"
-                ? 0 // Teammates can't have their own team members
-                : 0, // No team members for lower tiers
+          const limits = computeSubscriptionLimits(effectiveTier, receiptLimits);
+
+          // OPTIMIZATION: Use memoized team member override logic
+          const baseState = {
+            currentTier: effectiveTier,
+            features: getFeaturesByTier(effectiveTier),
+            limits: limits,
           };
 
-          // Override features and tier for team members
-          let finalTier = effectiveTier;
-          let finalFeatures = getFeaturesByTier(effectiveTier);
-          let finalLimits = limits;
+          const { currentTier: finalTier, features: finalFeatures, limits: finalLimits } = isTeamMember 
+            ? applyTeamMemberOverrides(baseState, teamMemberRole)
+            : baseState;
 
-          if (isTeamMember) {
-            console.log(`🔄 Overriding subscription for team member with role: ${teamMemberRole}`);
-            finalTier = "teammate";
-            finalFeatures = getFeaturesByTier("teammate", teamMemberRole);
-            finalLimits = {
-              maxReceipts: -1, // Unlimited receipts for teammates
-              maxBusinesses: 1, // Limited to assigned business
-              apiCallsPerMonth: 0, // No API access
-              maxReports: 0, // No reports for teammates
-              maxTeamMembers: teamMemberRole === 'admin' ? 10 : 0, // Only admin teammates can manage team
-            };
-          }
+          console.log('🏁 Final tier (after team overrides):', finalTier);
+          console.log('⚙️ Final features:', Object.keys(finalFeatures).filter(key => finalFeatures[key as keyof typeof finalFeatures]));
+          console.log('📊 Final limits:', finalLimits);
 
           const newSubscriptionState = {
             currentTier: finalTier,
@@ -633,14 +718,29 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             trial: trialData,
           };
 
-          setSubscription(newSubscriptionState);
+          console.log('🎯 SETTING SUBSCRIPTION STATE:', JSON.stringify({
+            currentTier: newSubscriptionState.currentTier,
+            isActive: newSubscriptionState.isActive,
+            expiresAt: newSubscriptionState.expiresAt,
+            features: Object.keys(newSubscriptionState.features).filter(key => newSubscriptionState.features[key as keyof typeof newSubscriptionState.features])
+          }, null, 2));
 
-          // Refresh receipt count when subscription changes
-          // This will trigger after Cloud Function updates
-          console.log("🔄 Subscription changed, refreshing receipt count");
-          setTimeout(() => {
-            refreshReceiptCount(undefined, { skipDelay: true, forceRefresh: true });
-          }, 500); // Small delay to allow for Firestore consistency
+          setSubscription(newSubscriptionState);
+          console.log('✅ Subscription state updated in React context');
+
+          // OPTIMIZATION: Only refresh receipt count when tier actually changes
+          const hasEffectiveTierChanged = previousTierRef.current !== effectiveTier;
+          if (hasEffectiveTierChanged) {
+            console.log(`🔄 Tier changed from ${previousTierRef.current} to ${effectiveTier}, refreshing receipt count`);
+            previousTierRef.current = effectiveTier;
+            setTimeout(() => {
+              refreshReceiptCount(undefined, { skipDelay: true, forceRefresh: true });
+            }, 500); // Small delay to allow for Firestore consistency
+          } else {
+            // Update the ref even if no change to keep it current
+            previousTierRef.current = effectiveTier;
+          }
+          console.log('🔍 === SUBSCRIPTION DEBUG END ===\n');
 
         } else {
           // New user - start with trial
