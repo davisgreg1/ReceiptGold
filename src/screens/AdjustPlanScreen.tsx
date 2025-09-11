@@ -1,0 +1,689 @@
+import React, { useState, useEffect, useRef } from "react";
+import {
+  View,
+  Text,
+  ScrollView,
+  Pressable,
+  StyleSheet,
+  Dimensions,
+  Platform,
+  Animated,
+  StatusBar,
+} from "react-native";
+import { PanGestureHandler, State } from "react-native-gesture-handler";
+import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
+import { useTheme } from "../theme/ThemeProvider";
+import { useSubscription } from "../context/SubscriptionContext";
+import { useRevenueCatPayments } from "../hooks/useRevenueCatPayments";
+import { useInAppNotifications } from "../components/InAppNotificationProvider";
+import { SUBSCRIPTION_TIERS, revenueCatService } from "../services/revenuecatService";
+import { StackNavigationProp } from "@react-navigation/stack";
+
+const { width, height } = Dimensions.get("window");
+
+type BillingPeriod = 'monthly' | 'annual';
+
+interface AdjustPlanScreenProps {
+  navigation: StackNavigationProp<any>;
+  route: RouteProp<any>;
+}
+
+
+const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
+  const { theme, themeMode } = useTheme();
+  const { subscription } = useSubscription();
+  const { showNotification } = useInAppNotifications();
+  const {
+    handleSubscriptionWithRevenueCat,
+    getCurrentBillingPeriod,
+  } = useRevenueCatPayments();
+
+  const [currentBillingPeriod, setCurrentBillingPeriod] = useState<BillingPeriod>('monthly');
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
+  const [revenueCatPricing, setRevenueCatPricing] = useState<any>({});
+  const [selectedTier, setSelectedTier] = useState<keyof typeof SUBSCRIPTION_TIERS | null>(null);
+  const [userActualBillingPeriod, setUserActualBillingPeriod] = useState<BillingPeriod>('monthly');
+  
+
+  useEffect(() => {
+    // Load current billing period
+    loadCurrentBillingPeriod();
+    loadRevenueCatPricing();
+    loadUserActualBillingPeriod();
+  }, []);
+
+  const loadRevenueCatPricing = async () => {
+    try {
+      console.log('🔍 Loading RevenueCat pricing...');
+      const pricing = await revenueCatService.getRevenueCatPricing();
+      console.log('💰 Loaded pricing:', pricing);
+      setRevenueCatPricing(pricing);
+    } catch (error) {
+      console.error('❌ Failed to load RevenueCat pricing:', error);
+    }
+  };
+
+  const loadCurrentBillingPeriod = async () => {
+    try {
+      const period = await getCurrentBillingPeriod();
+      if (period) {
+        setCurrentBillingPeriod(period);
+      }
+    } catch (error) {
+      console.warn('Failed to get billing period:', error);
+    }
+  };
+
+  const loadUserActualBillingPeriod = async () => {
+    try {
+      const period = await getCurrentBillingPeriod();
+      if (period) {
+        setUserActualBillingPeriod(period);
+      }
+    } catch (error) {
+      console.warn('Failed to get user actual billing period:', error);
+    }
+  };
+
+  const getPlanAction = (tier: keyof typeof SUBSCRIPTION_TIERS): 'upgrade' | 'downgrade' | 'switch' => {
+    const currentTier = subscription.currentTier;
+    const tierHierarchy = { 'free': 0, 'starter': 1, 'growth': 2, 'professional': 3 };
+    
+    const currentLevel = tierHierarchy[currentTier as keyof typeof tierHierarchy] || 0;
+    const targetLevel = tierHierarchy[tier as keyof typeof tierHierarchy] || 0;
+    
+    if (targetLevel > currentLevel) return 'upgrade';
+    if (targetLevel < currentLevel) return 'downgrade';
+    return 'switch';
+  };
+
+  const getActionColor = (action: 'upgrade' | 'downgrade' | 'switch') => {
+    switch (action) {
+      case 'upgrade': return theme.gold.primary; // Gold for upgrades
+      case 'downgrade': return theme.gold.muted; // Muted gold for downgrades  
+      case 'switch': return theme.gold.rich; // Rich gold for billing switch
+      default: return theme.gold.primary;
+    }
+  };
+
+  const getActionText = (action: 'upgrade' | 'downgrade' | 'switch', tier: string, billingPeriod: BillingPeriod) => {
+    switch (action) {
+      case 'upgrade': return `Upgrade to ${SUBSCRIPTION_TIERS[tier as keyof typeof SUBSCRIPTION_TIERS].name}`;
+      case 'downgrade': return `Downgrade to ${SUBSCRIPTION_TIERS[tier as keyof typeof SUBSCRIPTION_TIERS].name}`;
+      case 'switch': return billingPeriod === 'annual' ? 'Switch to Yearly' : 'Switch to Monthly';
+      default: return 'Select Plan';
+    }
+  };
+
+  const calculateAnnualSavings = (tier: keyof typeof SUBSCRIPTION_TIERS) => {
+    const tierPricing = revenueCatPricing[tier];
+    if (tierPricing && tierPricing.monthly && tierPricing.annual && tierPricing.monthly.amount > 0) {
+      const savings = Math.round((1 - (tierPricing.annual.amount / 12) / tierPricing.monthly.amount) * 100);
+      return isNaN(savings) ? 0 : Math.max(0, savings);
+    }
+    
+    // Return 0 if no RevenueCat data available
+    return 0;
+  };
+
+  const getDisplayPrice = (tier: string, billingPeriod: BillingPeriod) => {
+    // First try to get price from RevenueCat
+    const revenueCatTierPricing = revenueCatPricing[tier];
+    if (revenueCatTierPricing && revenueCatTierPricing[billingPeriod]) {
+      const priceInfo = revenueCatTierPricing[billingPeriod];
+      if (billingPeriod === 'annual') {
+        // For annual, show the full annual price with "/year"
+        return `${priceInfo.price}/year`;
+      } else {
+        // For monthly, show "/mo"
+        return `${priceInfo.price}/mo`;
+      }
+    }
+    
+    // Fallback to hardcoded prices with a warning
+    console.warn(`⚠️ Using fallback pricing for ${tier} ${billingPeriod} - RevenueCat not configured`);
+    const tierData = SUBSCRIPTION_TIERS[tier as keyof typeof SUBSCRIPTION_TIERS];
+    if (billingPeriod === 'monthly') {
+      return `$${tierData.monthlyPrice}/mo`;
+    } else {
+      // For annual pricing, calculate from monthly price if annualPrice doesn't exist
+      const annualPrice = (tierData as any).annualPrice ?? (tierData.monthlyPrice * 12 * 0.8); // 20% discount
+      return `$${annualPrice}/year`;
+    }
+  };
+
+  const handlePlanSelection = async (tier: keyof typeof SUBSCRIPTION_TIERS, billingPeriod: BillingPeriod) => {
+    console.log('🎯 Plan button tapped:', { tier, billingPeriod });
+    console.log('🚀 ENTERING handlePlanSelection function');
+    
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      console.log('✅ Haptics completed');
+    } catch (hapticError) {
+      console.warn('⚠️ Haptics failed:', hapticError);
+    }
+    
+    const planKey = `${tier}_${billingPeriod}`;
+    console.log('🔄 Setting loading plan:', planKey);
+    setLoadingPlan(planKey);
+    
+    try {
+      console.log('📞 About to call handleSubscriptionWithRevenueCat...');
+      const success = await handleSubscriptionWithRevenueCat(
+        tier as any,
+        billingPeriod,
+        "",
+        "",
+        (type, title, message) => {
+          console.log('🔔 Notification callback:', { type, title, message });
+          showNotification({ type, title, message });
+        }
+      );
+      console.log('✅ handleSubscriptionWithRevenueCat completed with result:', success);
+
+      if (success) {
+        setCurrentBillingPeriod(billingPeriod);
+        setUserActualBillingPeriod(billingPeriod);
+
+        showNotification({
+          type: "success",
+          title: "Plan Updated!",
+          message: `Successfully switched to ${SUBSCRIPTION_TIERS[tier].name}`,
+        });
+      }
+    } catch (error) {
+      console.error('Plan change error:', error);
+      showNotification({
+        type: "error",
+        title: "Update Failed",
+        message: "Unable to update your plan. Please try again.",
+      });
+    } finally {
+      setLoadingPlan(null);
+    }
+  };
+
+  // Handle swipe gestures for billing toggle area
+  const onBillingToggleSwipe = (event: any) => {
+    const { translationX, translationY, state } = event.nativeEvent;
+    
+    if (state === State.END) {
+      const swipeThreshold = 50; // Minimum distance for a swipe
+      const horizontalThreshold = Math.abs(translationX);
+      const verticalThreshold = Math.abs(translationY);
+      
+      // Only trigger if horizontal movement is greater than vertical (horizontal swipe)
+      if (horizontalThreshold > swipeThreshold && horizontalThreshold > verticalThreshold) {
+        if (translationX > swipeThreshold) {
+          // Swipe right - go to annual
+          if (currentBillingPeriod === 'monthly') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setCurrentBillingPeriod('annual');
+          }
+        } else if (translationX < -swipeThreshold) {
+          // Swipe left - go to monthly
+          if (currentBillingPeriod === 'annual') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setCurrentBillingPeriod('monthly');
+          }
+        }
+      }
+    }
+  };
+
+  // Handle swipe gestures for tier cards area (flipped logic)
+  const onTierCardsSwipe = (event: any) => {
+    const { translationX, translationY, state } = event.nativeEvent;
+    
+    if (state === State.END) {
+      const swipeThreshold = 50; // Minimum distance for a swipe
+      const horizontalThreshold = Math.abs(translationX);
+      const verticalThreshold = Math.abs(translationY);
+      
+      // Only trigger if horizontal movement is greater than vertical (horizontal swipe)
+      if (horizontalThreshold > swipeThreshold && horizontalThreshold > verticalThreshold) {
+        if (translationX > swipeThreshold) {
+          // Swipe right - go to monthly (flipped)
+          if (currentBillingPeriod === 'annual') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setCurrentBillingPeriod('monthly');
+          }
+        } else if (translationX < -swipeThreshold) {
+          // Swipe left - go to annual (flipped)
+          if (currentBillingPeriod === 'monthly') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setCurrentBillingPeriod('annual');
+          }
+        }
+      }
+    }
+  };
+
+  const PlanCard: React.FC<{
+    tier: keyof typeof SUBSCRIPTION_TIERS;
+    billingPeriod: BillingPeriod;
+  }> = React.memo(({ tier, billingPeriod }) => {
+    // A plan is "current" only if it matches both the user's actual tier AND their actual billing period
+    // Use userActualBillingPeriod instead of the UI toggle state (currentBillingPeriod)
+    const isCurrentPlan = subscription.currentTier === tier && billingPeriod === userActualBillingPeriod;
+    const action = getPlanAction(tier);
+    const actionColor = getActionColor(action);
+    const planData = SUBSCRIPTION_TIERS[tier];
+    const planKey = `${tier}_${billingPeriod}`;
+    const isLoading = loadingPlan === planKey;
+
+    const spinValue = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+      if (isLoading) {
+        const spin = Animated.loop(
+          Animated.timing(spinValue, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          })
+        );
+        spin.start();
+        return () => spin.stop();
+      }
+    }, [isLoading, spinValue]);
+
+    const spin = spinValue.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    });
+
+
+    return (
+      <Pressable
+        onPress={() => setSelectedTier(tier)}
+        style={({ pressed }) => [
+          styles.planCard,
+          isCurrentPlan && {
+            borderColor: actionColor,
+            borderWidth: 2,
+          },
+          selectedTier === tier && {
+            borderColor: theme.gold.primary,
+            borderWidth: 2,
+          },
+          { opacity: pressed ? 0.9 : 1 }
+        ]}
+      >
+        <LinearGradient
+          colors={isCurrentPlan 
+            ? [actionColor + '15', actionColor + '05']
+            : [theme.background.secondary + '90', theme.background.secondary + '60']
+          }
+          style={styles.cardGradient}
+        >
+          {/* Header */}
+          <View style={styles.cardHeader}>
+            <View>
+              <Text style={[styles.tierName, { color: theme.text.primary }]}>
+                {planData.name}
+              </Text>
+              <Text style={[styles.tierPrice, { color: actionColor }]}>
+                {getDisplayPrice(tier, currentBillingPeriod)}
+              </Text>
+            </View>
+            
+            {isCurrentPlan && (
+              <View style={[styles.currentBadge, { backgroundColor: actionColor }]}>
+                <Text style={styles.currentBadgeText}>Current</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Features Preview */}
+          <View style={styles.featuresPreview}>
+            {planData.features.slice(0, 2).map((feature, idx) => (
+              <View key={idx} style={styles.featureRow}>
+                <Ionicons name="checkmark-circle" size={16} color={actionColor} />
+                <Text style={[styles.featureText, { color: theme.text.secondary }]} numberOfLines={1}>
+                  {feature}
+                </Text>
+              </View>
+            ))}
+            {planData.features.length > 2 && (
+              <Text style={[styles.moreFeatures, { color: theme.text.secondary }]}>
+                +{planData.features.length - 2} more features
+              </Text>
+            )}
+          </View>
+
+          {/* Action Button */}
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionButton,
+              {
+                backgroundColor: isCurrentPlan ? theme.background.secondary : actionColor,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
+            onPress={() => !isCurrentPlan && handlePlanSelection(tier, billingPeriod)}
+            disabled={isCurrentPlan || isLoading}
+          >
+            <View style={styles.actionButtonContent}>
+              {isLoading ? (
+                <Animated.View style={{ transform: [{ rotate: spin }] }}>
+                  <Ionicons name="reload" size={20} color="white" />
+                </Animated.View>
+              ) : (
+                <Text style={[
+                  styles.actionButtonText,
+                  {
+                    color: isCurrentPlan ? theme.text.primary : 'white',
+                  }
+                ]}>
+                  {isCurrentPlan ? 'Current Plan' : getActionText(action, tier, billingPeriod)}
+                </Text>
+              )}
+            </View>
+          </Pressable>
+        </LinearGradient>
+      </Pressable>
+    );
+  });
+
+  return (
+    <View style={[styles.container, { backgroundColor: theme.background.primary }]}>
+      <StatusBar
+        barStyle={themeMode === "dark" ? "light-content" : "dark-content"}
+        backgroundColor="transparent"
+        translucent
+      />
+      
+      {/* Header */}
+      <View 
+        style={[styles.header, { backgroundColor: theme.background.primary + 'F0' }]}
+      >
+        <View style={styles.headerBlur}>
+          <View style={styles.headerContent}>
+            <Pressable
+              style={styles.backButton}
+              onPress={() => navigation.goBack()}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons name="chevron-back" size={20} color={theme.text.primary} />
+              <Text style={[styles.backText, { color: theme.text.primary }]}>
+                Back
+              </Text>
+            </Pressable>
+            
+            <Text style={[styles.headerTitle, { color: theme.text.primary }]}>
+              Adjust Your Plan
+            </Text>
+            
+            <View style={styles.headerSpacer} />
+          </View>
+        </View>
+      </View>
+
+      {/* Content */}
+      <View 
+        style={styles.content}
+      >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Plans Grid with swipe gesture */}
+          <PanGestureHandler 
+            onHandlerStateChange={onTierCardsSwipe}
+            activeOffsetX={[-10, 10]}
+            failOffsetY={[-5, 5]}
+          >
+            <View style={styles.plansGrid}>
+              {(['starter', 'growth', 'professional'] as const)
+                .filter(tier => !(tier === 'starter' && currentBillingPeriod === 'annual'))
+                .map((tier) => (
+                <PlanCard
+                  key={tier}
+                  tier={tier}
+                  billingPeriod={currentBillingPeriod}
+                />
+              ))}
+            </View>
+          </PanGestureHandler>
+
+          {/* Billing Toggle with swipe gesture */}
+          <PanGestureHandler 
+            onHandlerStateChange={onBillingToggleSwipe}
+            activeOffsetX={[-10, 10]}
+            failOffsetY={[-5, 5]}
+          >
+            <View 
+              style={styles.billingToggleContainer}
+            >
+              <Text style={[styles.billingLabel, { color: theme.text.primary }]}>
+                Billing Period
+              </Text>
+              
+              <View style={[styles.billingToggle, { backgroundColor: theme.background.secondary }]}>
+                {(['monthly', 'annual'] as const).map((period) => (
+                  <Pressable
+                    key={period}
+                    style={[
+                      styles.billingOption,
+                      currentBillingPeriod === period && {
+                        backgroundColor: theme.gold.primary,
+                      },
+                    ]}
+                    onPress={() => {
+                      setCurrentBillingPeriod(period);
+                      Haptics.selectionAsync();
+                    }}
+                  >
+                    <Text style={[
+                      styles.billingOptionText,
+                      {
+                        color: currentBillingPeriod === period 
+                          ? 'white' 
+                          : theme.text.secondary,
+                      }
+                    ]}>
+                      {period === 'monthly' ? 'Monthly' : 'Annual'}
+                    </Text>
+                    {period === 'annual' && selectedTier && calculateAnnualSavings(selectedTier) > 0 && (
+                      <Text style={[
+                        styles.savingsText,
+                        {
+                          color: currentBillingPeriod === period 
+                            ? 'white' 
+                            : theme.gold.primary,
+                        }
+                      ]}>
+                        {selectedTier === subscription.currentTier ? 'Saving' : 'Save'} {calculateAnnualSavings(selectedTier)}%
+                      </Text>
+                    )}
+                  </Pressable>
+                ))}
+              </View>
+              
+              <Text style={[styles.swipeHint, { color: theme.text.tertiary }]}>
+                💡 Swipe left or right to switch billing periods
+              </Text>
+            </View>
+          </PanGestureHandler>
+        </ScrollView>
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  header: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
+  },
+  headerBlur: {
+    paddingTop: Platform.OS === 'ios' ? 50 : 30,
+    paddingBottom: 20,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  backText: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    zIndex: -1,
+  },
+  headerSpacer: {
+    width: 60,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    opacity: 0.8,
+    marginTop: 2,
+  },
+  content: {
+    flex: 1,
+    paddingTop: Platform.OS === 'ios' ? 140 : 120,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingBottom: 50,
+  },
+  plansGrid: {
+    gap: 20,
+    marginTop: 20,
+  },
+  planCard: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+  },
+  cardGradient: {
+    padding: 24,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  tierName: {
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  tierPrice: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  currentBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+  },
+  currentBadgeText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  featuresPreview: {
+    marginBottom: 24,
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  featureText: {
+    fontSize: 14,
+    marginLeft: 8,
+    flex: 1,
+  },
+  moreFeatures: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    marginTop: 4,
+  },
+  actionButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  actionButtonContent: {
+    minHeight: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  billingToggleContainer: {
+    marginTop: 40,
+    alignItems: 'center',
+  },
+  billingLabel: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 16,
+  },
+  billingToggle: {
+    flexDirection: 'row',
+    borderRadius: 12,
+    padding: 4,
+  },
+  billingOption: {
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    minWidth: 120,
+  },
+  billingOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  savingsText: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  swipeHint: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 8,
+    opacity: 0.8,
+  },
+});
+
+export default AdjustPlanScreen;

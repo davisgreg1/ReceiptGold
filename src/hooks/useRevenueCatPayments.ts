@@ -25,11 +25,14 @@ export const useRevenueCatPayments = () => {
     _userName: string, // Underscore prefix to indicate unused but required for interface compatibility
     showAlert?: (type: 'error' | 'success' | 'warning', title: string, message: string) => void
   ): Promise<boolean> => {
+    console.log('🚀 handleSubscriptionWithRevenueCat called with:', { tierId, billingPeriod });
+    
     if (loading) {
-      console.log('Purchase already in progress...');
+      console.log('⏰ Purchase already in progress...');
       return false;
     }
 
+    console.log('🔄 Setting loading state to true');
     setLoading(true);
     
     try {
@@ -48,7 +51,9 @@ export const useRevenueCatPayments = () => {
       }
 
       // Start the subscription process through RevenueCat
+      console.log('📱 About to call revenueCatService.startSubscription...');
       const subscriptionResult = await revenueCatService.startSubscription(tierId, billingPeriod, currentUser.uid);
+      console.log('📋 RevenueCat service result:', subscriptionResult);
 
       if (!subscriptionResult.success) {
         console.error('RevenueCat subscription failed:', subscriptionResult.error);
