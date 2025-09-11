@@ -410,7 +410,7 @@ const ChoosePlanScreen: React.FC = () => {
     
     try {
       const success = await handleSubscriptionWithRevenueCat(
-        planId as any, // Type assertion for compatibility
+        planId, // Type assertion for compatibility
         billingPeriod,
         user.email || "",
         user.displayName || user.email || "Customer",

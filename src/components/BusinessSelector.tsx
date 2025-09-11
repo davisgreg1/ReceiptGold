@@ -150,34 +150,14 @@ const BusinessSelector: React.FC<BusinessSelectorProps> = ({
   
   const [modalVisible, setModalVisible] = useState(false);
 
-  // Debug modal visibility changes
-  React.useEffect(() => {
-    console.log('🏢 BusinessSelector: modalVisible changed to:', modalVisible);
-  }, [modalVisible]);
-
   const selectedBusiness = selectedBusinessId ? getBusinessById(selectedBusinessId) : null;
 
-  // Debug logging
-  console.log('🏢 BusinessSelector Debug:', {
-    businessesCount: businesses.length,
-    accessibleBusinessesCount: accessibleBusinesses.length,
-    loading,
-    hasMultiBusinessAccess,
-    selectedBusinessId,
-    selectedBusiness: selectedBusiness?.name,
-    selectedBusinessResult: selectedBusinessId ? getBusinessById(selectedBusinessId) : 'no ID provided',
-    accessibleBusinessNames: accessibleBusinesses.map(b => b.name),
-    accessibleBusinessIds: accessibleBusinesses.map(b => b.id),
-  });
-
   const handleSelect = (businessId: string | null) => {
-    console.log('🏢 BusinessSelector: handleSelect called with businessId:', businessId);
     onBusinessSelect(businessId);
     setModalVisible(false);
   };
 
   const handleSelectorPress = () => {
-    console.log('🏢 BusinessSelector: Selector pressed, opening modal');
     setModalVisible(true);
   };
 

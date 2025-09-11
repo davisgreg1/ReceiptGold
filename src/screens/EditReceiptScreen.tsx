@@ -447,32 +447,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     },
   });
 
-  console.log('Initial receipt data:', {
-    receiptId: receipt.receiptId,
-    vendor: receipt.vendor,
-    businessName: (receipt as any).businessName,
-    finalVendor: receipt.vendor || (receipt as any).businessName || '',
-    amount: receipt.amount,
-    businessId: receipt.businessId,
-    businessIdType: typeof receipt.businessId,
-    fullTaxObject: receipt.tax,
-    taxAmount: (receipt.tax as any)?.amount,
-    extractedData: receipt.extractedData,
-    splitTender: receipt.extractedData?.splitTender,
-  });
 
-  console.log('Initial formData:', {
-    vendor: receipt.vendor || (receipt as any).businessName || '',
-    amount: formatAmountForDisplay(receipt.amount),
-    businessId: receipt.businessId ?? (selectedBusiness?.id || null),
-    taxObject: {
-      deductible: receipt.tax?.deductible ?? true,
-      deductionPercentage: receipt.tax?.deductionPercentage ?? 0,
-      category: receipt.tax?.category || 'business_expense',
-      taxYear: receipt.tax?.taxYear || new Date().getFullYear(),
-      amount: (receipt.tax as any)?.amount ?? 0,
-    }
-  });
 
   // Only sync formData when receipt is updated after save (not on initial load)
   React.useEffect(() => {
@@ -481,14 +456,9 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                        receipt.updatedAt.getTime() > receipt.createdAt.getTime();
     
     if (!isAfterSave) {
-      console.log('Skipping formData sync - initial load or no save detected');
       return;
     }
     
-    console.log('Syncing formData after save:', {
-      receiptVendor: receipt.vendor,
-      receiptBusinessId: receipt.businessId,
-    });
     
     setFormData(prevFormData => ({
       ...prevFormData,
@@ -516,7 +486,6 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
       const fetchLatestReceipt = async () => {
         if (route.params?.receipt?.receiptId) {
           try {
-            console.log('Refreshing receipt data on focus:', route.params.receipt.receiptId);
             const latestReceipt = await receiptService.getReceiptById(route.params.receipt.receiptId);
             
             if (latestReceipt) {
@@ -548,14 +517,8 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 },
               }));
               
-              console.log('Receipt refreshed:', {
-                vendor: refreshedReceipt.vendor,
-                businessId: refreshedReceipt.businessId,
-                splitTender: refreshedReceipt.extractedData?.splitTender,
-              });
             }
           } catch (error) {
-            console.error('Failed to refresh receipt:', error);
           }
         }
       };
@@ -614,19 +577,6 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
     
     // Only log when there are changes to avoid spam
     if (hasChanges) {
-      console.log('🔄 Unsaved changes detected:', {
-        amountChanged: formData.amount !== originalAmount,
-        vendorChanged: formData.vendor !== originalVendor,
-        descriptionChanged: formData.description !== originalDescription,
-        categoryChanged: formData.category !== originalCategory,
-        currencyChanged: formData.currency !== originalCurrency,
-        businessIdChanged: formData.businessId !== (receipt.businessId ?? null),
-        itemsChanged,
-        taxChanged: formData.tax.deductible !== (receipt.tax?.deductible || false) ||
-                   formData.tax.deductionPercentage !== (receipt.tax?.deductionPercentage || 0) ||
-                   formData.tax.taxYear !== (receipt.tax?.taxYear || new Date().getFullYear()) ||
-                   formData.tax.amount !== ((receipt.tax as any)?.amount || 0)
-      });
     }
     
     return hasChanges;
@@ -725,22 +675,8 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         businessId: formData.businessId || undefined
       };
 
-      console.log('💾 Saving receipt with data:', {
-        receiptId: receipt.receiptId,
-        originalVendor: receipt.vendor,
-        formDataVendor: formData.vendor,
-        updatedReceiptVendor: updatedReceipt.vendor,
-        hasVendorChanged: formData.vendor !== receipt.vendor,
-        fullUpdateObject: updatedReceipt
-      });
-
       // Update the receipt with only the changed fields
-      console.log('🔥 About to update receipt in Firestore:', {
-        receiptId: receipt.receiptId,
-        updateData: updatedReceipt
-      });
       await receiptService.updateReceipt(receipt.receiptId, updatedReceipt);
-      console.log('✅ Receipt updated in Firestore successfully');
       
       // Update local receipt state with the saved changes
       setReceipt(prevReceipt => {
@@ -750,27 +686,16 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
           updatedAt: new Date()
         };
         
-        console.log('🔄 Receipt state updated:', {
-          oldVendor: prevReceipt.vendor,
-          newVendor: newReceipt.vendor,
-          vendorChanged: prevReceipt.vendor !== newReceipt.vendor,
-          oldBusinessId: prevReceipt.businessId,
-          newBusinessId: newReceipt.businessId
-        });
         
         return newReceipt;
       });
 
-      console.log('Receipt state updated. New businessId:', updatedReceipt.businessId);
       
       // If this is a PDF receipt from bank transaction, regenerate PDF with updated data
       if ((receipt as any).metadata?.source === 'bank_transaction' && (receipt as any).type === 'pdf') {
         try {
-          console.log('🔄 Auto-regenerating PDF after data update...');
           await bankReceiptService.regeneratePDFForReceipt(receipt.receiptId, user?.uid || '');
-          console.log('✅ PDF regenerated successfully after update');
         } catch (pdfError) {
-          console.error('⚠️ Failed to regenerate PDF after update:', pdfError);
           // Don't show error to user as the main save was successful
         }
       }
@@ -788,7 +713,6 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         }
       );
     } catch (error) {
-      console.error('Error updating receipt:', error);
       showFirebaseError(error, FirebaseErrorScenarios.FIRESTORE.UPDATE);
     } finally {
       setLoading(false);

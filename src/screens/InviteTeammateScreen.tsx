@@ -66,19 +66,6 @@ export const InviteTeammateScreen: React.FC = () => {
       return;
     }
 
-    // Debug logging
-    console.log('🔍 Debug info before invitation:');
-    console.log('- User ID:', user?.uid);
-    console.log('- User email:', user?.email);
-    console.log('- User displayName:', user?.displayName);
-    console.log('- Invite email:', email.trim().toLowerCase());
-    console.log('- Role:', role);
-    console.log('- Subscription tier:', subscription.currentTier);
-    console.log('- Can access team management:', canAccessFeature('teamManagement'));
-    console.log('- Team management feature enabled:', subscription.features.teamManagement);
-    console.log('- Is team member:', isTeamMember);
-    console.log('- Current membership:', currentMembership);
-    console.log('- Account holder ID:', accountHolderId);
 
     setLoading(true);
     try {
@@ -105,9 +92,7 @@ export const InviteTeammateScreen: React.FC = () => {
         }
       );
     } catch (error: any) {
-      console.error('Invitation error details:', error);
       const errorMessage = error.message || 'Failed to send team invitation. Please try again.';
-      console.log('Error message being shown:', errorMessage);
       showError(
         'Invitation Failed',
         errorMessage

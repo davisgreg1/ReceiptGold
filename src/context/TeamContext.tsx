@@ -83,7 +83,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const handleTeamMemberRevocation = useCallback(async () => {
-    console.log('🔒 Handling team member revocation - signing out user');
     
     // Clear team data immediately
     clearTeamData();
@@ -110,7 +109,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     lastMembershipIdRef.current = currentMembership.id;
-    console.log('🔍 Setting up real-time team membership monitoring for:', currentMembership.id);
 
     // Listen to changes in the team member document
     const unsubscribe = onSnapshot(
@@ -118,7 +116,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       (doc) => {
         if (!doc.exists()) {
           // Team member document was deleted - user was removed
-          console.log('🚨 Team member document deleted - user was revoked');
           handleTeamMemberRevocation();
           return;
         }
@@ -127,7 +124,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         // Check if status changed to inactive/revoked
         if (data.status !== 'active') {
-          console.log('🚨 Team member status changed to:', data.status);
           handleTeamMemberRevocation();
           return;
         }
@@ -152,10 +148,8 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrentMembership(updatedMembership);
       },
       (error) => {
-        console.error('❌ Error monitoring team membership:', error);
         // If there's an error accessing the document, it might mean the user was revoked
         if (error.code === 'permission-denied') {
-          console.log('🚨 Permission denied - user may have been revoked');
           handleTeamMemberRevocation();
         }
       }
@@ -166,26 +160,21 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadTeamData = useCallback(async () => {
     if (!user?.uid) {
-      console.log('🔍 TeamContext.loadTeamData: No user.uid, returning early');
       return;
     }
 
     // Prevent concurrent loading
     if (isLoadingRef.current) {
-      console.log('🔍 TeamContext.loadTeamData: Already loading, skipping');
       return;
     }
 
     isLoadingRef.current = true;
-    console.log('🔍 TeamContext.loadTeamData: Starting for user:', user.uid);
     setLoading(true);
     setError(null);
 
     try {
       // Check if current user is a team member first
-      console.log('🔍 TeamContext.loadTeamData: Checking if user is team member...');
       const membership = await TeamService.getTeamMembershipByUserId(user.uid);
-      console.log('🔍 TeamContext.loadTeamData: Membership result:', membership);
       if (membership) {
         setIsTeamMember(true);
         setCurrentMembership(membership);
@@ -202,9 +191,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
             TeamService.getTeamStats(membership.accountHolderId),
           ]);
 
-          console.log('🚀 ~ TeamContext ~ loadTeamData (admin member) members:', members);
-          console.log('🚀 ~ TeamContext ~ loadTeamData (admin member) invitations:', invitations);
-          console.log('🚀 ~ TeamContext ~ loadTeamData (admin member) stats:', stats);
 
           setTeamMembers(members);
           setTeamInvitations(invitations);
@@ -215,27 +201,19 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // User is an account holder, load team management data only if they have the feature
-      console.log('🔍 TeamContext.loadTeamData: User is account holder, not team member');
       setIsTeamMember(false);
       setCurrentMembership(null);
       setAccountHolderId(user.uid);
-      console.log('🔍 TeamContext.loadTeamData: Set accountHolderId to:', user.uid);
 
-      console.log('🔍 TeamContext.loadTeamData: Checking canAccessFeature teamManagement...');
       const hasTeamFeature = canAccessFeature('teamManagement');
-      console.log('🔍 TeamContext.loadTeamData: canAccessFeature result:', hasTeamFeature);
       
       if (hasTeamFeature) {
-        console.log('🔍 TeamContext.loadTeamData: Loading team data for account holder...');
         const [members, invitations, stats] = await Promise.all([
           TeamService.getTeamMembers(user.uid),
           TeamService.getInvitationsForAccount(user.uid),
           TeamService.getTeamStats(user.uid),
         ]);
 
-        console.log('🚀 ~ TeamContext ~ loadTeamData members:', members);
-        console.log('🚀 ~ TeamContext ~ loadTeamData invitations:', invitations);
-        console.log('🚀 ~ TeamContext ~ loadTeamData stats:', stats);
 
         setTeamMembers(members);
         setTeamInvitations(invitations);
@@ -247,7 +225,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTeamStats(null);
       }
     } catch (err) {
-      console.error('Error loading team data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load team data');
     } finally {
       setLoading(false);
@@ -259,19 +236,15 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // For refresh operations, don't clear existing data during loading
     // to prevent UI flicker
     if (!user?.uid) {
-      console.log('🔍 TeamContext.refreshTeamData: No user.uid, returning early');
       return;
     }
 
-    console.log('🔍 TeamContext.refreshTeamData: Starting refresh for user:', user.uid);
     setError(null);
     // Don't set loading to true for refresh to prevent UI flicker
 
     try {
       // Check if current user is a team member first
-      console.log('🔍 TeamContext.refreshTeamData: Checking if user is team member...');
       const membership = await TeamService.getTeamMembershipByUserId(user.uid);
-      console.log('🔍 TeamContext.refreshTeamData: Membership result:', membership);
       if (membership) {
         setIsTeamMember(true);
         setCurrentMembership(membership);
@@ -288,9 +261,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
             TeamService.getTeamStats(membership.accountHolderId),
           ]);
 
-          console.log('🚀 ~ TeamContext ~ refreshTeamData (admin member) members:', members);
-          console.log('🚀 ~ TeamContext ~ refreshTeamData (admin member) invitations:', invitations);
-          console.log('🚀 ~ TeamContext ~ refreshTeamData (admin member) stats:', stats);
 
           setTeamMembers(members);
           setTeamInvitations(invitations);
@@ -301,27 +271,19 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       // User is an account holder, load team management data only if they have the feature
-      console.log('🔍 TeamContext.refreshTeamData: User is account holder, not team member');
       setIsTeamMember(false);
       setCurrentMembership(null);
       setAccountHolderId(user.uid);
-      console.log('🔍 TeamContext.refreshTeamData: Set accountHolderId to:', user.uid);
 
-      console.log('🔍 TeamContext.refreshTeamData: Checking canAccessFeature teamManagement...');
       const hasTeamFeature = canAccessFeature('teamManagement');
-      console.log('🔍 TeamContext.refreshTeamData: canAccessFeature result:', hasTeamFeature);
       
       if (hasTeamFeature) {
-        console.log('🔍 TeamContext.refreshTeamData: Loading team data for account holder...');
         const [members, invitations, stats] = await Promise.all([
           TeamService.getTeamMembers(user.uid),
           TeamService.getInvitationsForAccount(user.uid),
           TeamService.getTeamStats(user.uid),
         ]);
 
-        console.log('🚀 ~ TeamContext ~ refreshTeamData members:', members);
-        console.log('🚀 ~ TeamContext ~ refreshTeamData invitations:', invitations);
-        console.log('🚀 ~ TeamContext ~ refreshTeamData stats:', stats);
 
         setTeamMembers(members);
         setTeamInvitations(invitations);
@@ -333,7 +295,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTeamStats(null);
       }
     } catch (err) {
-      console.error('Error refreshing team data:', err);
       setError(err instanceof Error ? err.message : 'Failed to refresh team data');
     }
   }, [user, canAccessFeature]);
@@ -345,21 +306,12 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ).length;
     const currentCount = teamMembers.length + pendingInvitations;
     
-    console.log('🔍 hasReachedMemberLimit check:');
-    console.log('  - maxMembers:', maxMembers);
-    console.log('  - teamMembers.length:', teamMembers.length);
-    console.log('  - pendingInvitations:', pendingInvitations);
-    console.log('  - currentCount:', currentCount);
-    console.log('  - isTeamMember:', isTeamMember);
-    console.log('  - currentMembership?.role:', currentMembership?.role);
     
     if (maxMembers === -1) {
-      console.log('  ✅ Unlimited members - returning false');
       return false; // Unlimited
     }
     
     const hasReached = currentCount >= maxMembers;
-    console.log('  hasReachedMemberLimit result:', hasReached);
     return hasReached;
   }, [subscription.limits.maxTeamMembers, teamInvitations, teamMembers.length]);
 
@@ -383,7 +335,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      console.log('🚀 ~ TeamContext ~ inviteTeammate ~ creating invitation for:', request.inviteEmail);
       
       // Determine the correct account holder ID
       const accountHolderIdToUse = isTeamMember && currentMembership 
@@ -391,16 +342,13 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         : user.uid;
       
       const invitation = await TeamService.createInvitation(accountHolderIdToUse, request);
-      console.log('🚀 ~ TeamContext ~ inviteTeammate ~ created invitation:', invitation);
       
       // Refresh invitations list using the correct account holder ID
       const updatedInvitations = await TeamService.getInvitationsForAccount(accountHolderIdToUse);
-      console.log('🚀 ~ TeamContext ~ inviteTeammate ~ updated invitations:', updatedInvitations);
       setTeamInvitations(updatedInvitations);
       
       return invitation;
     } catch (error) {
-      console.error('Error inviting teammate:', error);
       throw error;
     }
   }, [user?.uid, subscriptionLoading, isTeamMember, currentMembership, canAccessFeature, hasReachedMemberLimit]);
@@ -415,7 +363,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTeamInvitations(updatedInvitations);
       }
     } catch (error) {
-      console.error('Error revoking invitation:', error);
       throw error;
     }
   }, [user]);
@@ -445,7 +392,6 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       return member;
     } catch (error) {
-      console.error('Error accepting invitation:', error);
       throw error;
     }
   }, [user]);
@@ -457,37 +403,27 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Refresh team data
       await refreshTeamData();
     } catch (error) {
-      console.error('Error removing team member:', error);
       throw error;
     }
   }, [refreshTeamData]);
 
   // Utility functions
   const canInviteMembers = useCallback((): boolean => {
-    console.log('🔍 canInviteMembers check:');
-    console.log('  - subscriptionLoading:', subscriptionLoading);
-    console.log('  - isTeamMember:', isTeamMember);
-    console.log('  - currentMembership?.role:', currentMembership?.role);
-    console.log('  - canAccessFeature(teamManagement):', canAccessFeature('teamManagement'));
     
     if (subscriptionLoading) {
-      console.log('  ❌ Returning false - subscription still loading');
       return false;
     }
     
     // Account holders can always invite if they have the feature
     if (!isTeamMember && canAccessFeature('teamManagement')) {
-      console.log('  ✅ Returning true - Account holder with team management feature');
       return true;
     }
     
     // Admin team members can also invite team members
     if (isTeamMember && currentMembership?.role === 'admin') {
-      console.log('  ✅ Returning true - Admin team member');
       return true;
     }
     
-    console.log('  ❌ Returning false - No permissions matched');
     return false;
   }, [subscriptionLoading, isTeamMember, currentMembership?.role, canAccessFeature]);
 
