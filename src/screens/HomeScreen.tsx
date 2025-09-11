@@ -137,24 +137,6 @@ export const HomeScreen: React.FC = () => {
       const allReceipts = receiptDocs.map((doc, index) => {
         const data = doc.data();
         
-        // Debug logging for first few receipts
-        if (index < 2) {
-          console.log(`🧾 Receipt ${index + 1} raw data:`, {
-            id: doc.id,
-            allFields: Object.keys(data),
-            amountFields: {
-              amount: data.amount,
-              total: data.total,
-              extractedDataAmount: data.extractedData?.amount
-            },
-            vendor: data.vendor || data.merchantName,
-            dateFields: {
-              date: data.date,
-              createdAt: data.createdAt
-            }
-          });
-        }
-        
         let receiptDate: Date | null = null;
         let dateSource = 'none';
         
@@ -183,17 +165,6 @@ export const HomeScreen: React.FC = () => {
         if (!receiptDate) {
           receiptDate = new Date();
           dateSource = 'fallback (current date)';
-        }
-        
-        if (index < 2) {
-          console.log(`📅 Receipt ${index + 1} date extraction:`, {
-            finalDate: receiptDate.toISOString(),
-            dateSource,
-            rawDateFields: {
-              date: data.date,
-              createdAt: data.createdAt
-            }
-          });
         }
         
         // Extract amount with comprehensive fallback logic
@@ -240,13 +211,6 @@ export const HomeScreen: React.FC = () => {
           amount = data.extractedData.amount;
           amountSource = `extractedData.amount (number, zero: ${data.extractedData.amount})`;
         }
-        
-        if (index < 2) {
-          console.log(`💰 Receipt ${index + 1} amount extraction:`, {
-            finalAmount: amount,
-            amountSource
-          });
-        }
 
         return {
           ...data, // Spread first
@@ -281,37 +245,6 @@ export const HomeScreen: React.FC = () => {
       const lastMonthTotal = lastMonthReceipts.reduce((sum, receipt) => sum + receipt.amount, 0);
       const weeklyTotal = weekReceipts.reduce((sum, receipt) => sum + receipt.amount, 0);
       const monthlyChange = lastMonthTotal > 0 ? ((monthlyTotal - lastMonthTotal) / lastMonthTotal) * 100 : 0;
-      
-      // Debug logging to help diagnose the issue
-      console.log('📊 Dashboard Data Debug:', {
-        totalReceipts: allReceipts.length,
-        thisMonthReceipts: thisMonthReceipts.length,
-        weekReceipts: weekReceipts.length,
-        monthlyTotal,
-        weeklyTotal,
-        dateRanges: {
-          now: now.toISOString(),
-          firstOfMonth: firstOfMonth.toISOString(),
-          weekAgo: weekAgo.toISOString()
-        },
-        sampleReceiptAmounts: allReceipts.slice(0, 5).map(r => ({ 
-          vendor: r.vendor, 
-          amount: r.amount, 
-          date: r.date ? r.date.toISOString() : 'No date',
-          isThisMonth: r.date ? (r.date >= firstOfMonth && r.date <= now) : false,
-          isThisWeek: r.date ? (r.date >= weekAgo && r.date <= now) : false
-        })),
-        thisMonthReceiptAmounts: thisMonthReceipts.slice(0, 5).map(r => ({ 
-          vendor: r.vendor, 
-          amount: r.amount, 
-          date: r.date ? r.date.toISOString() : 'No date'
-        })),
-        weekReceiptAmounts: weekReceipts.slice(0, 5).map(r => ({ 
-          vendor: r.vendor, 
-          amount: r.amount, 
-          date: r.date ? r.date.toISOString() : 'No date'
-        }))
-      });
       
       // Get top categories
       const categoryTotals: Record<string, number> = {};
@@ -384,16 +317,6 @@ export const HomeScreen: React.FC = () => {
         <BrandText size="large" color="gold">
           ReceiptGold
         </BrandText>
-        {/* <View style={styles.headerButtons}>
-          <TouchableOpacity
-            onPress={handleLogout}
-            style={[styles.logoutButton, { backgroundColor: theme.status.error }]}
-          >
-            <Text style={[styles.logoutButtonText, { color: theme.text.inverse }]}>
-              Sign Out
-            </Text>
-          </TouchableOpacity>
-        </View> */}
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>

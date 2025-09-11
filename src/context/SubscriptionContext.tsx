@@ -319,12 +319,10 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
       // Early validation
       if (!user?.uid) {
-        console.log("📊 refreshReceiptCount: No user ID available");
         return { success: false, error: "No user ID" };
       }
 
       if (refreshingRef.current && !forceRefresh) {
-        console.log("📊 refreshReceiptCount: Already in progress, skipping");
         return { success: false, error: "Already refreshing" };
       }
 
@@ -341,13 +339,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       refreshingRef.current = true;
       setIsRefreshing(true);
 
-      console.log(
-        `📊 refreshReceiptCount: Starting${
-          retryCount > 0
-            ? ` (retry ${retryCount}/${REFRESH_CONFIG.MAX_RETRIES})`
-            : ""
-        } for user: ${user.uid}`
-      );
 
       try {
         // Progressive delay strategy
@@ -358,9 +349,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               : REFRESH_CONFIG.RETRY_DELAY *
                 Math.pow(REFRESH_CONFIG.BACKOFF_MULTIPLIER, retryCount - 1);
 
-          console.log(
-            `📊 refreshReceiptCount: Waiting ${delay}ms before refresh`
-          );
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
 
@@ -383,8 +371,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
         });
 
         // Use the provided accountHolderId parameter if available (for team members)
-        console.log("📊 refreshReceiptCount: accountHolderIdParam:", accountHolderIdParam);
-        console.log("📊 refreshReceiptCount: user.uid:", user.uid);
 
         // Race between the actual request and timeout
         const count = await Promise.race([
@@ -397,29 +383,20 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           throw new Error(`Invalid count received: ${count}`);
         }
 
-        console.log(
-          `📊 refreshReceiptCount: Successfully retrieved count: ${count}`
-        );
 
         // Update state
         setCurrentReceiptCount(count);
 
         // ✅ TIER SYNCHRONIZATION FIX: Verify RevenueCat tier matches Firestore
         try {
-          console.log('🔄 Syncing tier with RevenueCat as source of truth...');
-          
           // Import RevenueCat service dynamically to avoid circular imports
           const { revenueCatService } = await import('../services/revenuecatService');
           
           // Get current tier from RevenueCat (force refresh to get latest)
           const revenueCatTier = await revenueCatService.getCurrentTier(true);
-          console.log('📦 RevenueCat tier:', revenueCatTier);
-          console.log('🏪 Firestore tier:', subscription.currentTier);
           
           // If tiers don't match, trigger Cloud Function to sync via RevenueCat webhook
           if (revenueCatTier !== subscription.currentTier && revenueCatTier !== 'free') {
-            console.log(`🔄 Tier mismatch detected! RevenueCat: '${revenueCatTier}', Firestore: '${subscription.currentTier}'`);
-            
             try {
               // Import Cloud Function to sync subscription state
               const { getFunctions, httpsCallable } = await import('firebase/functions');
@@ -429,26 +406,15 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
                 { success: boolean; error?: string; syncedTier?: string }
               >(functions, 'syncSubscriptionWithRevenueCat');
 
-              console.log('☁️ Calling Cloud Function to sync subscription state...');
-              const result = await syncSubscription({
+              await syncSubscription({
                 userId: user.uid,
                 forceSync: true
               });
-
-              if (result.data?.success) {
-                console.log(`✅ Subscription synced via Cloud Function to tier: ${result.data.syncedTier}`);
-              } else {
-                console.error('❌ Cloud Function sync failed:', result.data?.error);
-              }
             } catch (cloudFunctionError) {
-              console.error('⚠️ Cloud Function sync not available, tier mismatch will persist:', cloudFunctionError);
-              // Continue without failing - the mismatch is logged for debugging
+              // Continue without failing - the mismatch will persist until next sync
             }
-          } else {
-            console.log('✅ Tier already in sync');
           }
         } catch (tierSyncError) {
-          console.error('⚠️ Failed to sync tier with RevenueCat (non-critical):', tierSyncError);
           // Don't fail the entire refresh if tier sync fails
         }
 
@@ -457,13 +423,12 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
         const errorMessage =
           error instanceof Error ? error.message : "Unknown error";
         console.error(
-          `📊 refreshReceiptCount: Error (attempt ${retryCount + 1}):`,
+          `refreshReceiptCount: Error (attempt ${retryCount + 1}):`,
           errorMessage
         );
 
         // Handle aborted requests
         if (errorMessage.includes("aborted")) {
-          console.log("📊 refreshReceiptCount: Request was cancelled");
           return { success: false, error: "cancelled" };
         }
 
@@ -475,7 +440,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           retryCount < REFRESH_CONFIG.MAX_RETRIES;
 
         if (isRetryableError) {
-          console.log(`📊 refreshReceiptCount: Retrying...`);
           return refreshReceiptCount(accountHolderIdParam, {
             retryCount: retryCount + 1,
             forceRefresh: true,
@@ -485,7 +449,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
         // Max retries reached or non-retryable error
         console.error(
-          `📊 refreshReceiptCount: Failed after ${retryCount + 1} attempts:`,
+          `refreshReceiptCount: Failed after ${retryCount + 1} attempts:`,
           errorMessage
         );
         return { success: false, error: errorMessage };
@@ -502,7 +466,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   const cancelRefresh = useCallback(() => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
-      console.log("📊 refreshReceiptCount: Cancelled ongoing request");
     }
   }, []);
 
@@ -522,16 +485,14 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
         const membership = await TeamService.getTeamMembershipByUserId(user.uid);
         
         if (membership) {
-          console.log('📋 SubscriptionContext: User is team member with role:', membership.role);
           setIsTeamMember(true);
           setTeamMemberRole(membership.role);
         } else {
-          console.log('📋 SubscriptionContext: User is not a team member');
           setIsTeamMember(false);
           setTeamMemberRole(undefined);
         }
       } catch (error) {
-        console.error('📋 SubscriptionContext: Error checking team membership:', error);
+        console.error('SubscriptionContext: Error checking team membership:', error);
         setIsTeamMember(false);
         setTeamMemberRole(undefined);
       }
@@ -573,10 +534,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   // Refresh receipt count when user changes
   useEffect(() => {
     if (user?.uid) {
-      console.log(
-        "🔄 SubscriptionContext: User changed, refreshing receipt count for:",
-        user.uid
-      );
       refreshReceiptCount();
     }
 
@@ -634,43 +591,28 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           const membership = await TeamService.getTeamMembershipByUserId(user.uid);
           if (membership?.accountHolderId) {
             subscriptionUserId = membership.accountHolderId;
-            console.log('📋 SubscriptionContext: Team member listening to account holder subscription:', subscriptionUserId);
           } else {
-            console.error('📋 SubscriptionContext: Team member has no account holder ID');
+            console.error('SubscriptionContext: Team member has no account holder ID');
           }
         } else {
-          console.log('📋 SubscriptionContext: Account holder listening to own subscription:', subscriptionUserId);
         }
 
         // Set up real-time subscription to Firestore
         const subscriptionRef = doc(db, "subscriptions", subscriptionUserId);
 
         unsubscribe = onSnapshot(subscriptionRef, async (docSnapshot) => {
-        console.log('🔍 === SUBSCRIPTION DEBUG START ===');
-        console.log('📄 Firestore docSnapshot.exists():', docSnapshot.exists());
-        console.log('👤 User ID:', user?.uid);
-        console.log('🏢 Subscription User ID:', subscriptionUserId);
-        console.log('👥 Is Team Member:', isTeamMember);
-        console.log('🎭 Team Member Role:', teamMemberRole);
         
         if (docSnapshot.exists()) {
           const data = docSnapshot.data();
-          console.log('🗃️ Raw Firestore data:', JSON.stringify(data, null, 2));
-          
           if (!data) {
-            console.log('❌ No data in Firestore document');
             return;
           }
 
           const currentTier = (data.currentTier || "free") as SubscriptionTier;
-          console.log('🎯 Firestore currentTier:', currentTier);
           
           // OPTIMIZATION: Use memoized trial calculation
           const trialData = computeTrialData(data.trial);
-          console.log('🎪 Trial data computed:', trialData);
-          
           const effectiveTier = trialData.isActive ? "trial" : (currentTier === "trial" ? "free" : currentTier);
-          console.log('✨ Effective tier (before team overrides):', effectiveTier);
           
 
           // OPTIMIZATION: Use memoized limits calculation
@@ -688,9 +630,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             ? applyTeamMemberOverrides(baseState, teamMemberRole)
             : baseState;
 
-          console.log('🏁 Final tier (after team overrides):', finalTier);
-          console.log('⚙️ Final features:', Object.keys(finalFeatures).filter(key => finalFeatures[key as keyof typeof finalFeatures]));
-          console.log('📊 Final limits:', finalLimits);
 
           const newSubscriptionState = {
             currentTier: finalTier,
@@ -718,20 +657,11 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             trial: trialData,
           };
 
-          console.log('🎯 SETTING SUBSCRIPTION STATE:', JSON.stringify({
-            currentTier: newSubscriptionState.currentTier,
-            isActive: newSubscriptionState.isActive,
-            expiresAt: newSubscriptionState.expiresAt,
-            features: Object.keys(newSubscriptionState.features).filter(key => newSubscriptionState.features[key as keyof typeof newSubscriptionState.features])
-          }, null, 2));
-
           setSubscription(newSubscriptionState);
-          console.log('✅ Subscription state updated in React context');
 
           // OPTIMIZATION: Only refresh receipt count when tier actually changes
           const hasEffectiveTierChanged = previousTierRef.current !== effectiveTier;
           if (hasEffectiveTierChanged) {
-            console.log(`🔄 Tier changed from ${previousTierRef.current} to ${effectiveTier}, refreshing receipt count`);
             previousTierRef.current = effectiveTier;
             setTimeout(() => {
               refreshReceiptCount(undefined, { skipDelay: true, forceRefresh: true });
@@ -740,11 +670,9 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             // Update the ref even if no change to keep it current
             previousTierRef.current = effectiveTier;
           }
-          console.log('🔍 === SUBSCRIPTION DEBUG END ===\n');
 
         } else {
           // New user - start with trial
-          console.log("🆕 New user detected, checking RevenueCat for existing subscription:", user.uid);
           
           // Check if there might be existing RevenueCat subscriptions to restore
           try {
@@ -752,15 +680,13 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             const currentTier = await revenueCatService.getCurrentTier(true); // force refresh
             
             if (currentTier !== 'free') {
-              console.log("🔍 Found existing RevenueCat subscription available for restore:", currentTier);
               // Don't auto-sync - let user manually restore purchases
               // This will be handled by the restorePurchases function in useRevenueCatPayments
             }
           } catch (error) {
-            console.warn("⚠️ Failed to check RevenueCat:", error);
+            console.warn('Failed to check RevenueCat:', error);
           }
 
-          console.log("🆕 No existing subscription found, creating trial subscription for:", user.uid);
           const now = new Date();
           const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
           const receiptLimits = getReceiptLimits();
@@ -786,15 +712,13 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             updatedAt: now,
           };
           
-          console.log("📝 Creating subscription document with data:", newSubscriptionData);
           
           // Save to Firestore
           try {
             const { setDoc } = await import('firebase/firestore');
             await setDoc(doc(db, "subscriptions", user.uid), newSubscriptionData);
-            console.log("✅ Successfully created trial subscription document for user:", user.uid);
           } catch (error) {
-            console.error("❌ Error creating trial subscription:", error);
+            console.error('Error creating trial subscription:', error);
             // Don't return early - still set local state even if Firestore write fails
           }
           
@@ -810,7 +734,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           };
 
           if (isTeamMember) {
-            console.log(`🔄 New user is team member with role: ${teamMemberRole}`);
             newUserTier = "teammate";
             newUserFeatures = getFeaturesByTier("teammate", teamMemberRole);
             newUserLimits = {
@@ -942,7 +865,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       const { setDoc } = await import('firebase/firestore');
       await setDoc(doc(db, "subscriptions", user.uid), subscriptionData, { merge: true });
       
-      console.log("✅ Started trial for user:", user.uid);
       return { success: true };
     } catch (error) {
       console.error("Error starting trial:", error);

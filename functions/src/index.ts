@@ -9,6 +9,53 @@ import { onCall, HttpsError, CallableRequest, onRequest } from "firebase-functio
 import { Request, Response } from "express";
 const sgMail = require('@sendgrid/mail');
 
+// Structured logging utility for production
+class Logger {
+  private static isDevelopment = process.env.NODE_ENV === 'development' || process.env.FUNCTIONS_EMULATOR === 'true';
+  
+  static error(message: string, context?: any, userId?: string) {
+    console.error(JSON.stringify({
+      level: 'ERROR',
+      message,
+      timestamp: new Date().toISOString(),
+      userId,
+      ...context
+    }));
+  }
+  
+  static warn(message: string, context?: any, userId?: string) {
+    console.warn(JSON.stringify({
+      level: 'WARN',
+      message,
+      timestamp: new Date().toISOString(),
+      userId,
+      ...context
+    }));
+  }
+  
+  static info(message: string, context?: any, userId?: string) {
+    console.info(JSON.stringify({
+      level: 'INFO',
+      message,
+      timestamp: new Date().toISOString(),
+      userId,
+      ...context
+    }));
+  }
+  
+  static debug(message: string, context?: any, userId?: string) {
+    if (this.isDevelopment) {
+      console.log(JSON.stringify({
+        level: 'DEBUG',
+        message,
+        timestamp: new Date().toISOString(),
+        userId,
+        ...context
+      }));
+    }
+  }
+}
+
 // Split-tender interfaces
 interface SplitTenderPayment {
   method: 'cash' | 'credit' | 'debit' | 'gift_card' | 'check' | 'other';
@@ -437,7 +484,7 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
     await db.collection("users").doc(userId).set(userDoc);
 
     // Check if this user has a team invitation (pending OR recently accepted)
-    console.log(`Checking for team invitations for email: ${email} (lowercase: ${email.toLowerCase()})`);
+    Logger.debug('Checking for team invitations for email', { email, emailLowercase: email.toLowerCase() }, userId);
     
     const teamInvitationsQuery = await db.collection("teamInvitations")
       .where("inviteEmail", "==", email.toLowerCase())
@@ -447,7 +494,7 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
 
     const isTeamMember = !teamInvitationsQuery.empty;
     
-    console.log(`Team invitation query result: found ${teamInvitationsQuery.size} pending/accepted invitations`);
+    Logger.debug('Team invitation query result', { foundInvitations: teamInvitationsQuery.size }, userId);
     
     // Debug: Let's also check ALL invitations for this email (regardless of status)
     const allInvitationsQuery = await db.collection("teamInvitations")
@@ -455,10 +502,10 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
       .limit(10)
       .get();
     
-    console.log(`Debug: Found ${allInvitationsQuery.size} total invitations for email ${email.toLowerCase()}`);
+    Logger.debug('Found total invitations for email', { totalInvitations: allInvitationsQuery.size, email: email.toLowerCase() }, userId);
     allInvitationsQuery.docs.forEach((doc, index) => {
       const invitation = doc.data();
-      console.log(`Debug invitation ${index + 1}:`, {
+      Logger.debug(`Debug invitation ${index + 1}`, {
         id: doc.id,
         inviteEmail: invitation.inviteEmail,
         status: invitation.status,
@@ -467,25 +514,25 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
         accountHolderId: invitation.accountHolderId,
         businessName: invitation.businessName,
         createdAt: invitation.createdAt
-      });
+      }, userId);
     });
     
     if (!teamInvitationsQuery.empty) {
       const invitation = teamInvitationsQuery.docs[0].data();
-      console.log(`Found matching team invitation:`, {
+      Logger.info('Found matching team invitation', {
         inviteEmail: invitation.inviteEmail,
         status: invitation.status,
         accountHolderId: invitation.accountHolderId,
         businessName: invitation.businessName
-      });
+      }, userId);
     }
-    console.log(`isTeamMember determined as: ${isTeamMember}`);
+    Logger.debug('isTeamMember determined', { isTeamMember }, userId);
     const now = admin.firestore.Timestamp.now();
 
     if (isTeamMember) {
       // Team members do NOT get their own subscription documents
       // They inherit subscription from their account holder via SubscriptionContext
-      console.log(`Skipping subscription creation for team member ${email} - will inherit from account holder`);
+      Logger.info('Skipping subscription creation for team member - will inherit from account holder', { email }, userId);
       
       // Create usage document for tracking purposes
       const usageDoc: UsageDocument = {
@@ -501,13 +548,13 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
       };
       await db.collection("usage").doc(`${userId}_${usageDoc.month}`).set(usageDoc);
       
-      console.log(`✅ User account created successfully for team member: ${email}`);
+      Logger.info('User account created successfully for team member', { email }, userId);
       return; // Early return for team members - no subscription document needed
     }
 
     // Only create subscription documents for account holders (non-team members)
     // Create regular user subscription with 3-day trial
-    console.log(`Creating trial subscription for new account holder ${email}`);
+    Logger.info('Creating trial subscription for new account holder', { email }, userId);
     const trialExpires = admin.firestore.Timestamp.fromDate(
       new Date(Date.now() + (3 * 24 * 60 * 60 * 1000)) // 3 days from now
     );
@@ -565,9 +612,9 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
 
     await db.collection("usage").doc(`${userId}_${currentMonth}`).set(usageDoc);
 
-    console.log(`User ${userId} initialized successfully`);
+    Logger.info('User initialized successfully', {}, userId);
   } catch (error) {
-    console.error("Error creating user documents:", error);
+    Logger.error('Error creating user documents', { error: (error as Error) });
     throw error;
   }
 });
@@ -623,7 +670,7 @@ export const onReceiptCreate = functionsV1.firestore
       } else {
         const usage = usageDoc.data() as UsageDocument;
         const newReceiptCount: number = usage.receiptsUploaded + 1;
-        console.log("🚀 ~ newReceiptCount:", newReceiptCount)
+        Logger.debug('New receipt count', { newReceiptCount }, userId);
 
         // TEMPORARILY DISABLED - Fix counting logic inconsistency
         // The app and Cloud Function use different counting methods
@@ -640,7 +687,7 @@ export const onReceiptCreate = functionsV1.firestore
         //   );
         // }
 
-        console.log("⚠️ LIMIT CHECKING TEMPORARILY DISABLED - App handles limits client-side");
+        Logger.warn('Limit checking temporarily disabled - App handles limits client-side', {}, userId);
 
         // Update usage count
         await usageRef.update({
@@ -652,7 +699,7 @@ export const onReceiptCreate = functionsV1.firestore
       // Process receipt for OCR
       await processReceiptOCR(snap.ref, receiptData);
     } catch (error) {
-      console.error("Error processing receipt creation:", error);
+      Logger.error('Error processing receipt creation', { error: (error as Error) });
 
       // Update receipt status to error
       await snap.ref.update({
@@ -706,7 +753,7 @@ async function processReceiptOCR(
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
   } catch (error) {
-    console.error("OCR processing error:", error);
+    Logger.error('OCR processing error', { error: (error as Error) });
     throw error;
   }
 }
@@ -729,14 +776,16 @@ export const stripeWebhook = onRequest(
     timeoutSeconds: 540,
   },
   async (req: Request, res: Response) => {
-    console.log("🚀 Stripe webhook received");
-    console.log("Method:", req.method);
-    console.log("Content-Type:", req.headers["content-type"]);
-    console.log("Has Stripe signature:", !!req.headers["stripe-signature"]);
+    Logger.info('Stripe webhook received');
+    Logger.debug('Stripe webhook request details', {
+      method: req.method,
+      contentType: req.headers["content-type"],
+      hasStripeSignature: !!req.headers["stripe-signature"]
+    });
 
     // Only allow POST requests
     if (req.method !== "POST") {
-      console.error("❌ Invalid method:", req.method);
+      Logger.error('Invalid method for Stripe webhook', { method: req.method });
       res.status(405).send("Method not allowed");
       return;
     }
@@ -744,7 +793,7 @@ export const stripeWebhook = onRequest(
     const sig = req.headers["stripe-signature"] as string;
 
     if (!sig) {
-      console.error("❌ No Stripe signature found in request headers");
+      Logger.error('No Stripe signature found in request headers', {});
       res.status(400).send("No Stripe signature found");
       return;
     }
@@ -754,9 +803,9 @@ export const stripeWebhook = onRequest(
     try {
       const config = getStripeConfig();
       webhookSecret = config.webhookSecret;
-      console.log("✅ Webhook secret loaded successfully");
+      Logger.debug('Webhook secret loaded successfully', {});
     } catch (error) {
-      console.error("❌ Stripe configuration error:", error);
+      Logger.error('Stripe configuration error', { error: (error as Error) });
       res.status(500).send("Stripe configuration error");
       return;
     }
@@ -771,33 +820,32 @@ export const stripeWebhook = onRequest(
       if (requestWithRawBody.rawBody) {
         // Use the raw body provided by Firebase
         payload = requestWithRawBody.rawBody;
-        console.log("✅ Using rawBody from Firebase Functions");
+        Logger.debug('Using rawBody from Firebase Functions', {});
       } else if (typeof req.body === "string") {
         // If body is already a string, use it directly
         payload = req.body;
-        console.log("✅ Using string body");
+        Logger.debug('Using string body', {});
       } else if (Buffer.isBuffer(req.body)) {
         // If body is a Buffer, use it directly
         payload = req.body;
-        console.log("✅ Using Buffer body");
+        Logger.debug('Using Buffer body', {});
       } else {
         // Last resort: stringify the body (not ideal for signatures)
         payload = JSON.stringify(req.body);
-        console.log("⚠️ Using stringified body (may cause signature issues)");
+        Logger.warn('Using stringified body (may cause signature issues)', {});
       }
 
-      console.log("Payload type:", typeof payload);
-      console.log("Payload length:", payload.length);
+      Logger.debug('Payload details', { payloadType: typeof payload, payloadLength: payload.length });
 
       // Construct the Stripe event
       event = getStripe().webhooks.constructEvent(payload, sig, webhookSecret);
-      console.log(`✅ Webhook signature verified. Event type: ${event.type}, ID: ${event.id}`);
+      Logger.info('Webhook signature verified', { eventType: event.type, eventId: event.id });
     } catch (err) {
       const error = err as Error;
       // Ensure payload is defined for error logging
       const safePayload = typeof payload !== "undefined" ? payload : "";
-      console.error("❌ Webhook signature verification failed:", error.message);
-      console.error("Error details:", {
+      Logger.error('Webhook signature verification failed', { error: (error as Error) });
+      Logger.error('Webhook error details', {
         message: error.message,
         payloadType: typeof safePayload,
         payloadPreview: safePayload?.toString().substring(0, 100),
@@ -808,63 +856,63 @@ export const stripeWebhook = onRequest(
     }
 
     try {
-      console.log(`🔄 Processing Stripe event: ${event.type}`);
+      Logger.info('Processing Stripe event', { eventType: event.type });
 
       switch (event.type) {
         case "customer.subscription.created":
           await handleSubscriptionCreated(event.data.object as Stripe.Subscription);
-          console.log(`✅ Handled ${event.type} for subscription: ${(event.data.object as Stripe.Subscription).id}`);
+          Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: (event.data.object as Stripe.Subscription).id });
           break;
 
         case "checkout.session.completed":
           const session = event.data.object as Stripe.Checkout.Session;
-          console.log(`Processing checkout completion: ${session.id}`);
+          Logger.info('Processing checkout completion', { sessionId: session.id });
 
           if (session.subscription) {
             // Retrieve the full subscription object
             const subscription = await getStripe().subscriptions.retrieve(session.subscription as string);
             await handleSubscriptionCreated(subscription);
-            console.log(`✅ Handled checkout completion for subscription: ${subscription.id}`);
+            Logger.info('Handled checkout completion', { subscriptionId: subscription.id });
           } else {
-            console.log("ℹ️ Checkout session completed but no subscription found");
+            Logger.info('Checkout session completed but no subscription found', {});
           }
           break;
 
         case "payment_intent.succeeded":
-          const paymentIntent = event.data.object as Stripe.PaymentIntent;
-          console.log(`✅ Payment succeeded for PaymentIntent: ${paymentIntent.id}`);
+          
+          Logger.info('Payment succeeded for PaymentIntent: ${paymentIntent.id}', {});
           // Handle one-time payments here if needed
           break;
 
         case "customer.subscription.updated":
           await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
-          console.log(`✅ Handled ${event.type} for subscription: ${(event.data.object as Stripe.Subscription).id}`);
+          Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: (event.data.object as Stripe.Subscription).id });
           break;
 
         case "customer.subscription.deleted":
           await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
-          console.log(`✅ Handled ${event.type} for subscription: ${(event.data.object as Stripe.Subscription).id}`);
+          Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: (event.data.object as Stripe.Subscription).id });
           break;
 
         case "invoice.payment_succeeded":
           await handlePaymentSucceeded(event.data.object as Stripe.Invoice);
-          console.log(`✅ Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}`);
+          Logger.info('Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}', {});
           break;
 
         case "invoice.payment_failed":
           await handlePaymentFailed(event.data.object as Stripe.Invoice);
-          console.log(`✅ Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}`);
+          Logger.info('Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}', {});
           break;
 
         case "customer.subscription.trial_will_end":
           // Handle trial ending warning
-          const trialSub = event.data.object as Stripe.Subscription;
-          console.log(`ℹ️ Trial ending soon for subscription: ${trialSub.id}`);
+          
+          Logger.info('Trial ending soon for subscription: ${trialSub.id}', {});
           // You can add email notifications here
           break;
 
         default:
-          console.log(`ℹ️ Unhandled event type: ${event.type}`);
+          Logger.info('Unhandled event type: ${event.type}', {});
       }
 
       // Always respond with 200 to acknowledge receipt
@@ -876,13 +924,15 @@ export const stripeWebhook = onRequest(
       });
 
     } catch (error) {
-      console.error("❌ Error processing webhook:", error);
+      Logger.error('❌ Error processing webhook:', { error: (error as Error) });
 
       // Log the full error for debugging
       if (error instanceof Error) {
-        console.error("Error name:", error.name);
-        console.error("Error message:", error.message);
-        console.error("Error stack:", error.stack);
+        Logger.error('Error details', { 
+          name: error.name, 
+          message: error.message, 
+          stack: error.stack 
+        });
       }
 
       // Still respond with 200 to prevent Stripe retries for application errors
@@ -920,8 +970,8 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
     const userId: string | undefined = customer.metadata?.userId;
 
     if (!userId) {
-      console.error("No userId found in customer metadata for customer:", customerId);
-      console.error("Customer metadata:", customer.metadata);
+      Logger.error('No userId found in customer metadata for customer:', { error: customerId });
+      Logger.error('Customer metadata:', { error: customer.metadata.message });
       throw new Error(`No userId in customer metadata for ${customerId}`);
     }
 
@@ -973,7 +1023,7 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    console.log('Saving subscription data for user:', userId);
+    Logger.info('Saving subscription data for user', { value: userId });
 
     // Save to Firestore with transaction for consistency
     await db.runTransaction(async (transaction) => {
@@ -1003,10 +1053,10 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
       });
     });
 
-    console.log(`✅ Successfully processed subscription creation for user ${userId}`);
+    Logger.info('Successfully processed subscription creation for user ${userId}', {});
 
   } catch (error) {
-    console.error('Error in handleSubscriptionCreated:', error);
+    Logger.error('Error in handleSubscriptionCreated:', { error: (error as Error) });
     // Re-throw to trigger webhook retry if it's a transient error
     throw error;
   }
@@ -1020,31 +1070,31 @@ export const plaidWebhook = onRequest(
     timeoutSeconds: 540,
   },
   async (req: Request, res: Response) => {
-    console.log("🚀 Plaid webhook received");
-    console.log("Method:", req.method);
-    console.log("Content-Type:", req.headers["content-type"]);
-    console.log("Origin IP:", req.ip);
+    Logger.info('Plaid webhook received', {});
+    Logger.info('Method', { value: req.method });
+    Logger.info('Content-Type', { value: req.headers["content-type"] });
+    Logger.info('Origin IP', { value: req.ip });
 
     // Only allow POST requests
     if (req.method !== "POST") {
-      console.error("❌ Invalid method:", req.method);
+      Logger.error('Invalid method for Stripe webhook', { method: req.method });
       res.status(405).send("Method not allowed");
       return;
     }
 
     // Basic request validation
     if (!req.headers["content-type"]?.includes("application/json")) {
-      console.error("❌ Invalid content type:", req.headers["content-type"]);
+      Logger.error('❌ Invalid content type:', { error: req.headers["content-type"] });
       res.status(400).send("Invalid content type");
       return;
     }
 
     // Validate Plaid configuration
     try {
-      const config = getPlaidConfig();
-      console.log(`✅ Plaid config loaded for ${config.environment} environment`);
+      
+      Logger.info('Plaid config loaded for ${config.environment} environment', {});
     } catch (error) {
-      console.error("❌ Plaid configuration error:", error);
+      Logger.error('❌ Plaid configuration error:', { error: (error as Error) });
       res.status(500).send("Plaid configuration error");
       return;
     }
@@ -1060,36 +1110,36 @@ export const plaidWebhook = onRequest(
         throw new Error('Invalid request body format');
       }
 
-      console.log(`🔄 Processing Plaid webhook: ${webhookData.webhook_type}`);
+      Logger.info('Processing Plaid webhook: ${webhookData.webhook_type}', {});
 
       switch (webhookData.webhook_type) {
         case "TRANSACTIONS":
           await handlePlaidTransactions(webhookData);
-          console.log(`✅ Handled ${webhookData.webhook_type}`);
+          Logger.info('Handled ${webhookData.webhook_type}', {});
           break;
 
         case "ITEM":
           await handlePlaidItem(webhookData);
-          console.log(`✅ Handled ${webhookData.webhook_type}`);
+          Logger.info('Handled ${webhookData.webhook_type}', {});
           break;
 
         case "AUTH":
           await handlePlaidAuth(webhookData);
-          console.log(`✅ Handled ${webhookData.webhook_type}`);
+          Logger.info('Handled ${webhookData.webhook_type}', {});
           break;
 
         case "ACCOUNTS":
           await handlePlaidAccounts(webhookData);
-          console.log(`✅ Handled ${webhookData.webhook_type}`);
+          Logger.info('Handled ${webhookData.webhook_type}', {});
           break;
 
         case "LIABILITIES":
           await handlePlaidLiabilities(webhookData);
-          console.log(`✅ Handled ${webhookData.webhook_type}`);
+          Logger.info('Handled ${webhookData.webhook_type}', {});
           break;
 
         default:
-          console.log(`ℹ️ Unhandled Plaid webhook type: ${webhookData.webhook_type}`);
+          Logger.info('Unhandled Plaid webhook type: ${webhookData.webhook_type}', {});
       }
 
       // Always respond with 200 to acknowledge receipt
@@ -1101,7 +1151,7 @@ export const plaidWebhook = onRequest(
       });
 
     } catch (error) {
-      console.error("❌ Error processing Plaid webhook:", error);
+      Logger.error('❌ Error processing Plaid webhook:', { error: (error as Error) });
 
       // Still respond with 200 to prevent Plaid retries for application errors
       res.status(200).json({
@@ -1142,7 +1192,7 @@ export const initializeNotificationSettings = onRequest(async (req: Request, res
       }
     });
 
-    console.log(`✅ Initialized notification settings for user ${userId}`);
+    Logger.info('Initialized notification settings for user ${userId}', {});
     
     res.status(200).json({
       success: true,
@@ -1150,7 +1200,7 @@ export const initializeNotificationSettings = onRequest(async (req: Request, res
       userId
     });
   } catch (error) {
-    console.error('Error initializing notification settings:', error);
+    Logger.error('Error initializing notification settings:', { error: (error as Error) });
     res.status(500).json({ error: 'Failed to initialize settings' });
   }
 });
@@ -1187,7 +1237,7 @@ export const testWebhookConfig = onRequest(async (req: Request, res: Response) =
   } catch (error) {
     res.status(500).json({
       webhookConfigured: false,
-      error: (error as Error).message,
+      error: (error as Error),
       timestamp: new Date().toISOString(),
     });
   }
@@ -1206,7 +1256,7 @@ export const onConnectionNotificationCreate = functionsV1.firestore
 
     const { userId, title, message, type, priority } = notification;
 
-    console.log(`📬 New connection notification for user ${userId}: ${title}`);
+    Logger.info('New connection notification for user ${userId}: ${title}', {});
 
     try {
       // Get user's push token from Firestore
@@ -1214,7 +1264,7 @@ export const onConnectionNotificationCreate = functionsV1.firestore
       const userData = userDoc.data();
 
       // We no longer need tokens for the local notification approach
-      console.log(`📱 Processing notification for user ${userId}`);
+      Logger.debug('Processing notification for user ${userId}', {});
 
       // Check if user has notifications enabled
       const notificationSettings = userData?.notificationSettings;
@@ -1235,7 +1285,7 @@ export const onConnectionNotificationCreate = functionsV1.firestore
       // Simple approach: Create a local notification trigger document that the app monitors
       // This avoids all FCM complexity and uses the same approach as your working test notifications
       
-      console.log(`📱 Creating local notification trigger for user ${userId}`);
+      Logger.debug('Creating local notification trigger for user ${userId}', {});
       
       // Create a document in user_notifications collection that the app monitors
       await db.collection("user_notifications").add({
@@ -1249,7 +1299,7 @@ export const onConnectionNotificationCreate = functionsV1.firestore
         sourceId: context.params.notificationId
       });
       
-      console.log(`✅ Local notification trigger created for user ${userId}`);
+      Logger.info('Local notification trigger created for user ${userId}', {});
       
       // Update the original notification document to mark as processed
       await db.collection("connection_notifications").doc(context.params.notificationId).update({
@@ -1259,13 +1309,13 @@ export const onConnectionNotificationCreate = functionsV1.firestore
       });
 
     } catch (error) {
-      console.error('Error sending push notification:', error);
+      Logger.error('Error sending push notification:', { error: (error as Error) });
     }
   });
 
 // PLAID WEBHOOK HANDLERS
 async function handlePlaidTransactions(webhookData: any): Promise<void> {
-  console.log("🔄 Processing Plaid transactions webhook");
+  Logger.info('Processing Plaid transactions webhook', {});
   
   const { item_id, new_transactions, removed_transactions } = webhookData;
   
@@ -1275,8 +1325,8 @@ async function handlePlaidTransactions(webhookData: any): Promise<void> {
     const plaidItemSnapshot = await plaidItemQuery.get();
     
     if (plaidItemSnapshot.empty) {
-      console.log(`❌ No plaid_items entry found for item_id: ${item_id}`);
-      console.log(`ℹ️  This item may not have been synced to Firestore yet. Use syncBankConnectionToPlaidItems to sync existing connections.`);
+      Logger.error('No plaid_items entry found for item_id: ${item_id}', {});
+      Logger.info(' This item may not have been synced to Firestore yet. Use syncBankConnectionToPlaidItems to sync existing connections.', {});
       return;
     }
     
@@ -1287,7 +1337,7 @@ async function handlePlaidTransactions(webhookData: any): Promise<void> {
     await processTransactionsForUser(userId, item_id, new_transactions, removed_transactions);
     
   } catch (error) {
-    console.error("Error processing Plaid transactions webhook:", error);
+    Logger.error('Error processing Plaid transactions webhook:', { error: (error as Error) });
     throw error;
   }
 }
@@ -1297,7 +1347,7 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
   try {
     // Process new transactions
     if (new_transactions && new_transactions > 0) {
-      console.log(`📈 ${new_transactions} new transactions available for user ${userId}`);
+      Logger.info('${new_transactions} new transactions available for user ${userId}', {});
       
       // Store transaction update notification in transaction_updates collection
       await db.collection("transaction_updates").add({
@@ -1323,7 +1373,7 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
       
-      console.log(`✅ Created transaction update and notification for user ${userId}`);
+      Logger.info('Created transaction update and notification for user ${userId}', {});
       
       // TODO: Trigger transaction sync process
       // This would fetch the actual transactions and analyze them for potential receipts
@@ -1331,7 +1381,7 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
     
     // Process removed transactions  
     if (removed_transactions && removed_transactions.length > 0) {
-      console.log(`📉 ${removed_transactions.length} transactions removed for user ${userId}`);
+      Logger.info('${removed_transactions.length} transactions removed for user ${userId}', {});
       
       for (const transactionId of removed_transactions) {
         // Mark any generated receipts from these transactions as invalid
@@ -1351,7 +1401,7 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
           });
       }
       
-      console.log(`✅ Processed ${removed_transactions.length} removed transactions for user ${userId}`);
+      Logger.info('Processed ${removed_transactions.length} removed transactions for user ${userId}', {});
     }
   } catch (error) {
     console.error(`❌ Error processing transactions for user ${userId}:`, error);
@@ -1360,7 +1410,7 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
 }
 
 async function handlePlaidItem(webhookData: any): Promise<void> {
-  console.log("🔄 Processing Plaid item webhook");
+  Logger.info('Processing Plaid item webhook', {});
   
   const { item_id, webhook_code, error } = webhookData;
   
@@ -1370,8 +1420,8 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
     const plaidItemSnapshot = await plaidItemQuery.get();
     
     if (plaidItemSnapshot.empty) {
-      console.log(`❌ No plaid_items entry found for item_id: ${item_id}`);
-      console.log(`ℹ️  This item may not have been synced to Firestore yet. Use syncBankConnectionToPlaidItems to sync existing connections.`);
+      Logger.error('No plaid_items entry found for item_id: ${item_id}', {});
+      Logger.info(' This item may not have been synced to Firestore yet. Use syncBankConnectionToPlaidItems to sync existing connections.', {});
       return;
     }
     
@@ -1442,7 +1492,7 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
     
     // Update the item
     await plaidItemDoc.ref.update(updateData);
-    console.log(`✅ Updated item ${item_id} with status: ${updateData.status}`);
+    Logger.info('Updated item ${item_id} with status: ${updateData.status}', {});
     
     // Create connection notification
     if (notificationType) {
@@ -1453,7 +1503,7 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
         notificationType,
         webhook_code
       );
-      console.log(`✅ Created ${notificationType} notification for user ${userId}`);
+      Logger.info('Created ${notificationType} notification for user ${userId}', {});
     }
     
     // For self-healing, dismiss any existing reauth notifications
@@ -1461,7 +1511,7 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
       await dismissOldNotifications(userId, item_id, ["reauth_required", "pending_expiration"]);
     }
   } catch (error) {
-    console.error("Error processing Plaid item webhook:", error);
+    Logger.error('Error processing Plaid item webhook:', { error: (error as Error) });
     throw error;
   }
 }
@@ -1510,7 +1560,7 @@ async function createConnectionNotification(
       priority: notificationContent.priority || "normal"
     });
     
-    console.log(`✅ Created user notification for ${type} - ${institutionName}`);
+    Logger.info('Created user notification for ${type} - ${institutionName}', {});
   }
 }
 
@@ -1541,7 +1591,7 @@ async function dismissOldNotifications(
   
   if (batchOperations > 0) {
     await batch.commit();
-    console.log(`✅ Dismissed ${batchOperations} old notifications`);
+    Logger.info('Dismissed ${batchOperations} old notifications', {});
   }
 }
 
@@ -1609,35 +1659,35 @@ function getNotificationContent(
 }
 
 async function handlePlaidAuth(webhookData: any): Promise<void> {
-  console.log("🔄 Processing Plaid auth webhook");
+  Logger.info('Processing Plaid auth webhook', {});
   // Handle authentication-related webhooks
   // Implementation depends on your specific auth flow
 }
 
 async function handlePlaidAccounts(webhookData: any): Promise<void> {
-  console.log("🔄 Processing Plaid accounts webhook");
+  Logger.info('Processing Plaid accounts webhook', {});
   // Handle account-related webhooks (new accounts, account updates, etc.)
 }
 
 async function handlePlaidLiabilities(webhookData: any): Promise<void> {
-  console.log("🔄 Processing Plaid liabilities webhook");
+  Logger.info('Processing Plaid liabilities webhook', {});
   
   try {
     const { item_id, webhook_code } = webhookData;
     
     if (!item_id) {
-      console.error("❌ No item_id in liabilities webhook data");
+      Logger.error('No item_id in liabilities webhook data', {});
       return;
     }
 
-    console.log(`📊 Liabilities webhook - Code: ${webhook_code}, Item: ${item_id}`);
+    Logger.info('Liabilities webhook - Code: ${webhook_code}, Item: ${item_id}', {});
 
     // Find the user's Plaid item
     const itemsRef = db.collection('plaidItems');
     const itemQuery = await itemsRef.where('itemId', '==', item_id).get();
     
     if (itemQuery.empty) {
-      console.error(`❌ No Plaid item found for item_id: ${item_id}`);
+      Logger.error('No Plaid item found for item_id: ${item_id}', {});
       return;
     }
 
@@ -1646,7 +1696,7 @@ async function handlePlaidLiabilities(webhookData: any): Promise<void> {
     const userId = itemData.userId;
 
     if (!userId) {
-      console.error(`❌ No userId found for item: ${item_id}`);
+      Logger.error('No userId found for item: ${item_id}', {});
       return;
     }
 
@@ -1659,24 +1709,24 @@ async function handlePlaidLiabilities(webhookData: any): Promise<void> {
     // Handle different liability webhook codes
     switch (webhook_code) {
       case 'DEFAULT_UPDATE':
-        console.log(`💳 Default liability update for item: ${item_id}`);
+        Logger.info('Default liability update for item: ${item_id}', {});
         // This indicates that liability data has been updated and should be refetched
         // You might want to trigger a refresh of liability data here
         break;
         
       case 'LIABILITY_UPDATE':
-        console.log(`💳 Liability data updated for item: ${item_id}`);
+        Logger.info('Liability data updated for item: ${item_id}', {});
         // Handle specific liability updates
         break;
         
       default:
-        console.log(`ℹ️ Unhandled liabilities webhook code: ${webhook_code}`);
+        Logger.info('Unhandled liabilities webhook code: ${webhook_code}', {});
     }
 
-    console.log(`✅ Successfully processed liabilities webhook for item: ${item_id}`);
+    Logger.info('Successfully processed liabilities webhook for item: ${item_id}', {});
     
   } catch (error) {
-    console.error("❌ Error processing Plaid liabilities webhook:", error);
+    Logger.error('❌ Error processing Plaid liabilities webhook:', { error: (error as Error) });
     throw error;
   }
 }
@@ -1716,7 +1766,7 @@ export const createPlaidUpdateToken = onCall(
 
       // Get Plaid configuration
       const config = getPlaidConfig();
-
+      
       // Create update mode link token
       const linkTokenResponse = await fetch('https://production.plaid.com/link/token/create', {
         method: 'POST',
@@ -1742,13 +1792,13 @@ export const createPlaidUpdateToken = onCall(
 
       if (!linkTokenResponse.ok) {
         const errorData = await linkTokenResponse.json();
-        console.error('Plaid Link token creation failed:', errorData);
+        Logger.error('Plaid Link token creation failed:', { error: errorData });
         throw new HttpsError('internal', `Failed to create update link token: ${errorData.error_message || 'Unknown error'}`);
       }
 
       const linkTokenData = await linkTokenResponse.json();
       
-      console.log(`✅ Created update mode link token for user ${userId}, item ${itemId}`);
+      Logger.info('Created update mode link token for user ${userId}, item ${itemId}', {});
 
       return {
         link_token: linkTokenData.link_token,
@@ -1756,7 +1806,7 @@ export const createPlaidUpdateToken = onCall(
       };
 
     } catch (error) {
-      console.error('Error creating Plaid update link token:', error);
+      Logger.error('Error creating Plaid update link token:', { error: (error as Error) });
       
       if (error instanceof HttpsError) {
         throw error;
@@ -1775,35 +1825,35 @@ export const createPlaidLinkToken = onCall(
     platform?: 'ios' | 'android';
     auth_token?: string;
   }>) => {
-    console.log('🔍 createPlaidLinkToken called');
-    console.log('Request auth:', request.auth ? 'present' : 'missing');
-    console.log('Request data:', request.data);
-    console.log('Request rawRequest auth header:', request.rawRequest?.headers?.authorization ? 'Has auth header' : 'No auth header');
-    console.log('Manual auth token provided:', request.data.auth_token ? 'yes' : 'no');
+    Logger.info('🔍 createPlaidLinkToken called', {});
+    Logger.info('Request auth', { value: request.auth ? 'present' : 'missing' });
+    Logger.info('Request data', { value: request.data });
+    Logger.info('Request rawRequest auth header', { value: request.rawRequest?.headers?.authorization ? 'Has auth header' : 'No auth header' });
+    Logger.info('Manual auth token provided', { value: request.data.auth_token ? 'yes' : 'no' });
     
     let userId: string;
     
     if (request.auth) {
       // Standard Firebase auth context is available
-      console.log('✅ Using standard Firebase auth context');
+      Logger.info('✅ Using standard Firebase auth context', {});
       userId = request.auth.uid;
     } else if (request.data.auth_token) {
       // Manual token verification for React Native
-      console.log('🔑 Manually verifying auth token');
+      Logger.info('🔑 Manually verifying auth token', {});
       try {
         const decodedToken = await admin.auth().verifyIdToken(request.data.auth_token);
         userId = decodedToken.uid;
-        console.log('✅ Manual token verification successful for user:', userId);
+        Logger.info('✅ Manual token verification successful for user', { value: userId });
       } catch (error) {
-        console.error('❌ Manual token verification failed:', error);
+        Logger.error('❌ Manual token verification failed:', { error: (error as Error) });
         throw new HttpsError('unauthenticated', 'Invalid authentication token');
       }
     } else {
-      console.error('❌ No authentication method available');
+      Logger.error('❌ No authentication method available', {});
       throw new HttpsError('unauthenticated', 'User must be authenticated');
     }
     
-    console.log('✅ Authentication verified for user:', userId);
+    Logger.info('✅ Authentication verified for user', { value: userId });
 
     try {
       const { user_id, platform } = request.data;
@@ -1819,7 +1869,7 @@ export const createPlaidLinkToken = onCall(
 
       // Get Plaid configuration
       const config = getPlaidConfig();
-
+      
       // Prepare the request body
       const requestBody: any = {
         client_id: config.clientId,
@@ -1837,11 +1887,11 @@ export const createPlaidLinkToken = onCall(
       // Add platform-specific configuration
       if (platform === 'android') {
         requestBody.android_package_name = 'com.receiptgold.app';
-        console.log('🤖 Android: Using package name for OAuth redirect');
+        Logger.info('🤖 Android: Using package name for OAuth redirect', {});
       } else {
         // Default to iOS or when platform is not specified
         requestBody.redirect_uri = 'receiptgold://oauth';
-        console.log('🍎 iOS: Using redirect URI for OAuth');
+        Logger.info('🍎 iOS: Using redirect URI for OAuth', {});
       }
 
       console.log(`🔗 Creating link token for user ${userId} on ${platform || 'iOS'} platform`);
@@ -1863,13 +1913,13 @@ export const createPlaidLinkToken = onCall(
 
       if (!linkTokenResponse.ok) {
         const errorData = await linkTokenResponse.json();
-        console.error('Plaid Link token creation failed:', errorData);
+        Logger.error('Plaid Link token creation failed:', { error: errorData });
         throw new HttpsError('internal', `Failed to create link token: ${errorData.error_message || 'Unknown error'}`);
       }
 
       const linkTokenData = await linkTokenResponse.json();
       
-      console.log(`✅ Created link token for user ${userId}`);
+      Logger.info('Created link token for user ${userId}', {});
 
       return {
         link_token: linkTokenData.link_token,
@@ -1877,7 +1927,7 @@ export const createPlaidLinkToken = onCall(
       };
 
     } catch (error) {
-      console.error('Error creating Plaid link token:', error);
+      Logger.error('Error creating Plaid link token:', { error: (error as Error) });
       
       if (error instanceof HttpsError) {
         throw error;
@@ -1894,7 +1944,7 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
   const userId: string | undefined = customer.metadata?.userId;
 
   if (!userId) {
-    console.error("No userId found in customer metadata for customer:", customerId);
+    Logger.error('No userId found in customer metadata for customer:', { error: customerId });
     return;
   }
 
@@ -1931,7 +1981,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
   const userId: string | undefined = customer.metadata?.userId;
 
   if (!userId) {
-    console.error("No userId found in customer metadata for customer:", customerId);
+    Logger.error('No userId found in customer metadata for customer:', { error: customerId });
     return;
   }
 
@@ -1948,12 +1998,12 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
 }
 
 async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
-  console.log("Payment succeeded for invoice:", invoice.id);
+  Logger.info('Payment succeeded for invoice', { value: invoice.id });
   console.log("Full invoice data:", JSON.stringify(invoice, null, 2));
 
   try {
     const customerId: string = invoice.customer as string;
-    console.log("Customer ID from invoice:", customerId);
+    Logger.info('Customer ID from invoice', { value: customerId });
 
     const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
     console.log("Customer data:", JSON.stringify(customer, null, 2));
@@ -1961,7 +2011,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
     const userId: string | undefined = customer.metadata?.userId;
 
     if (!userId) {
-      console.error("No userId found in customer metadata for customer:", customerId);
+      Logger.error('No userId found in customer metadata for customer:', { error: customerId });
       return;
     }
 
@@ -1977,7 +2027,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
       );
       if (subscriptionItem) {
         subscriptionId = subscriptionItem.subscription;
-        console.log("Found subscription ID in line items:", subscriptionId);
+        Logger.info('Found subscription ID in line items', { value: subscriptionId });
       }
     }
 
@@ -1991,10 +2041,10 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
 
       if (subscriptions.data.length > 0) {
         subscriptionId = subscriptions.data[0].id;
-        console.log("Found subscription ID from customer's subscriptions:", subscriptionId);
+        Logger.info('Found subscription ID from customers subscriptions', { subscriptionId });
       }
     }
-    console.log("Subscription ID from invoice:", subscriptionId);
+    Logger.info('Subscription ID from invoice', { subscriptionId });
     if (subscriptionId) {
       // Get subscription status in Firestore
       const subscriptionRef = db.collection("subscriptions").doc(userId);
@@ -2062,25 +2112,25 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      console.log(`✅ Successfully updated billing records for user ${userId}`);
+      Logger.info('Successfully updated billing records for user ${userId}', {});
     } else {
       console.log("Invoice is not associated with a subscription");
     }
   } catch (error) {
-    console.error("Error processing successful payment:", error);
+    Logger.error('Error processing successful payment:', { error: (error as Error) });
     throw error; // Rethrow to trigger webhook retry if needed
   }
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
-  console.log("Payment failed for invoice:", invoice.id);
+  Logger.info('Payment failed for invoice', { value: invoice.id });
 
   const customerId: string = invoice.customer as string;
   const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
   const userId: string | undefined = customer.metadata?.userId;
 
   if (!userId) {
-    console.error("No userId found in customer metadata for customer:", customerId);
+    Logger.error('No userId found in customer metadata for customer:', { error: customerId });
     return;
   }
 
@@ -2095,7 +2145,7 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
 export const monitorBankConnections = functionsV1.pubsub
   .schedule("0 */6 * * *") // Run every 6 hours
   .onRun(async (context: any) => {
-    console.log("🔍 Starting proactive bank connection health check...");
+    Logger.debug('Starting proactive bank connection health check...', {});
     
     try {
       // Get all active Plaid items that haven't been checked recently
@@ -2105,7 +2155,7 @@ export const monitorBankConnections = functionsV1.pubsub
         .where("status", "in", ["connected", "stale"])
         .get();
 
-      console.log(`📊 Found ${plaidItemsSnapshot.docs.length} active bank connections to check`);
+      Logger.info('Found ${plaidItemsSnapshot.docs.length} active bank connections to check', {});
 
       for (const itemDoc of plaidItemsSnapshot.docs) {
         const itemData = itemDoc.data();
@@ -2119,7 +2169,7 @@ export const monitorBankConnections = functionsV1.pubsub
         try {
           // Simulate a health check by attempting to get accounts
           // In production, this would use Plaid API
-          console.log(`🔍 Checking health for ${institutionName} (${itemId})`);
+          Logger.debug('Checking health for ${institutionName} (${itemId})', {});
           
           // Update last health check timestamp
           await itemDoc.ref.update({
@@ -2130,7 +2180,7 @@ export const monitorBankConnections = functionsV1.pubsub
           const needsAttention = await checkConnectionNeedsRepair(itemData);
           
           if (needsAttention) {
-            console.log(`⚠️ Connection needs repair: ${institutionName}`);
+            Logger.warn('Connection needs repair: ${institutionName}', {});
             
             // Update item status to indicate it needs repair
             await itemDoc.ref.update({
@@ -2161,9 +2211,9 @@ export const monitorBankConnections = functionsV1.pubsub
         }
       }
 
-      console.log("✅ Bank connection health check completed");
+      Logger.info('Bank connection health check completed', {});
     } catch (error) {
-      console.error("❌ Error in bank connection monitoring:", error);
+      Logger.error('❌ Error in bank connection monitoring:', { error: (error as Error) });
     }
   });
 
@@ -2274,7 +2324,7 @@ export const resetMonthlyUsage = functionsV1.pubsub
         console.log("No subscriptions needed usage reset at this time");
       }
     } catch (error) {
-      console.error("Error resetting monthly usage:", error);
+      Logger.error('Error resetting monthly usage:', { error: (error as Error) });
     }
   });
 
@@ -2285,16 +2335,16 @@ interface CreateSubscriptionData {
 }
 
 export const createSubscription = onCall(async (request: CallableRequest<CreateSubscriptionData>) => {
-  console.log('createSubscription called with auth:', request.auth);
-  console.log('createSubscription request data:', request.data);
+  Logger.info('createSubscription called with auth', { value: request.auth });
+  Logger.info('createSubscription request data', { value: request.data });
 
   if (!request.auth) {
-    console.error('Authentication missing in createSubscription');
+    Logger.error('Authentication missing in createSubscription', {});
     throw new HttpsError('unauthenticated', 'You must be logged in to create a subscription');
   }
 
   if (!request.auth.uid) {
-    console.error('User ID missing in auth object:', request.auth);
+    Logger.error('User ID missing in auth object:', { error: request.auth });
     throw new HttpsError('unauthenticated', 'Invalid authentication state');
   }
 
@@ -2302,7 +2352,7 @@ export const createSubscription = onCall(async (request: CallableRequest<CreateS
     const { priceId, customerId } = request.data;
 
     if (!priceId || !customerId) {
-      console.error('Missing required subscription data:', { priceId, customerId });
+      Logger.error('Missing required subscription data:', { error: { priceId, customerId } });
       throw new HttpsError('invalid-argument', 'Price ID and customer ID are required');
     }
 
@@ -2325,20 +2375,20 @@ export const createSubscription = onCall(async (request: CallableRequest<CreateS
     // Verify the customer exists and belongs to this user
     const customer = await stripe.customers.retrieve(customerId);
     if (!customer || customer.deleted) {
-      console.error('Customer not found:', customerId);
+      Logger.error('Customer not found:', { error: customerId });
       throw new HttpsError('not-found', 'Invalid customer ID');
     }
 
     if (customer.metadata?.userId !== request.auth.uid) {
-      console.error('Customer does not belong to user:', {
+      Logger.error('Customer does not belong to user:', { error: {
         customerId,
         customerUserId: customer.metadata?.userId,
         requestUserId: request.auth.uid
-      });
+      } });
       throw new HttpsError('permission-denied', 'Customer does not belong to this user');
     }
 
-    console.log('Customer verified, creating subscription...');
+    Logger.info('Customer verified, creating subscription...', {});
 
     // Create the subscription
     const subscription = await stripe.subscriptions.create({
@@ -2357,24 +2407,24 @@ export const createSubscription = onCall(async (request: CallableRequest<CreateS
 
     console.log('Created subscription:', JSON.stringify(subscription, null, 2));
 
-    console.log('Subscription created:', subscription.id);
+    Logger.info('Subscription created', { value: subscription.id });
 
     // @ts-ignore - Stripe types don't properly capture the expanded fields
     const clientSecret = subscription.latest_invoice?.payment_intent?.client_secret;
 
     if (!clientSecret) {
-      console.error('No client secret in subscription response:', subscription);
+      Logger.error('No client secret in subscription response:', { error: subscription });
       throw new HttpsError('internal', 'Failed to create subscription: No client secret returned');
     }
 
-    console.log('Subscription created successfully with client secret');
+    Logger.info('Subscription created successfully with client secret', {});
 
     return {
       subscriptionId: subscription.id,
       clientSecret: clientSecret,
     };
   } catch (error) {
-    console.error('Error creating subscription:', error);
+    Logger.error('Error creating subscription:', { error: (error as Error) });
 
     if (error instanceof HttpsError) {
       throw error;
@@ -2398,10 +2448,10 @@ interface CreateCustomerData {
 }
 
 export const createStripeCustomer = onCall(async (request: CallableRequest<CreateCustomerData>) => {
-  console.log('createStripeCustomer called with auth:', request.auth);
+  Logger.info('createStripeCustomer called with auth', { value: request.auth });
 
   if (!request.auth) {
-    console.error('Authentication missing in createStripeCustomer');
+    Logger.error('Authentication missing in createStripeCustomer', {});
     throw new HttpsError(
       "unauthenticated",
       "You must be logged in to create a customer"
@@ -2409,7 +2459,7 @@ export const createStripeCustomer = onCall(async (request: CallableRequest<Creat
   }
 
   if (!request.auth.uid) {
-    console.error('User ID missing in auth object:', request.auth);
+    Logger.error('User ID missing in auth object:', { error: request.auth });
     throw new HttpsError(
       "unauthenticated",
       "Invalid authentication state"
@@ -2421,7 +2471,7 @@ export const createStripeCustomer = onCall(async (request: CallableRequest<Creat
     const { email, name }: CreateCustomerData = request.data;
 
     if (!email || !name) {
-      console.error('Missing required customer data:', { email, name });
+      Logger.error('Missing required customer data:', { error: { email, name } });
       throw new HttpsError(
         "invalid-argument",
         "Email and name are required"
@@ -2453,10 +2503,10 @@ export const createStripeCustomer = onCall(async (request: CallableRequest<Creat
       },
     });
 
-    console.log(`✅ Created Stripe customer ${customer.id} for user ${userId}`);
+    Logger.info('Created Stripe customer ${customer.id} for user ${userId}', {});
     return { customerId: customer.id };
   } catch (error) {
-    console.error("Error creating Stripe customer:", error);
+    Logger.error('Error creating Stripe customer:', { error: (error as Error) });
     throw new HttpsError(
       "internal",
       error instanceof Error ? error.message : "Failed to create customer"
@@ -2514,15 +2564,15 @@ export const createCheckoutSession = onCall(
         },
       });
 
-      console.log(`✅ Created checkout session ${session.id} for user ${request.auth.uid}`);
-      console.log(`📍 Checkout URL: ${session.url}`);
+      Logger.info('Created checkout session ${session.id} for user ${request.auth.uid}', {});
+      Logger.info('Checkout URL: ${session.url}', {});
 
       return {
         sessionId: session.id,
         url: session.url
       };
     } catch (error) {
-      console.error("Error creating checkout session:", error);
+      Logger.error('Error creating checkout session:', { error: (error as Error) });
       throw new HttpsError(
         "internal",
         "Failed to create checkout session"
@@ -2573,7 +2623,7 @@ export const updateBusinessStats = functionsV1.firestore
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     } catch (error) {
-      console.error("Error updating business stats:", error);
+      Logger.error('Error updating business stats:', { error: (error as Error) });
     }
   });
 
@@ -2694,10 +2744,10 @@ export const generateReport = onCall(async (request: CallableRequest<GenerateRep
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-    console.log(`✅ Generated report ${reportRef.id} for user ${userId}`);
+    Logger.info('Generated report ${reportRef.id} for user ${userId}', {});
     return { reportId: reportRef.id, data: reportData.data };
   } catch (error) {
-    console.error("Error generating report:", error);
+    Logger.error('Error generating report:', { error: (error as Error) });
     throw new HttpsError(
       "internal",
       "Failed to generate report"
@@ -2763,9 +2813,9 @@ export const onUserDelete = functionsV1.auth.user().onDelete(async (user: admin.
 
     await batch.commit();
 
-    console.log(`✅ User ${userId} data deleted successfully`);
+    Logger.info('User ${userId} data deleted successfully', {});
   } catch (error) {
-    console.error("Error deleting user data:", error);
+    Logger.error('Error deleting user data:', { error: (error as Error) });
   }
 });
 
@@ -3147,7 +3197,7 @@ export const testStripeConnection = onCall(
         }
       };
     } catch (error) {
-      console.error('Stripe connection test failed:', error);
+      Logger.error('Stripe connection test failed:', { error: (error as Error) });
       return {
         success: false,
         message: `Stripe connection failed: ${(error as Error).message}`,
@@ -3173,7 +3223,7 @@ export const healthCheck = onRequest((req, res) => {
   } catch (error) {
     res.status(500).json({
       status: 'unhealthy',
-      error: (error as Error).message,
+      error: (error as Error),
       timestamp: new Date().toISOString(),
     });
   }
@@ -3181,11 +3231,11 @@ export const healthCheck = onRequest((req, res) => {
 
 // Debug webhook (for testing webhook delivery)
 export const debugWebhook = onRequest((req, res) => {
-  console.log('=== DEBUG WEBHOOK ===');
-  console.log('Method:', req.method);
+  Logger.info('=== DEBUG WEBHOOK ===', {});
+  Logger.info('Method', { value: req.method });
   console.log('Headers:', JSON.stringify(req.headers, null, 2));
-  console.log('Body type:', typeof req.body);
-  console.log('Body length:', req.body?.length || 0);
+  Logger.info('Body type', { value: typeof req.body });
+  Logger.info('Body length', { value: req.body?.length || 0 });
   console.log('Raw body preview:', req.body?.toString().substring(0, 200));
 
   res.status(200).json({
@@ -3233,11 +3283,11 @@ export const testPlaidWebhook = onCall(
         requestBody.webhook_code = webhookCode;
       }
 
-      console.log('📤 Sending sandbox webhook request:', {
+      Logger.info('📤 Sending sandbox webhook request', { value: {
         webhook_type: webhookType,
         webhook_code: webhookCode,
         user_id: request.auth.uid,
-      });
+      } });
 
       const response = await fetch(`https://${plaidConfig.environment}.plaid.com/sandbox/item/fire_webhook`, {
         method: 'POST',
@@ -3249,12 +3299,12 @@ export const testPlaidWebhook = onCall(
 
       if (!response.ok) {
         const errorData = await response.json();
-        console.error('❌ Plaid sandbox webhook failed:', errorData);
+        Logger.error('❌ Plaid sandbox webhook failed:', { error: errorData });
         throw new HttpsError('internal', `Plaid sandbox webhook failed: ${errorData.error_message || 'Unknown error'}`);
       }
 
       const responseData = await response.json();
-      console.log('✅ Plaid sandbox webhook fired successfully:', responseData);
+      Logger.info('✅ Plaid sandbox webhook fired successfully', { value: responseData });
 
       return {
         success: true,
@@ -3266,7 +3316,7 @@ export const testPlaidWebhook = onCall(
       };
 
     } catch (error) {
-      console.error('❌ Error testing Plaid webhook:', error);
+      Logger.error('❌ Error testing Plaid webhook:', { error: (error as Error) });
       
       if (error instanceof HttpsError) {
         throw error;
@@ -3285,7 +3335,7 @@ export const directTestPlaidWebhook = onRequest(async (req: Request, res: Respon
   }
 
   try {
-    console.log('🧪 Direct Plaid webhook test starting...');
+    Logger.info('🧪 Direct Plaid webhook test starting...', {});
     
     const accessToken = 'access-sandbox-6193d89e-9a8a-48a3-af09-88d86d13dbb1';
     const webhookType = 'DEFAULT_UPDATE';
@@ -3303,7 +3353,7 @@ export const directTestPlaidWebhook = onRequest(async (req: Request, res: Respon
       webhook_code: webhookCode,
     };
 
-    console.log('📤 Firing Plaid sandbox webhook...');
+    Logger.info('📤 Firing Plaid sandbox webhook...', {});
 
     const response = await fetch(`https://${plaidConfig.environment}.plaid.com/sandbox/item/fire_webhook`, {
       method: 'POST',
@@ -3315,7 +3365,7 @@ export const directTestPlaidWebhook = onRequest(async (req: Request, res: Respon
 
     if (!response.ok) {
       const errorData = await response.json();
-      console.error('❌ Plaid webhook failed:', errorData);
+      Logger.error('❌ Plaid webhook failed:', { error: errorData });
       res.status(500).json({ 
         success: false, 
         error: errorData,
@@ -3325,7 +3375,7 @@ export const directTestPlaidWebhook = onRequest(async (req: Request, res: Respon
     }
 
     const responseData = await response.json();
-    console.log('✅ Plaid webhook fired successfully! Response:', responseData);
+    Logger.info('✅ Plaid webhook fired successfully! Response', { value: responseData });
 
     res.status(200).json({
       success: true,
@@ -3338,10 +3388,10 @@ export const directTestPlaidWebhook = onRequest(async (req: Request, res: Respon
     });
 
   } catch (error) {
-    console.error('❌ Error in direct webhook test:', error);
+    Logger.error('❌ Error in direct webhook test:', { error: (error as Error) });
     res.status(500).json({
       success: false,
-      error: (error as Error).message,
+      error: (error as Error),
       message: 'Internal server error'
     });
   }
@@ -3355,7 +3405,7 @@ export const syncBankConnectionToPlaidItems = onRequest(async (req: Request, res
   }
 
   try {
-    console.log('🔄 Syncing bank connection to plaid_items...');
+    Logger.info('🔄 Syncing bank connection to plaid_items...', {});
     
     const userId = 'sZY5c4gQa9XVwfy7EbPUHs7Vnrc2';
     const itemId = 'bank_sZY5c4gQa9XVwfy7EbPUHs7Vnrc2_1756666330485';
@@ -3381,7 +3431,7 @@ export const syncBankConnectionToPlaidItems = onRequest(async (req: Request, res
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
 
-    console.log('✅ Successfully created plaid_items document');
+    Logger.info('✅ Successfully created plaid_items document', {});
 
     res.status(200).json({
       success: true,
@@ -3392,10 +3442,10 @@ export const syncBankConnectionToPlaidItems = onRequest(async (req: Request, res
     });
 
   } catch (error) {
-    console.error('❌ Error syncing to plaid_items:', error);
+    Logger.error('❌ Error syncing to plaid_items:', { error: (error as Error) });
     res.status(500).json({
       success: false,
-      error: (error as Error).message,
+      error: (error as Error),
       message: 'Failed to sync bank connection'
     });
   }
@@ -3427,7 +3477,7 @@ export const initializeTestUser = onCall(
         userId: userId,
       };
     } catch (error) {
-      console.error('Error initializing test user:', error);
+      Logger.error('Error initializing test user:', { error: (error as Error) });
       throw new HttpsError('internal', 'Failed to initialize user');
     }
   }
@@ -3451,7 +3501,7 @@ export const sendTeamInvitationEmail = functionsV1.firestore
       // Get account holder information
       const accountHolderDoc = await db.collection('users').doc(invitation.accountHolderId).get();
       if (!accountHolderDoc.exists) {
-        console.error('Account holder not found:', invitation.accountHolderId);
+        Logger.error('Account holder not found:', { error: invitation.accountHolderId.message });
         return;
       }
 
@@ -3521,17 +3571,17 @@ export const sendTeamInvitationEmail = functionsV1.firestore
       `;
 
       // Send email using SendGrid
-      console.log('📧 Team invitation email details:');
-      console.log('To:', invitation.inviteEmail);
-      console.log('From:', accountHolderEmail);
-      console.log('Subject:', subject);
-      console.log('Invitation Link:', invitationLink);
+      Logger.info('📧 Team invitation email details:', {});
+      Logger.info('To', { value: invitation.inviteEmail });
+      Logger.info('From', { value: accountHolderEmail });
+      Logger.info('Subject', { value: subject });
+      Logger.info('Invitation Link', { value: invitationLink });
       console.log('Expires:', invitation.expiresAt.toDate());
 
       // Get SendGrid API key from environment
       const sendgridApiKey = process.env.SENDGRID_API_KEY;
       if (!sendgridApiKey) {
-        console.error('❌ SENDGRID_API_KEY environment variable not set');
+        Logger.error('❌ SENDGRID_API_KEY environment variable not set', {});
         throw new Error('SendGrid API key not configured');
       }
 
@@ -3549,8 +3599,8 @@ export const sendTeamInvitationEmail = functionsV1.firestore
 
       // Send the email
       const response = await sgMail.send(msg);
-      console.log('✅ Team invitation email sent successfully to:', invitation.inviteEmail);
-      console.log('📧 SendGrid response status:', response[0].statusCode);
+      Logger.info('✅ Team invitation email sent successfully to', { value: invitation.inviteEmail });
+      Logger.info('📧 SendGrid response status', { value: response[0].statusCode });
       
       // Mark invitation as email sent (optional status tracking)
       await snapshot.ref.update({
@@ -3558,10 +3608,10 @@ export const sendTeamInvitationEmail = functionsV1.firestore
         emailSentAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
-      console.log('✅ Team invitation email processed for:', invitation.inviteEmail);
+      Logger.info('✅ Team invitation email processed for', { value: invitation.inviteEmail });
 
     } catch (error) {
-      console.error('❌ Error sending team invitation email:', error);
+      Logger.error('❌ Error sending team invitation email:', { error: (error as Error) });
       
       // Update invitation with error status
       await snapshot.ref.update({
@@ -3588,7 +3638,7 @@ export const cleanupExpiredInvitations = functionsV1.pubsub
       const expiredInvitations = await expiredInvitationsQuery.get();
       
       if (expiredInvitations.empty) {
-        console.log('No expired invitations to clean up');
+        Logger.info('No expired invitations to clean up', {});
         return;
       }
 
@@ -3604,10 +3654,10 @@ export const cleanupExpiredInvitations = functionsV1.pubsub
       });
 
       await batch.commit();
-      console.log(`✅ Cleaned up ${count} expired team invitations`);
+      Logger.info(`Cleaned up ${count} expired team invitations`, {});
 
     } catch (error) {
-      console.error('❌ Error cleaning up expired invitations:', error);
+      Logger.error('❌ Error cleaning up expired invitations:', { error: (error as Error) });
     }
   });
 
@@ -3628,7 +3678,7 @@ export const onTeamMemberRemoved = functionsV1.firestore
         const userId = after.userId;
         const memberEmail = after.email;
 
-        console.log(`🔄 Team member ${userId} (${memberEmail}) was removed/suspended, performing complete account deletion...`);
+        Logger.info(`Team member ${userId} (${memberEmail}) was removed/suspended, performing complete account deletion...`, {});
 
         try {
           // 1. Delete the Firebase Auth user account completely
@@ -3671,7 +3721,7 @@ export const onTeamMemberRemoved = functionsV1.firestore
           await change.after.ref.delete();
           console.log(`👥 Deleted team member document ${memberId}`);
 
-          console.log(`✅ COMPLETE ACCOUNT DELETION: User ${userId} (${memberEmail}) has been permanently removed`);
+          Logger.info('COMPLETE ACCOUNT DELETION: User ${userId} (${memberEmail}) has been permanently removed', {});
           
         } catch (deleteError) {
           console.error(`❌ Error during complete account deletion for user ${userId}:`, deleteError);
@@ -3687,16 +3737,16 @@ export const onTeamMemberRemoved = functionsV1.firestore
       }
 
     } catch (error) {
-      console.error('❌ Error handling team member removal:', error);
+      Logger.error('❌ Error handling team member removal:', { error: (error as Error) });
     }
   });
 
 // RevenueCat webhook for handling subscription events
 export const revenueCatWebhookHandler = onRequest(async (req: Request, res: Response) => {
-  console.log('🔔 RevenueCat webhook received');
+  Logger.info('RevenueCat webhook received', {});
   
   if (req.method !== 'POST') {
-    console.log('❌ Invalid method:', req.method);
+    Logger.error('Invalid method for RevenueCat webhook', { method: req.method });
     res.status(405).json({ error: 'Method not allowed' });
     return;
   }
@@ -3707,21 +3757,20 @@ export const revenueCatWebhookHandler = onRequest(async (req: Request, res: Resp
     const expectedAuth = process.env.REVENUECAT_WEBHOOK_SECRET;
     
     if (expectedAuth && authHeader !== `Bearer ${expectedAuth}`) {
-      console.log('❌ Invalid authorization header');
+      Logger.info('❌ Invalid authorization header', {});
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
     
     if (expectedAuth) {
-      console.log('🔒 Webhook authorization verified');
+      Logger.info('🔒 Webhook authorization verified', {});
     } else {
-      console.log('⚠️ No webhook secret configured - skipping auth verification');
+      Logger.info('⚠️ No webhook secret configured - skipping auth verification', {});
     }
 
     const body = req.body;
     const event = body.event; // RevenueCat nests the actual event data
-    console.log('📦 RevenueCat event type:', event.type);
-    console.log('📦 RevenueCat event data:', JSON.stringify(body, null, 2));
+    Logger.info('RevenueCat event received', { eventType: event.type, eventData: body });
 
     // Handle different event types
     switch (event.type) {
@@ -3735,12 +3784,12 @@ export const revenueCatWebhookHandler = onRequest(async (req: Request, res: Resp
         break;
       
       default:
-        console.log(`ℹ️ Unhandled event type: ${event.type}`);
+        Logger.info('Unhandled event type: ${event.type}', {});
     }
 
     res.status(200).json({ received: true });
   } catch (error) {
-    console.error('❌ Error processing RevenueCat webhook:', error);
+    Logger.error('Error processing RevenueCat webhook', { error: (error as Error) });
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -3754,21 +3803,21 @@ async function handleSubscriptionEvent(event: any) {
     // For PRODUCT_CHANGE events, use new_product_id, otherwise use product_id
     const effectiveProductId = (type === 'PRODUCT_CHANGE' && new_product_id) ? new_product_id : product_id;
     
-    console.log(`🔄 Processing subscription event for user: ${userId}`);
-    console.log(`📱 Event type: ${type}`);
-    console.log(`📱 Original Product ID: ${product_id}`);
-    if (new_product_id) console.log(`📱 New Product ID: ${new_product_id}`);
-    console.log(`📱 Effective Product ID: ${effectiveProductId}`);
+    Logger.info('Processing subscription event for user: ${userId}', {});
+    Logger.debug('Event type: ${type}', {});
+    Logger.debug('Original Product ID: ${product_id}', {});
+    if (new_product_id) Logger.debug('New Product ID: ${new_product_id}', {});
+    Logger.debug('Effective Product ID: ${effectiveProductId}', {});
     console.log(`⏰ Event timestamp: ${new Date(event_timestamp_ms)}`);
 
     if (!userId) {
-      console.error('❌ No user ID found in webhook event');
+      Logger.error('❌ No user ID found in webhook event', {});
       return;
     }
 
     // Map RevenueCat product ID to subscription tier
     const tier = mapProductIdToTier(effectiveProductId);
-    console.log(`🎯 Mapped to tier: ${tier}`);
+    Logger.info('Mapped product to tier', { tier, productId: effectiveProductId });
 
     // Get user's current subscription document
     const subscriptionRef = db.collection('subscriptions').doc(userId);
@@ -3800,7 +3849,7 @@ async function handleSubscriptionEvent(event: any) {
 
     // Handle tier changes
     if (currentTier !== tier) {
-      console.log(`🔄 Tier change detected: ${currentTier} → ${tier}`);
+      Logger.info('Tier change detected: ${currentTier} → ${tier}', {});
       
       // Add history entry
       const historyEntry = {
@@ -3822,16 +3871,16 @@ async function handleSubscriptionEvent(event: any) {
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
         
-        console.log(`📊 Updated usage limits for ${currentMonth}`);
+        Logger.info('Updated usage limits for ${currentMonth}', {});
       }
     }
 
     // Update subscription document
     await subscriptionRef.set(subscriptionUpdate, { merge: true });
-    console.log(`✅ Subscription updated for user ${userId}`);
+    Logger.info('Subscription updated for user ${userId}', {});
 
   } catch (error) {
-    console.error('❌ Error handling subscription event:', error);
+    Logger.error('❌ Error handling subscription event:', { error: (error as Error) });
     throw error;
   }
 }

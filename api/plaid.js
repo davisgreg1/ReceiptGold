@@ -71,8 +71,6 @@ export default async function handler(req, res) {
             access_token: body.access_token,
           });
           
-          console.log('✅ Plaid item removed successfully:', removeResponse.data);
-          
           res.json({
             success: true,
             message: 'Bank account disconnected successfully',

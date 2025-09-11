@@ -213,17 +213,10 @@ const formatFirestoreDate = (dateValue: any): string => {
 export const SettingsScreen: React.FC = () => {
   const { theme, themeMode, toggleTheme } = useTheme();
   const { subscription, canAccessFeature } = useSubscription();
-  console.log("🚀 ~ SettingsScreen ~ subscription:", subscription);
   const { user, logout, refreshUser } = useAuth();
   const { businesses, selectedBusiness } = useBusiness();
   const { teamMembers, teamInvitations, canInviteMembers, isTeamMember, currentMembership, accountHolderId } = useTeam();
-  console.log("🚀 ~ SettingsScreen ~ isTeamMember:", isTeamMember);
-  console.log("🚀 ~ SettingsScreen ~ currentMembership:", currentMembership);
-  console.log("🚀 ~ SettingsScreen ~ currentMembership role:", currentMembership?.role);
-  console.log("🚀 ~ SettingsScreen ~ canAccessFeature teamManagement:", canAccessFeature("teamManagement"));
-  console.log("🚀 ~ SettingsScreen ~ should show team management:", 
-    ((canAccessFeature("teamManagement") && !isTeamMember) || 
-     (isTeamMember && currentMembership?.role === 'admin')));
+
   const navigation =
     useNavigation<StackNavigationProp<SettingsStackParamList>>();
   const {
@@ -387,34 +380,23 @@ export const SettingsScreen: React.FC = () => {
   };
 
   const handlePasswordChange = async () => {
-    console.log("handlePasswordChange called", {
-      hasUser: !!user,
-      currentPasswordLength: currentPassword?.length || 0,
-      newPasswordLength: newPassword?.length || 0,
-      confirmPasswordLength: confirmPassword?.length || 0,
-    });
-
     if (!user || !currentPassword || !newPassword || !confirmPassword) {
-      console.log("Missing required fields for password change");
       showError("Error", "Please fill in all password fields");
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      console.log("Passwords do not match");
       showError("Error", "New passwords do not match");
       return;
     }
 
     if (newPassword.length < 8) {
-      console.log("Password too short");
       showError("Error", "New password must be at least 8 characters");
       return;
     }
 
     setIsLoading(true);
     try {
-      console.log("Starting password change process");
       const auth = getAuth();
       const credential = EmailAuthProvider.credential(
         user.email!,
@@ -422,14 +404,11 @@ export const SettingsScreen: React.FC = () => {
       );
 
       // First reauthenticate
-      console.log("Reauthenticating user");
       await reauthenticateWithCredential(auth.currentUser!, credential);
 
       // Then update password
-      console.log("Updating password");
       await updatePassword(auth.currentUser!, newPassword);
 
-      console.log("Password updated successfully");
       setShowPasswordDialog(false);
       setCurrentPassword("");
       setNewPassword("");
@@ -494,8 +473,6 @@ export const SettingsScreen: React.FC = () => {
   // Bank account handlers
   const handleRepairBankAccount = async (connection: BankConnection) => {
     if (!user) return;
-
-    console.log('🔧 Starting repair flow for:', connection.institutionName);
     
     try {
       setIsLoading(true);
@@ -503,17 +480,13 @@ export const SettingsScreen: React.FC = () => {
       // Create a link token - if no access token, use regular flow, otherwise use update mode
       let token;
       if (connection.accessToken) {
-        console.log('🔧 Using update mode with existing access token');
         token = await plaidService.createLinkTokenForUpdate(user.uid, connection.accessToken);
       } else {
-        console.log('🔧 No access token available, using regular link token for re-connection');
         token = await plaidService.createLinkToken(user.uid);
       }
       
       // Import Plaid SDK and open in update mode
       const { create, open } = await import("react-native-plaid-link-sdk");
-      
-      console.log("🔧 Opening Plaid Link in update mode...");
       
       // Create Link with update token
       create({ token });
@@ -522,7 +495,6 @@ export const SettingsScreen: React.FC = () => {
       open({
         onSuccess: (success: LinkSuccess) => handlePlaidRepairSuccess(success, connection),
         onExit: (exit: LinkExit) => {
-          console.log("Plaid Link repair exited:", exit);
           setIsLoading(false);
           if (exit.error) {
             showError(
@@ -547,8 +519,6 @@ export const SettingsScreen: React.FC = () => {
     if (!user) return;
 
     try {
-      console.log('✅ Repair successful, updating connection...');
-      
       // Get the new access token
       const newAccessToken = await plaidService.exchangePublicToken(success.publicToken);
       
@@ -575,8 +545,6 @@ export const SettingsScreen: React.FC = () => {
         `${connection.institutionName} Repaired`,
         "Your bank connection has been successfully repaired and is now working normally."
       );
-
-      console.log('✅ Bank connection repair completed successfully');
       
     } catch (error) {
       console.error("Error completing repair:", error);
@@ -657,22 +625,14 @@ export const SettingsScreen: React.FC = () => {
     
     // Only allow professional tier or trial users to access bank connections
     if (subscription.currentTier !== 'professional' && !subscription.trial.isActive) {
-      console.log('🚫 Bank connections only available for professional tier or trial users');
       setBankConnections([]);
       return;
     }
 
     try {
       setLoadingBankConnections(true);
-      console.log("🔄 Refreshing bank connections for user:", user.uid);
       const connections = await bankReceiptService.getBankConnections(user.uid);
-      console.log("🔍 Raw connections:", connections.length, connections);
       const activeConnections = connections.filter((conn) => conn.isActive);
-      console.log(
-        "🔍 Active connections:",
-        activeConnections.length,
-        activeConnections
-      );
       setBankConnections(activeConnections);
     } catch (error) {
       console.error("Error fetching bank connections:", error);
@@ -804,7 +764,6 @@ export const SettingsScreen: React.FC = () => {
       // Import Plaid SDK and open directly
       const { create, open } = await import("react-native-plaid-link-sdk");
 
-      console.log("🔗 Creating and opening Plaid Link directly...");
 
       // Create Link with token
       create({ token });
@@ -816,7 +775,6 @@ export const SettingsScreen: React.FC = () => {
       open({
         onSuccess: handlePlaidSuccess,
         onExit: (exit: LinkExit) => {
-          console.log("Plaid Link exited:", exit);
           if (exit.error) {
             showError(
               "Connection Error",
@@ -826,7 +784,6 @@ export const SettingsScreen: React.FC = () => {
         },
       });
 
-      console.log("🔗 Plaid Link opened successfully");
     } catch (error) {
       console.error("Error opening Plaid Link:", error);
       showError(
@@ -903,10 +860,8 @@ export const SettingsScreen: React.FC = () => {
 
       // Automatically sync new transactions after connecting the bank
       try {
-        console.log('🔄 Auto-syncing transactions for newly connected bank...');
         await bankReceiptService.clearTransactionCache(user.uid); // Clear any existing cache
         const candidates = await bankReceiptService.monitorTransactions(user.uid);
-        console.log(`✅ Found ${candidates.length} transaction candidates from new bank connection`);
       } catch (syncError) {
         console.error('❌ Error auto-syncing transactions after bank connection:', syncError);
         // Don't show error to user - they can manually sync later
@@ -919,16 +874,6 @@ export const SettingsScreen: React.FC = () => {
       );
     } finally {
       setIsLoading(false);
-    }
-  };
-
-  const handlePlaidExit = (exit: LinkExit) => {
-    console.log("Plaid Link exited:", exit);
-    if (exit.error) {
-      showError(
-        "Connection Error",
-        exit.error.errorMessage || "Failed to connect bank account."
-      );
     }
   };
 
@@ -1009,7 +954,6 @@ export const SettingsScreen: React.FC = () => {
         action: {
           label: 'View',
           onPress: () => {
-            console.log('Navigate to receipts');
             navigationHelpers.switchToReceiptsTab(tabNavigation);
           },
         },
@@ -1025,7 +969,6 @@ export const SettingsScreen: React.FC = () => {
         action: {
           label: 'View Reports',
           onPress: () => {
-            console.log('Navigate to reports');
             navigationHelpers.switchToReportsTab(tabNavigation);
           },
         },
@@ -1074,7 +1017,6 @@ export const SettingsScreen: React.FC = () => {
         duration: 8000,
       });
       
-      console.log('📱 Notification Status:', { status, token: token?.substring(0, 30) + '...' });
     } catch (error) {
       console.error('Error checking notification status:', error);
       showNotification({
@@ -1288,12 +1230,6 @@ export const SettingsScreen: React.FC = () => {
                           <Image
                             source={{ uri: connection.institutionLogo }}
                             style={styles.bankLogo}
-                            onError={() =>
-                              console.log(
-                                "Failed to load bank logo:",
-                                connection.institutionLogo
-                              )
-                            }
                           />
                         ) : (
                           <Ionicons

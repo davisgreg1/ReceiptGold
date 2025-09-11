@@ -331,7 +331,6 @@ const ChoosePlanScreen: React.FC = () => {
     const loadCurrentBillingPeriod = async () => {
       try {
         const currentPeriod = await getCurrentBillingPeriod();
-        console.log('🔄 ChoosePlanScreen: Loaded billing period:', currentPeriod);
         setCurrentBillingPeriod(currentPeriod);
       } catch (error) {
         console.error('Failed to load current billing period:', error);
@@ -339,7 +338,7 @@ const ChoosePlanScreen: React.FC = () => {
     };
     
     loadCurrentBillingPeriod();
-  }, [getCurrentBillingPeriod, subscription.currentTier]); // ✅ Add tier dependency
+  }, [getCurrentBillingPeriod, subscription.currentTier]);
 
   // Handle swipe gestures for billing toggle area
   const onBillingToggleSwipe = (event: any) => {
@@ -564,20 +563,7 @@ const ChoosePlanScreen: React.FC = () => {
         <PlanCard
           tier="professional"
           billingPeriod={billingPeriod}
-          isCurrentPlan={(() => {
-            const tierMatch = subscription.currentTier === "professional";
-            const billingMatch = currentBillingPeriod === billingPeriod;
-            const isCurrentPlan = tierMatch && billingMatch;
-            console.log('🔍 Professional plan check:', {
-              tierMatch,
-              billingMatch,
-              isCurrentPlan,
-              currentTier: subscription.currentTier,
-              currentBillingPeriod,
-              selectedBillingPeriod: billingPeriod
-            });
-            return isCurrentPlan;
-          })()}
+          isCurrentPlan={subscription.currentTier === "professional" && currentBillingPeriod === billingPeriod}
           isPopular={true}
           onSelect={() => handlePlanSelect("professional")}
           loading={loadingPlan === "professional"}

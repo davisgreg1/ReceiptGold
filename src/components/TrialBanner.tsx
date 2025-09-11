@@ -13,7 +13,6 @@ const { width } = Dimensions.get('window');
 export const TrialBanner: React.FC = () => {
   const { theme } = useTheme();
   const { subscription } = useSubscription();
-  console.log("🚀 ~ TrialBanner ~ subscription:", subscription)
   const { isTeamMember } = useTeam();
   const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const insets = useSafeAreaInsets();
