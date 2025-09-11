@@ -2261,7 +2261,7 @@ async function getRevenueCatSubscriptionTier(revenueCatUserId) {
     }
 }
 exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
+    var _a, _b, _c, _d, _e;
     try {
         functions.logger.info('🚀 Starting updateSubscriptionAfterPayment', {
             data: request.data,
@@ -2303,48 +2303,19 @@ exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => 
             throw new https_1.HttpsError('invalid-argument', 'Invalid subscription ID format');
         }
         functions.logger.info('✅ Validation passed', { userId, finalTierId, subscriptionId });
-        // Get current subscription to check if this is a tier change
+        // Get current subscription for billing update
         const subscriptionRef = db.collection('subscriptions').doc(userId);
         const currentSub = await subscriptionRef.get();
-        const currentTier = ((_b = currentSub.data()) === null || _b === void 0 ? void 0 : _b.currentTier) || 'free';
-        functions.logger.info('📋 Current subscription state', {
+        functions.logger.info('📋 Updating subscription billing after payment', {
             exists: currentSub.exists,
-            currentTier,
-            newTier: finalTierId
+            userId
         });
-        const now = new Date();
-        let receiptsExcludedCount = 0;
-        const isTierChange = currentTier !== finalTierId;
-        // Start a batch for atomic updates
-        const batch = db.batch();
-        if (isTierChange) {
-            functions.logger.info(`🔄 Tier change detected: ${currentTier} → ${finalTierId}, processing receipt exclusions...`);
-            // Get ALL existing receipts for this user
-            const receiptsQuery = db.collection('receipts').where('userId', '==', userId);
-            const receiptsSnapshot = await receiptsQuery.get();
-            receiptsExcludedCount = receiptsSnapshot.docs.length;
-            functions.logger.info(`📝 Found ${receiptsExcludedCount} receipts to exclude from new tier count`);
-            // Mark ALL existing receipts as excluded from the new tier's count
-            receiptsSnapshot.docs.forEach((receiptDoc) => {
-                const updateData = {
-                    excludeFromMonthlyCount: true,
-                    monthlyCountExcludedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    previousTier: currentTier,
-                    upgradeProcessedAt: now
-                };
-                batch.update(receiptDoc.ref, updateData);
-            });
-            functions.logger.info(`✅ Prepared ${receiptsExcludedCount} receipts for exclusion in batch`);
-        }
-        else {
-            functions.logger.info(`📝 No tier change detected: staying on ${currentTier}`);
-        }
-        // Prepare subscription update data
+        // Note: Tier changes are handled by RevenueCat webhook via new_product_id
+        // This function only updates billing information and subscription status
+        // Prepare subscription update data (no tier changes - webhook handles those)
         const subscriptionUpdateData = {
-            currentTier: finalTierId,
             status: 'active',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastMonthlyCountResetAt: isTierChange ? admin.firestore.FieldValue.serverTimestamp() : (((_c = currentSub.data()) === null || _c === void 0 ? void 0 : _c.lastMonthlyCountResetAt) || admin.firestore.FieldValue.serverTimestamp()),
             billing: {
                 subscriptionId: subscriptionId,
                 currentPeriodStart: admin.firestore.FieldValue.serverTimestamp(),
@@ -2353,7 +2324,7 @@ exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => 
             },
         };
         // End trial when confirming ANY subscription (if trial is still active)
-        const trialData = (_d = currentSub.data()) === null || _d === void 0 ? void 0 : _d.trial;
+        const trialData = (_b = currentSub.data()) === null || _b === void 0 ? void 0 : _b.trial;
         const currentTrialActive = (trialData === null || trialData === void 0 ? void 0 : trialData.isActive) !== false && // if isActive is undefined or true
             (trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) &&
             trialData.expiresAt.toDate() > new Date(); // and not expired
@@ -2363,117 +2334,54 @@ exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => 
             shouldEndTrial: currentTrialActive && finalTierId !== 'free',
             trialData,
             isActiveField: trialData === null || trialData === void 0 ? void 0 : trialData.isActive,
-            expiresAt: (_e = trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) === null || _e === void 0 ? void 0 : _e.toDate(),
+            expiresAt: (_c = trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) === null || _c === void 0 ? void 0 : _c.toDate(),
             now: new Date()
         });
         if (currentTrialActive && finalTierId !== 'free') {
             functions.logger.info('🏁 Ending trial for user upgrading to paid subscription');
             subscriptionUpdateData.trial = {
                 isActive: false,
-                startedAt: ((_g = (_f = currentSub.data()) === null || _f === void 0 ? void 0 : _f.trial) === null || _g === void 0 ? void 0 : _g.startedAt) || admin.firestore.FieldValue.serverTimestamp(),
+                startedAt: ((_e = (_d = currentSub.data()) === null || _d === void 0 ? void 0 : _d.trial) === null || _e === void 0 ? void 0 : _e.startedAt) || admin.firestore.FieldValue.serverTimestamp(),
                 expiresAt: admin.firestore.FieldValue.serverTimestamp(),
                 endedEarly: true,
                 endReason: 'upgraded_to_paid'
             };
         }
-        // Add metadata for tracking
-        subscriptionUpdateData.billing = {
-            ...subscriptionUpdateData.billing,
-            // Add metadata for tracking
-            lastUpgrade: isTierChange ? {
-                fromTier: currentTier,
-                toTier: finalTierId,
-                processedAt: admin.firestore.FieldValue.serverTimestamp(),
-                receiptsExcluded: receiptsExcludedCount
-            } : (((_j = (_h = currentSub.data()) === null || _h === void 0 ? void 0 : _h.billing) === null || _j === void 0 ? void 0 : _j.lastUpgrade) || null)
-        };
-        functions.logger.info('📝 Prepared subscription update data', {
-            currentTier: finalTierId,
-            isTierChange,
-            receiptsExcluded: receiptsExcludedCount
-        });
-        // OPTIMIZATION: Merge onSubscriptionChange logic here to avoid separate trigger
-        if (isTierChange) {
-            functions.logger.info('🔄 Adding usage limits and history updates to batch for tier change');
-            // Update current month's usage limits (previously done in onSubscriptionChange)
-            const currentMonth = new Date().toISOString().slice(0, 7);
-            const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
-            const receiptLimits = getReceiptLimits();
-            const tierLimits = {
-                maxReceipts: receiptLimits[finalTierId] || receiptLimits.free,
-                maxBusinesses: finalTierId === 'professional' ? -1 : 1,
-                apiCallsPerMonth: finalTierId === 'professional' ? -1 : finalTierId === 'growth' ? 1000 : 0,
-            };
-            batch.update(usageRef, {
-                limits: tierLimits,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            // Add subscription history entry (previously done in onSubscriptionChange)
-            const newHistoryEntry = {
-                tier: finalTierId,
-                startDate: now,
-                endDate: null,
-                reason: "tier_change",
-            };
-            // Include history in subscription update
-            subscriptionUpdateData.history = admin.firestore.FieldValue.arrayUnion(newHistoryEntry);
-            // End previous tier in history if exists
-            if (currentSub.exists && ((_k = currentSub.data()) === null || _k === void 0 ? void 0 : _k.history) && ((_l = currentSub.data()) === null || _l === void 0 ? void 0 : _l.history.length) > 0) {
-                const currentHistory = ((_m = currentSub.data()) === null || _m === void 0 ? void 0 : _m.history) || [];
-                const updatedHistory = currentHistory.map((entry, index) => {
-                    if (index === currentHistory.length - 1) {
-                        return {
-                            ...entry,
-                            endDate: now,
-                        };
-                    }
-                    return entry;
-                });
-                subscriptionUpdateData.history = updatedHistory;
-                // Then add the new entry
-                subscriptionUpdateData.history = admin.firestore.FieldValue.arrayUnion(newHistoryEntry);
-            }
-        }
-        // Add subscription update to batch
-        if (currentSub.exists) {
-            batch.update(subscriptionRef, subscriptionUpdateData);
-        }
-        else {
-            // Create new subscription document if it doesn't exist
-            const createData = {
-                ...subscriptionUpdateData,
-                userId: userId,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
-            };
-            batch.set(subscriptionRef, createData);
-        }
-        // Execute all updates atomically (including usage limits and history)
+        // Note: No tier change tracking needed since RevenueCat webhook handles this via lastRevenueCatEvent
+        functions.logger.info('📝 Prepared subscription update data for billing');
+        // Update subscription document (tier changes handled by RevenueCat webhook)
         try {
-            await batch.commit();
-            functions.logger.info('✅ Optimized batch commit successful', {
+            if (currentSub.exists) {
+                await subscriptionRef.update(subscriptionUpdateData);
+            }
+            else {
+                // Create new subscription document if it doesn't exist
+                const createData = {
+                    ...subscriptionUpdateData,
+                    userId: userId,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp()
+                };
+                await subscriptionRef.set(createData);
+            }
+            functions.logger.info('✅ Subscription billing updated successfully', {
                 subscriptionUpdated: true,
-                usageLimitsUpdated: isTierChange,
-                historyUpdated: isTierChange,
-                receiptsExcluded: receiptsExcludedCount,
-                tierChange: isTierChange
+                userId,
+                subscriptionId
             });
         }
-        catch (batchError) {
-            functions.logger.error('❌ Batch commit failed', batchError);
-            throw new https_1.HttpsError('internal', 'Failed to update subscription, receipts, and usage data');
+        catch (updateError) {
+            functions.logger.error('❌ Subscription update failed', updateError);
+            throw new https_1.HttpsError('internal', 'Failed to update subscription');
         }
         // Log successful completion
-        functions.logger.info('🎉 Subscription update completed successfully', {
+        functions.logger.info('🎉 Subscription billing update completed successfully', {
             userId,
-            oldTier: currentTier,
-            newTier: finalTierId,
-            receiptsExcluded: receiptsExcludedCount,
             subscriptionId
         });
         return {
             success: true,
-            receiptsExcluded: receiptsExcludedCount,
-            tierChange: isTierChange
+            receiptsExcluded: 0,
+            tierChange: false
         };
     }
     catch (error) {

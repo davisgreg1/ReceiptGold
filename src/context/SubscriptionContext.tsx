@@ -387,36 +387,8 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
         // Update state
         setCurrentReceiptCount(count);
 
-        // ✅ TIER SYNCHRONIZATION FIX: Verify RevenueCat tier matches Firestore
-        try {
-          // Import RevenueCat service dynamically to avoid circular imports
-          const { revenueCatService } = await import('../services/revenuecatService');
-          
-          // Get current tier from RevenueCat (force refresh to get latest)
-          const revenueCatTier = await revenueCatService.getCurrentTier(true);
-          
-          // If tiers don't match, trigger Cloud Function to sync via RevenueCat webhook
-          if (revenueCatTier !== subscription.currentTier && revenueCatTier !== 'free') {
-            try {
-              // Import Cloud Function to sync subscription state
-              const { getFunctions, httpsCallable } = await import('firebase/functions');
-              const functions = getFunctions();
-              const syncSubscription = httpsCallable<
-                { userId: string; forceSync: boolean },
-                { success: boolean; error?: string; syncedTier?: string }
-              >(functions, 'syncSubscriptionWithRevenueCat');
-
-              await syncSubscription({
-                userId: user.uid,
-                forceSync: true
-              });
-            } catch (cloudFunctionError) {
-              // Continue without failing - the mismatch will persist until next sync
-            }
-          }
-        } catch (tierSyncError) {
-          // Don't fail the entire refresh if tier sync fails
-        }
+        // Note: Tier synchronization is handled by updateSubscriptionAfterPayment Cloud Function
+        // No additional sync needed here since we rely on the onSnapshot listener for real-time updates
 
         return { success: true, count };
       } catch (error) {
