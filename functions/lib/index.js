@@ -28,7 +28,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
+exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onSubscriptionChange = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -538,7 +538,7 @@ exports.onSubscriptionChange = functionsV1.firestore
                     if (index === before.history.length - 1) {
                         return {
                             ...entry,
-                            endDate: admin.firestore.FieldValue.serverTimestamp(),
+                            endDate: new Date(), // Use regular Date instead of serverTimestamp() in arrays
                         };
                     }
                     return entry;
@@ -2224,7 +2224,7 @@ exports.onUserDelete = functionsV1.auth.user().onDelete(async (user) => {
     }
 });
 exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j;
     try {
         functions.logger.info('🚀 Starting updateSubscriptionAfterPayment', {
             data: request.data,
@@ -2294,20 +2294,48 @@ exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => 
             currentTier: tierId,
             status: 'active',
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            lastMonthlyCountResetAt: isTierChange ? admin.firestore.FieldValue.serverTimestamp() : (_c = currentSub.data()) === null || _c === void 0 ? void 0 : _c.lastMonthlyCountResetAt,
+            lastMonthlyCountResetAt: isTierChange ? admin.firestore.FieldValue.serverTimestamp() : (((_c = currentSub.data()) === null || _c === void 0 ? void 0 : _c.lastMonthlyCountResetAt) || admin.firestore.FieldValue.serverTimestamp()),
             billing: {
                 subscriptionId: subscriptionId,
                 currentPeriodStart: admin.firestore.FieldValue.serverTimestamp(),
                 currentPeriodEnd: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
                 lastPaymentProcessed: admin.firestore.FieldValue.serverTimestamp()
             },
+        };
+        // End trial when confirming ANY subscription (if trial is still active)
+        const trialData = (_d = currentSub.data()) === null || _d === void 0 ? void 0 : _d.trial;
+        const currentTrialActive = (trialData === null || trialData === void 0 ? void 0 : trialData.isActive) !== false && // if isActive is undefined or true
+            (trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) &&
+            trialData.expiresAt.toDate() > new Date(); // and not expired
+        functions.logger.info('🔍 Trial check', {
+            currentTrialActive,
+            tierId,
+            shouldEndTrial: currentTrialActive && tierId !== 'free',
+            trialData,
+            isActiveField: trialData === null || trialData === void 0 ? void 0 : trialData.isActive,
+            expiresAt: (_e = trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) === null || _e === void 0 ? void 0 : _e.toDate(),
+            now: new Date()
+        });
+        if (currentTrialActive && tierId !== 'free') {
+            functions.logger.info('🏁 Ending trial for user upgrading to paid subscription');
+            subscriptionUpdateData.trial = {
+                isActive: false,
+                startedAt: ((_g = (_f = currentSub.data()) === null || _f === void 0 ? void 0 : _f.trial) === null || _g === void 0 ? void 0 : _g.startedAt) || admin.firestore.FieldValue.serverTimestamp(),
+                expiresAt: admin.firestore.FieldValue.serverTimestamp(),
+                endedEarly: true,
+                endReason: 'upgraded_to_paid'
+            };
+        }
+        // Add metadata for tracking
+        subscriptionUpdateData.billing = {
+            ...subscriptionUpdateData.billing,
             // Add metadata for tracking
             lastUpgrade: isTierChange ? {
                 fromTier: currentTier,
                 toTier: tierId,
                 processedAt: admin.firestore.FieldValue.serverTimestamp(),
                 receiptsExcluded: receiptsExcludedCount
-            } : (_d = currentSub.data()) === null || _d === void 0 ? void 0 : _d.lastUpgrade
+            } : (((_j = (_h = currentSub.data()) === null || _h === void 0 ? void 0 : _h.billing) === null || _j === void 0 ? void 0 : _j.lastUpgrade) || null)
         };
         functions.logger.info('📝 Prepared subscription update data', {
             currentTier: tierId,
@@ -2865,4 +2893,145 @@ exports.onTeamMemberRemoved = functionsV1.firestore
         console.error('❌ Error handling team member removal:', error);
     }
 });
+// RevenueCat webhook for handling subscription events
+exports.revenueCatWebhookHandler = (0, https_1.onRequest)(async (req, res) => {
+    console.log('🔔 RevenueCat webhook received');
+    if (req.method !== 'POST') {
+        console.log('❌ Invalid method:', req.method);
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    try {
+        // Verify authorization header for security
+        const authHeader = req.headers['authorization'];
+        const expectedAuth = process.env.REVENUECAT_WEBHOOK_SECRET;
+        if (expectedAuth && authHeader !== `Bearer ${expectedAuth}`) {
+            console.log('❌ Invalid authorization header');
+            res.status(401).json({ error: 'Unauthorized' });
+            return;
+        }
+        if (expectedAuth) {
+            console.log('🔒 Webhook authorization verified');
+        }
+        else {
+            console.log('⚠️ No webhook secret configured - skipping auth verification');
+        }
+        const body = req.body;
+        const event = body.event; // RevenueCat nests the actual event data
+        console.log('📦 RevenueCat event type:', event.type);
+        console.log('📦 RevenueCat event data:', JSON.stringify(body, null, 2));
+        // Handle different event types
+        switch (event.type) {
+            case 'INITIAL_PURCHASE':
+            case 'RENEWAL':
+            case 'PRODUCT_CHANGE':
+            case 'CANCELLATION':
+            case 'UNCANCELLATION':
+            case 'NON_RENEWING_PURCHASE':
+                await handleSubscriptionEvent(event);
+                break;
+            default:
+                console.log(`ℹ️ Unhandled event type: ${event.type}`);
+        }
+        res.status(200).json({ received: true });
+    }
+    catch (error) {
+        console.error('❌ Error processing RevenueCat webhook:', error);
+        res.status(500).json({ error: 'Internal server error' });
+    }
+});
+// Helper function to handle subscription events
+async function handleSubscriptionEvent(event) {
+    var _a, _b;
+    try {
+        const { product_id, new_product_id, event_timestamp_ms, type, original_app_user_id } = event;
+        const userId = original_app_user_id;
+        // For PRODUCT_CHANGE events, use new_product_id, otherwise use product_id
+        const effectiveProductId = (type === 'PRODUCT_CHANGE' && new_product_id) ? new_product_id : product_id;
+        console.log(`🔄 Processing subscription event for user: ${userId}`);
+        console.log(`📱 Event type: ${type}`);
+        console.log(`📱 Original Product ID: ${product_id}`);
+        if (new_product_id)
+            console.log(`📱 New Product ID: ${new_product_id}`);
+        console.log(`📱 Effective Product ID: ${effectiveProductId}`);
+        console.log(`⏰ Event timestamp: ${new Date(event_timestamp_ms)}`);
+        if (!userId) {
+            console.error('❌ No user ID found in webhook event');
+            return;
+        }
+        // Map RevenueCat product ID to subscription tier
+        const tier = mapProductIdToTier(effectiveProductId);
+        console.log(`🎯 Mapped to tier: ${tier}`);
+        // Get user's current subscription document
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const currentSub = await subscriptionRef.get();
+        const currentTier = ((_a = currentSub.data()) === null || _a === void 0 ? void 0 : _a.currentTier) || 'free';
+        console.log(`📋 Current tier: ${currentTier} → New tier: ${tier}`);
+        // Prepare subscription update data
+        const subscriptionUpdate = {
+            currentTier: tier,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastRevenueCatEvent: {
+                type: event.type,
+                productId: product_id,
+                timestamp: new Date(event_timestamp_ms),
+                eventData: event
+            }
+        };
+        // Add tier-specific data
+        if (tier !== 'free') {
+            const tierConfig = subscriptionTiers[tier];
+            if (tierConfig) {
+                subscriptionUpdate.limits = tierConfig.limits;
+                subscriptionUpdate.features = tierConfig.features;
+            }
+        }
+        // Handle tier changes
+        if (currentTier !== tier) {
+            console.log(`🔄 Tier change detected: ${currentTier} → ${tier}`);
+            // Add history entry
+            const historyEntry = {
+                tier: tier,
+                startDate: new Date(event_timestamp_ms),
+                endDate: null,
+                reason: `revenuecat_${event.type.toLowerCase()}`
+            };
+            subscriptionUpdate.history = admin.firestore.FieldValue.arrayUnion(historyEntry);
+            // Update usage limits if downgrading
+            if (shouldUpdateUsageLimits(currentTier, tier)) {
+                const currentMonth = new Date().toISOString().slice(0, 7);
+                const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
+                await usageRef.set({
+                    limits: ((_b = subscriptionTiers[tier]) === null || _b === void 0 ? void 0 : _b.limits) || subscriptionTiers.free.limits,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                console.log(`📊 Updated usage limits for ${currentMonth}`);
+            }
+        }
+        // Update subscription document
+        await subscriptionRef.set(subscriptionUpdate, { merge: true });
+        console.log(`✅ Subscription updated for user ${userId}`);
+    }
+    catch (error) {
+        console.error('❌ Error handling subscription event:', error);
+        throw error;
+    }
+}
+// Map RevenueCat product ID to subscription tier
+function mapProductIdToTier(productId) {
+    const productToTierMap = {
+        'rc_starter': 'starter',
+        'rc_growth_monthly': 'growth',
+        'rc_growth_annual': 'growth',
+        'rc_professional_monthly': 'professional',
+        'rc_professional_annual': 'professional'
+    };
+    return productToTierMap[productId] || 'free';
+}
+// Check if usage limits should be updated (when downgrading)
+function shouldUpdateUsageLimits(currentTier, newTier) {
+    const tierPriority = { free: 0, starter: 1, growth: 2, professional: 3 };
+    return (tierPriority[newTier] || 0) <
+        (tierPriority[currentTier] || 0);
+}
 //# sourceMappingURL=index.js.map

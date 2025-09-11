@@ -59,8 +59,8 @@ export const useRevenueCatPayments = () => {
 
       console.log('✅ RevenueCat purchase successful');
 
-      // Get the current tier to check if this is a tier change
-      const currentTier = await revenueCatService.getCurrentTier();
+      // Get the current tier to check if this is a tier change (force refresh to get latest data)
+      const currentTier = await revenueCatService.getCurrentTier(true);
       console.log('📦 Current tier after purchase:', currentTier);
 
       // Update Firestore with the new subscription via Cloud Function
@@ -155,8 +155,65 @@ export const useRevenueCatPayments = () => {
       const result = await revenueCatService.restorePurchases();
       
       if (result.success) {
-        const currentTier = await revenueCatService.getCurrentTier();
+        const currentTier = await revenueCatService.getCurrentTier(true); // Force refresh
         console.log('✅ Purchases restored, current tier:', currentTier);
+        
+        // If we found a paid subscription, update Firestore to sync the state
+        if (currentTier !== 'free') {
+          console.log('🔄 Syncing restored subscription to Firestore...');
+          
+          const auth = getAuth();
+          const currentUser = auth.currentUser;
+          
+          if (currentUser) {
+            try {
+              // Call the Cloud Function to properly sync the subscription
+              const functions = getFunctions();
+              const updateSubscription = httpsCallable<
+                { subscriptionId: string; tierId: SubscriptionTierKey; userId: string; revenueCatData?: any },
+                CloudFunctionResponse
+              >(functions, 'updateSubscriptionAfterPayment');
+
+              // Get customer info from RevenueCat
+              const customerInfo = result.customerInfo;
+              const subscriptionId = customerInfo?.activeSubscriptions?.[0] || 'restored_subscription';
+
+              const updateResult = await updateSubscription({
+                subscriptionId: subscriptionId,
+                tierId: currentTier,
+                userId: currentUser.uid,
+                revenueCatData: customerInfo
+              });
+
+              console.log('🔄 Cloud Function sync result:', updateResult.data);
+
+              if (updateResult.data?.success) {
+                console.log('✅ Subscription synced to Firestore successfully');
+                
+                // Wait a moment for Firestore to propagate
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                // Refresh the receipt count to update the local state
+                await refreshReceiptCount();
+                
+                showAlert?.('success', 'Success', 'Purchases restored successfully!');
+                return true;
+              } else {
+                console.error('❌ Failed to sync subscription to Firestore:', updateResult.data?.error);
+                // Even if Firestore sync fails, the restore was successful
+                await refreshReceiptCount();
+                showAlert?.('success', 'Success', 'Purchases restored successfully!');
+                return true;
+              }
+            } catch (syncError) {
+              console.error('❌ Error syncing to Firestore:', syncError);
+              // Even if sync fails, the restore was successful
+              await refreshReceiptCount();
+              showAlert?.('success', 'Success', 'Purchases restored successfully!');
+              return true;
+            }
+          }
+        }
         
         // Update local subscription state
         await refreshReceiptCount();

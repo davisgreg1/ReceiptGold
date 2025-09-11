@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { SettingsStackParamList } from '../navigation/AppNavigator';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useBusiness } from '../context/BusinessContext';
@@ -19,11 +20,10 @@ import { BusinessData } from '../types/business';
 import { useSubscription } from '../context/SubscriptionContext';
 import { useTeam } from '../context/TeamContext';
 import { useCustomAlert } from '../hooks/useCustomAlert';
-import { useRevenueCatPayments } from '../hooks/useRevenueCatPayments';
 import { useAuth } from '../context/AuthContext';
 import { formatCurrency } from '../utils/formatCurrency';
 
-type BusinessManagementScreenNavigationProp = StackNavigationProp<any>;
+type BusinessManagementScreenNavigationProp = StackNavigationProp<SettingsStackParamList, 'BusinessManagement'>;
 
 interface BusinessCardProps {
   business: BusinessData;
@@ -155,11 +155,9 @@ const BusinessManagementScreen: React.FC = () => {
   const { subscription, canAccessFeature } = useSubscription();
   const { teamMembers } = useTeam();
   const { showError, showSuccess, showWarning, showInfo, hideAlert } = useCustomAlert();
-  const { handleSubscriptionWithRevenueCat } = useRevenueCatPayments();
   const { user } = useAuth();
 
   const [refreshing, setRefreshing] = useState(false);
-  const [upgrading, setUpgrading] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -181,10 +179,10 @@ const BusinessManagementScreen: React.FC = () => {
         {
           primaryButtonText: 'Upgrade',
           secondaryButtonText: 'Cancel',
-          onPrimaryPress: async () => {
-            // Close the alert first, then show upgrade process
+          onPrimaryPress: () => {
+            // Close the alert first, then navigate to upgrade
             hideAlert();
-            await handleUpgradeToProfessional();
+            handleUpgradeToProfessional();
           },
         }
       );
@@ -196,47 +194,8 @@ const BusinessManagementScreen: React.FC = () => {
 
   const isMultiBusinessUser = canAccessFeature('multiBusinessManagement');
 
-  const handleUpgradeToProfessional = async () => {
-    if (!user?.email) {
-      showError('Error', 'User email not found. Please try logging in again.');
-      return;
-    }
-
-    if (upgrading) return; // Prevent multiple clicks
-
-    console.log('Starting upgrade process...');
-    setUpgrading(true);
-
-    // Add a small delay to ensure loading state is visible
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    try {
-      const success = await handleSubscriptionWithRevenueCat(
-        'professional',
-        user.email,
-        user.displayName || 'User',
-        undefined, // customerId - let Stripe create if needed
-        (type, title, message) => {
-          if (type === 'error') showError(title, message);
-          else if (type === 'success') showSuccess(title, message);
-          else if (type === 'warning') showWarning(title, message);
-          else showInfo(title, message);
-        }
-      );
-
-      if (success) {
-        // Refresh the screen to update UI with new subscription
-        refreshBusinesses();
-      }
-    } catch (error) {
-      showError(
-        'Upgrade Failed',
-        'Failed to start Professional subscription. Please try again.'
-      );
-    } finally {
-      console.log('Upgrade process completed, clearing loading state');
-      setUpgrading(false);
-    }
+  const handleUpgradeToProfessional = () => {
+    navigation.navigate('Subscription');
   };
 
   const handleSelectBusiness = (business: BusinessData) => {
@@ -346,22 +305,16 @@ const BusinessManagementScreen: React.FC = () => {
                   styles.upgradePrompt, 
                   { 
                     backgroundColor: theme.gold.primary + '20', 
-                    borderColor: theme.gold.primary,
-                    opacity: upgrading ? 0.7 : 1
+                    borderColor: theme.gold.primary
                   }
                 ]}
                 onPress={handleUpgradeToProfessional}
-                disabled={upgrading}
               >
                 <Ionicons name="star-outline" size={16} color={theme.gold.primary} />
                 <Text style={[styles.upgradeText, { color: theme.gold.primary }]}>
-                  {upgrading ? 'Processing upgrade...' : 'Upgrade to Professional to create multiple businesses'}
+                  Upgrade to Professional to create multiple businesses
                 </Text>
-                {upgrading ? (
-                  <ActivityIndicator size="small" color={theme.gold.primary} />
-                ) : (
-                  <Ionicons name="chevron-forward" size={16} color={theme.gold.primary} />
-                )}
+                <Ionicons name="chevron-forward" size={16} color={theme.gold.primary} />
               </TouchableOpacity>
             )}
           </>
