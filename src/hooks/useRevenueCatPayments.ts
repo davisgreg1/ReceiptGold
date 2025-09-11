@@ -33,7 +33,9 @@ export const useRevenueCatPayments = () => {
     setLoading(true);
     
     try {
+      console.log("🚀 === REVENUECAT PURCHASE DEBUG START ===");
       console.log("🚀 Starting RevenueCat subscription process for tier:", tierId);
+      console.log("💳 Billing period:", billingPeriod);
       
       if (tierId === 'free' || tierId === 'trial') {
         showAlert?.('warning', 'Free Plan', 'You are already on the free plan!');
@@ -58,10 +60,16 @@ export const useRevenueCatPayments = () => {
       }
 
       console.log('✅ RevenueCat purchase successful');
+      console.log('🎯 Purchase result:', JSON.stringify({
+        success: subscriptionResult.success,
+        hasCustomerInfo: !!subscriptionResult.customerInfo,
+        activeSubscriptions: subscriptionResult.customerInfo?.activeSubscriptions,
+        entitlements: Object.keys(subscriptionResult.customerInfo?.entitlements?.active || {})
+      }, null, 2));
 
       // Get the current tier to check if this is a tier change (force refresh to get latest data)
       const currentTier = await revenueCatService.getCurrentTier(true);
-      console.log('📦 Current tier after purchase:', currentTier);
+      console.log('📦 Current tier after purchase (from RevenueCat):', currentTier);
 
       // Update Firestore with the new subscription via Cloud Function
       try {
@@ -76,6 +84,13 @@ export const useRevenueCatPayments = () => {
         // Get the subscription ID from RevenueCat customer info
         const subscriptionId = subscriptionResult.customerInfo?.activeSubscriptions?.[0] || 'revenuecat_subscription';
 
+        console.log('☁️ Calling Cloud Function with params:', {
+          subscriptionId: subscriptionId,
+          tierId: currentTier,
+          userId: currentUser.uid,
+          hasRevenueCatData: !!subscriptionResult.customerInfo
+        });
+
         const result = await updateSubscription({
           subscriptionId: subscriptionId,
           tierId: currentTier, // Use the tier returned by RevenueCat
@@ -83,7 +98,7 @@ export const useRevenueCatPayments = () => {
           revenueCatData: subscriptionResult.customerInfo
         });
 
-        console.log('🔄 Cloud Function response:', result.data);
+        console.log('☁️ Cloud Function response:', JSON.stringify(result.data, null, 2));
 
         if (result.data?.success) {
           console.log('✅ Subscription updated successfully via Cloud Function');
@@ -116,6 +131,7 @@ export const useRevenueCatPayments = () => {
           }
 
           showAlert?.('success', 'Success', 'Your subscription has been activated!');
+          console.log('🎉 === REVENUECAT PURCHASE DEBUG END: SUCCESS ===');
           return true;
         } else {
           const errorMessage = result.data?.error || 'Failed to update subscription';
@@ -248,12 +264,22 @@ export const useRevenueCatPayments = () => {
     }
   }, []);
 
+  const getCurrentBillingPeriod = useCallback(async () => {
+    try {
+      return await revenueCatService.getCurrentBillingPeriod();
+    } catch (error) {
+      console.error('❌ Failed to get current billing period:', error);
+      return null;
+    }
+  }, []);
+
   return {
     handleSubscriptionWithRevenueCat,
     restorePurchases,
     getSubscriptionTier,
     formatPrice,
     getCurrentTier,
+    getCurrentBillingPeriod,
     loading,
     SUBSCRIPTION_TIERS,
   };

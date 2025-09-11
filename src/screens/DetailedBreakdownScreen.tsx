@@ -571,7 +571,7 @@ export const DetailedBreakdownScreen = () => {
                   {formatCurrency(insight.total)}
                 </Text>
                 <Text style={[styles.categoryDetails, { color: theme.text.secondary }]}>
-                  {insight.count} transactions • {formatCurrency(insight.average)} avg
+                  {insight.count} {insight.count === 1 ? 'transaction' : 'transactions'} • {formatCurrency(insight.average)} avg
                 </Text>
               </View>
               
@@ -636,7 +636,7 @@ export const DetailedBreakdownScreen = () => {
                   {formatCurrency(merchant.total)}
                 </Text>
                 <Text style={[styles.merchantDetails, { color: theme.text.secondary }]}>
-                  {merchant.count} visits • {formatCurrency(merchant.averageTransaction)} avg
+                  {merchant.count} {merchant.count === 1 ? 'visit' : 'visits'} • {formatCurrency(merchant.averageTransaction)} avg
                 </Text>
               </View>
             </View>
@@ -679,7 +679,7 @@ export const DetailedBreakdownScreen = () => {
                   {formatCurrency(month.total)}
                 </Text>
                 <Text style={[styles.monthDetails, { color: theme.text.secondary }]}>
-                  {month.count} transactions
+                  {month.count} {month.count === 1 ? 'transaction' : 'transactions'}
                 </Text>
               </View>
             </View>

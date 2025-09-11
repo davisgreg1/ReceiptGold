@@ -8,9 +8,12 @@ import {
   Dimensions,
   Platform,
   Animated,
+  Linking,
 } from "react-native";
+import { PanGestureHandler, State, Directions } from "react-native-gesture-handler";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from "expo-haptics";
 import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription } from "../context/SubscriptionContext";
 import { HeadingText, BodyText, ButtonText } from "../components/Typography";
@@ -315,12 +318,84 @@ const ChoosePlanScreen: React.FC = () => {
   const { theme } = useTheme();
   const { subscription } = useSubscription();
   const { user } = require("../context/AuthContext").useAuth();
-  const { handleSubscriptionWithRevenueCat, restorePurchases } = useRevenueCatPayments();
+  const { handleSubscriptionWithRevenueCat, restorePurchases, getCurrentBillingPeriod } = useRevenueCatPayments();
 
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
+  const [currentBillingPeriod, setCurrentBillingPeriod] = useState<BillingPeriod | null>(null);
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [restoringPurchases, setRestoringPurchases] = useState(false);
   const rotationValue = React.useRef(new Animated.Value(0)).current;
+
+  // Load current billing period on mount and when tier changes
+  React.useEffect(() => {
+    const loadCurrentBillingPeriod = async () => {
+      try {
+        const currentPeriod = await getCurrentBillingPeriod();
+        console.log('🔄 ChoosePlanScreen: Loaded billing period:', currentPeriod);
+        setCurrentBillingPeriod(currentPeriod);
+      } catch (error) {
+        console.error('Failed to load current billing period:', error);
+      }
+    };
+    
+    loadCurrentBillingPeriod();
+  }, [getCurrentBillingPeriod, subscription.currentTier]); // ✅ Add tier dependency
+
+  // Handle swipe gestures for billing toggle area
+  const onBillingToggleSwipe = (event: any) => {
+    const { translationX, translationY, state } = event.nativeEvent;
+    
+    if (state === State.END) {
+      const swipeThreshold = 50; // Minimum distance for a swipe
+      const horizontalThreshold = Math.abs(translationX);
+      const verticalThreshold = Math.abs(translationY);
+      
+      // Only trigger if horizontal movement is greater than vertical (horizontal swipe)
+      if (horizontalThreshold > swipeThreshold && horizontalThreshold > verticalThreshold) {
+        if (translationX > swipeThreshold) {
+          // Swipe right - go to annual
+          if (billingPeriod === 'monthly') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setBillingPeriod('annual');
+          }
+        } else if (translationX < -swipeThreshold) {
+          // Swipe left - go to monthly
+          if (billingPeriod === 'annual') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setBillingPeriod('monthly');
+          }
+        }
+      }
+    }
+  };
+
+  // Handle swipe gestures for tier cards area (flipped logic)
+  const onTierCardsSwipe = (event: any) => {
+    const { translationX, translationY, state } = event.nativeEvent;
+    
+    if (state === State.END) {
+      const swipeThreshold = 50; // Minimum distance for a swipe
+      const horizontalThreshold = Math.abs(translationX);
+      const verticalThreshold = Math.abs(translationY);
+      
+      // Only trigger if horizontal movement is greater than vertical (horizontal swipe)
+      if (horizontalThreshold > swipeThreshold && horizontalThreshold > verticalThreshold) {
+        if (translationX > swipeThreshold) {
+          // Swipe right - go to monthly (flipped)
+          if (billingPeriod === 'annual') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setBillingPeriod('monthly');
+          }
+        } else if (translationX < -swipeThreshold) {
+          // Swipe left - go to annual (flipped)
+          if (billingPeriod === 'monthly') {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            setBillingPeriod('annual');
+          }
+        }
+      }
+    }
+  };
 
   const handlePlanSelect = async (planId: keyof typeof SUBSCRIPTION_TIERS) => {
     if (!user) {
@@ -346,6 +421,9 @@ const ChoosePlanScreen: React.FC = () => {
       );
 
       if (success) {
+        // Update the current billing period after successful subscription
+        setCurrentBillingPeriod(billingPeriod);
+        
         showNotification({
           type: "success",
           title: "Subscription Updated",
@@ -382,6 +460,14 @@ const ChoosePlanScreen: React.FC = () => {
       });
       
       if (success) {
+        // Refresh the current billing period after successful restore
+        try {
+          const currentPeriod = await getCurrentBillingPeriod();
+          setCurrentBillingPeriod(currentPeriod);
+        } catch (error) {
+          console.error('Failed to refresh billing period after restore:', error);
+        }
+        
         showNotification({
           type: "success",
           title: "Purchases Restored",
@@ -403,36 +489,66 @@ const ChoosePlanScreen: React.FC = () => {
     }
   };
 
+  const handleCancelSubscription = () => {
+    // For iOS/Android app stores, users need to cancel through their platform settings
+    const cancelUrl = Platform.OS === 'ios' 
+      ? 'https://apps.apple.com/account/subscriptions'
+      : 'https://play.google.com/store/account/subscriptions';
+    
+    Linking.openURL(cancelUrl).catch(() => {
+      showNotification({
+        type: "error",
+        title: "Unable to Open",
+        message: "Please visit your App Store account settings to manage subscriptions.",
+      });
+    });
+  };
+
   return (
-    <ScrollView
-      style={[styles.container, { backgroundColor: theme.background.primary }]}
-      showsVerticalScrollIndicator={false}
-      contentContainerStyle={styles.scrollContent}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <HeadingText size="large" color="gold" align="center" style={styles.title}>
-          Choose Your Plan
-        </HeadingText>
-        <BodyText size="medium" color="secondary" align="center" style={styles.subtitle}>
-          Unlock your business potential with powerful expense management tools
-        </BodyText>
-      </View>
+    <View style={[styles.container, { backgroundColor: theme.background.primary }]}>
+      <ScrollView
+        style={styles.scrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <HeadingText size="large" color="gold" align="center" style={styles.title}>
+            Choose Your Plan
+          </HeadingText>
+          <BodyText size="medium" color="secondary" align="center" style={styles.subtitle}>
+            Unlock your business potential with powerful expense management tools
+          </BodyText>
+        </View>
 
-      {/* Billing Toggle */}
-      <View style={styles.billingSection}>
-        <BillingToggle
-          billingPeriod={billingPeriod}
-          onToggle={setBillingPeriod}
-        />
-      </View>
+        {/* Billing Toggle with separate gesture handler */}
+        <PanGestureHandler 
+          onHandlerStateChange={onBillingToggleSwipe}
+          activeOffsetX={[-10, 10]}
+          failOffsetY={[-5, 5]}
+        >
+          <View style={styles.billingSection}>
+            <BillingToggle
+              billingPeriod={billingPeriod}
+              onToggle={setBillingPeriod}
+            />
+            <Text style={[styles.swipeHint, { color: theme.text.tertiary }]}>
+              💡 Swipe left or right to switch billing periods
+            </Text>
+          </View>
+        </PanGestureHandler>
 
-      {/* Plan Cards */}
-      <View style={styles.plansContainer}>
+        {/* Plan Cards with separate gesture handler (flipped logic) */}
+        <PanGestureHandler 
+          onHandlerStateChange={onTierCardsSwipe}
+          activeOffsetX={[-10, 10]}
+          failOffsetY={[-5, 5]}
+        >
+          <View style={styles.plansContainer}>
         <PlanCard
           tier="starter"
           billingPeriod={billingPeriod}
-          isCurrentPlan={subscription.currentTier === "starter"}
+          isCurrentPlan={subscription.currentTier === "starter" && currentBillingPeriod === billingPeriod}
           onSelect={() => handlePlanSelect("starter")}
           loading={loadingPlan === "starter"}
         />
@@ -440,7 +556,7 @@ const ChoosePlanScreen: React.FC = () => {
         <PlanCard
           tier="growth"
           billingPeriod={billingPeriod}
-          isCurrentPlan={subscription.currentTier === "growth"}
+          isCurrentPlan={subscription.currentTier === "growth" && currentBillingPeriod === billingPeriod}
           onSelect={() => handlePlanSelect("growth")}
           loading={loadingPlan === "growth"}
         />
@@ -448,14 +564,28 @@ const ChoosePlanScreen: React.FC = () => {
         <PlanCard
           tier="professional"
           billingPeriod={billingPeriod}
-          isCurrentPlan={subscription.currentTier === "professional"}
+          isCurrentPlan={(() => {
+            const tierMatch = subscription.currentTier === "professional";
+            const billingMatch = currentBillingPeriod === billingPeriod;
+            const isCurrentPlan = tierMatch && billingMatch;
+            console.log('🔍 Professional plan check:', {
+              tierMatch,
+              billingMatch,
+              isCurrentPlan,
+              currentTier: subscription.currentTier,
+              currentBillingPeriod,
+              selectedBillingPeriod: billingPeriod
+            });
+            return isCurrentPlan;
+          })()}
           isPopular={true}
           onSelect={() => handlePlanSelect("professional")}
           loading={loadingPlan === "professional"}
         />
-      </View>
+          </View>
+        </PanGestureHandler>
 
-      {/* Restore Purchases Button */}
+        {/* Restore Purchases Button */}
       <View style={styles.restoreSection}>
         <Pressable
           onPress={handleRestorePurchases}
@@ -498,16 +628,27 @@ const ChoosePlanScreen: React.FC = () => {
 
       {/* Footer */}
       <View style={styles.footer}>
-        <BodyText size="small" color="tertiary" align="center" style={styles.footerText}>
-          Cancel anytime • Secure payment
-        </BodyText>
+        <View style={styles.footerTextContainer}>
+          <Pressable onPress={handleCancelSubscription}>
+            <Text style={[styles.footerText, styles.cancelLink, { color: theme.gold.primary }]}>
+              Cancel
+            </Text>
+          </Pressable>
+          <Text style={[styles.footerText, { color: theme.text.tertiary }]}>
+            {" anytime • Secure payment"}
+          </Text>
+        </View>
       </View>
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
+  },
+  scrollView: {
     flex: 1,
   },
   scrollContent: {
@@ -535,6 +676,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 32,
     alignItems: "center",
+  },
+  swipeHint: {
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: 8,
+    opacity: 0.8,
   },
   toggleContainer: {
     flexDirection: "row",
@@ -736,9 +883,20 @@ const styles = StyleSheet.create({
     paddingTop: 40,
     alignItems: "center",
   },
+  footerTextContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
+  },
   footerText: {
+    fontSize: 12,
     lineHeight: 20,
     textAlign: "center",
+  },
+  cancelLink: {
+    textDecorationLine: "underline",
+    fontWeight: "600",
   },
   restoreSection: {
     paddingHorizontal: 40,

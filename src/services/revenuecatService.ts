@@ -360,6 +360,61 @@ class RevenueCatService {
     }
   }
 
+  // Get current billing period based on active product ID
+  async getCurrentBillingPeriod(forceRefresh: boolean = false): Promise<'monthly' | 'annual' | null> {
+    try {
+      const customerInfo = await this.getCustomerInfo(forceRefresh);
+      const activeEntitlements = customerInfo.entitlements.active;
+      
+      if (activeEntitlements.pro) {
+        const activeSubscriptions = customerInfo.activeSubscriptions;
+        
+        if (activeSubscriptions.length > 0) {
+          // Get the most recent product ID
+          const allPurchaseDates = customerInfo.allPurchaseDates;
+          let mostRecentDate: Date | null = null;
+          let mostRecentProductId: string | null = null;
+          
+          for (const productId of activeSubscriptions) {
+            const purchaseDateRaw = allPurchaseDates[productId];
+            if (purchaseDateRaw) {
+              let purchaseDate: Date;
+              if (purchaseDateRaw instanceof Date) {
+                purchaseDate = purchaseDateRaw;
+              } else if (typeof purchaseDateRaw === 'string') {
+                purchaseDate = new Date(purchaseDateRaw);
+              } else {
+                continue;
+              }
+              
+              if (!mostRecentDate || purchaseDate > mostRecentDate) {
+                mostRecentDate = purchaseDate;
+                mostRecentProductId = productId;
+              }
+            }
+          }
+          
+          // Determine billing period from product ID
+          if (mostRecentProductId) {
+            if (mostRecentProductId.includes('_monthly')) {
+              return 'monthly';
+            } else if (mostRecentProductId.includes('_annual')) {
+              return 'annual';
+            } else if (mostRecentProductId === 'rc_starter') {
+              // Starter is monthly only
+              return 'monthly';
+            }
+          }
+        }
+      }
+      
+      return null; // No active subscription or unable to determine
+    } catch (error) {
+      console.error('❌ Error getting current billing period:', error);
+      return null;
+    }
+  }
+
   // Purchase a subscription
   async purchaseSubscription(productId: string): Promise<{
     success: boolean;

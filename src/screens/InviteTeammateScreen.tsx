@@ -318,7 +318,7 @@ export const InviteTeammateScreen: React.FC = () => {
           {/* Permissions Info */}
           <View style={[styles.permissionsCard, { backgroundColor: theme.background.secondary }]}>
             <Text style={[styles.permissionsTitle, { color: theme.text.primary }]}>
-              What teammates can do:
+              {role === 'admin' ? 'What admins can do:' : 'What teammates can do:'}
             </Text>
             <View style={styles.permissionsList}>
               <View style={styles.permissionItem}>
@@ -333,6 +333,22 @@ export const InviteTeammateScreen: React.FC = () => {
                   Edit and delete their own receipts
                 </Text>
               </View>
+              {role === 'admin' && (
+                <>
+                  <View style={styles.permissionItem}>
+                    <Ionicons name="checkmark-circle" size={16} color={theme.status.success} />
+                    <Text style={[styles.permissionText, { color: theme.text.secondary }]}>
+                      View all team receipts and analytics
+                    </Text>
+                  </View>
+                  <View style={styles.permissionItem}>
+                    <Ionicons name="checkmark-circle" size={16} color={theme.status.success} />
+                    <Text style={[styles.permissionText, { color: theme.text.secondary }]}>
+                      Add new teammates to the team
+                    </Text>
+                  </View>
+                </>
+              )}
               <View style={styles.permissionItem}>
                 <Ionicons name="close-circle" size={16} color={theme.status.error} />
                 <Text style={[styles.permissionText, { color: theme.text.secondary }]}>
