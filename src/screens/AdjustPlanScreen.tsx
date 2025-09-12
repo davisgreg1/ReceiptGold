@@ -24,6 +24,7 @@ import {
 } from "../services/revenuecatService";
 import { StackNavigationProp } from "@react-navigation/stack";
 import { RouteProp } from "@react-navigation/native";
+import { useConfettiContext } from "../context/ConfettiContext";
 
 const { width, height } = Dimensions.get("window");
 
@@ -53,7 +54,7 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const shimmerValue = useRef(new Animated.Value(0)).current;
   const lastRequestTime = useRef(0);
-  const [showConfetti, setShowConfetti] = useState(false);
+  const { triggerConfetti } = useConfettiContext();
 
   useEffect(() => {
     // Load current billing period
@@ -303,12 +304,8 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
         setIsDataLoaded(true); // Ensure data is marked as loaded
 
         // 🎊 IMMEDIATE CONFETTI CELEBRATION! 🎊
-        setShowConfetti(true);
+        triggerConfetti();
 
-        // Auto-hide confetti after animation
-        setTimeout(() => {
-          setShowConfetti(false);
-        }, 3000);
 
         // Show contextual success notification
         const tierData = SUBSCRIPTION_TIERS[tier];
@@ -412,85 +409,6 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
       }
     });
 
-  const ConfettiPiece: React.FC<{
-    delay: number;
-    color: string;
-    x: number;
-  }> = ({ delay, color, x }) => {
-    const animValue = useRef(new Animated.Value(0)).current;
-    const rotateValue = useRef(new Animated.Value(0)).current;
-
-    useEffect(() => {
-      if (showConfetti) {
-        const fallAnimation = Animated.timing(animValue, {
-          toValue: 1,
-          duration: 3000,
-          delay,
-          useNativeDriver: true,
-        });
-
-        const rotateAnimation = Animated.timing(rotateValue, {
-          toValue: 1,
-          duration: 3000,
-          delay,
-          useNativeDriver: true,
-        });
-
-        Animated.parallel([fallAnimation, rotateAnimation]).start();
-      }
-    }, [showConfetti]);
-
-    const translateY = animValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: [-50, height + 100],
-    });
-
-    const rotate = rotateValue.interpolate({
-      inputRange: [0, 1],
-      outputRange: ["0deg", "720deg"],
-    });
-
-    if (!showConfetti) return null;
-
-    return (
-      <Animated.View
-        style={[
-          styles.confettiPiece,
-          {
-            left: x,
-            backgroundColor: color,
-            transform: [{ translateY }, { rotate }],
-          },
-        ]}
-      />
-    );
-  };
-
-  const ConfettiOverlay: React.FC = () => {
-    const confettiPieces = Array.from({ length: 50 }, (_, i) => ({
-      id: i,
-      delay: Math.random() * 1000,
-      color: ["#FFD700", "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"][
-        Math.floor(Math.random() * 6)
-      ],
-      x: Math.random() * width,
-    }));
-
-    if (!showConfetti) return null;
-
-    return (
-      <View style={styles.confettiContainer} pointerEvents="none">
-        {confettiPieces.map((piece) => (
-          <ConfettiPiece
-            key={piece.id}
-            delay={piece.delay}
-            color={piece.color}
-            x={piece.x}
-          />
-        ))}
-      </View>
-    );
-  };
 
   const SavingsBadge: React.FC<{
     savings: number;
@@ -871,7 +789,6 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
       </View>
 
       {/* Confetti Celebration Overlay */}
-      <ConfettiOverlay />
     </View>
   );
 };
@@ -1084,20 +1001,6 @@ const styles = StyleSheet.create({
   shimmerGradient: {
     width: "100%",
     height: "100%",
-  },
-  confettiContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 1000,
-  },
-  confettiPiece: {
-    position: "absolute",
-    width: 8,
-    height: 8,
-    borderRadius: 4,
   },
 });
 

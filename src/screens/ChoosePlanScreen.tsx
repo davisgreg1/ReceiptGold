@@ -20,6 +20,7 @@ import { HeadingText, BodyText, ButtonText } from "../components/Typography";
 import { useRevenueCatPayments } from "../hooks/useRevenueCatPayments";
 import { useInAppNotifications } from "../components/InAppNotificationProvider";
 import { SUBSCRIPTION_TIERS, revenueCatService } from "../services/revenuecatService";
+import { useConfettiContext } from "../context/ConfettiContext";
 
 const { width } = Dimensions.get("window");
 
@@ -325,6 +326,7 @@ const ChoosePlanScreen: React.FC = () => {
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [restoringPurchases, setRestoringPurchases] = useState(false);
   const rotationValue = React.useRef(new Animated.Value(0)).current;
+  const { triggerConfetti } = useConfettiContext();
 
   // Load current billing period on mount and when tier changes
   React.useEffect(() => {
@@ -420,6 +422,9 @@ const ChoosePlanScreen: React.FC = () => {
       );
 
       if (success) {
+        // 🎊 CELEBRATE PAID SUBSCRIPTION! 🎊
+        triggerConfetti();
+        
         // Update the current billing period after successful subscription
         setCurrentBillingPeriod(billingPeriod);
         
@@ -459,6 +464,9 @@ const ChoosePlanScreen: React.FC = () => {
       });
       
       if (success) {
+        // 🎊 CELEBRATE RESTORED SUBSCRIPTION! 🎊
+        triggerConfetti();
+        
         // Refresh the current billing period after successful restore
         try {
           const currentPeriod = await getCurrentBillingPeriod();
@@ -626,6 +634,8 @@ const ChoosePlanScreen: React.FC = () => {
         </View>
       </View>
       </ScrollView>
+      
+      {/* Confetti Celebration for Subscription Success */}
     </View>
   );
 };
