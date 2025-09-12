@@ -11,6 +11,37 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// API directory handler - dynamically load API files
+app.use('/api', async (req, res, next) => {
+  const path = require('path');
+  const fs = require('fs');
+  
+  try {
+    // Convert URL path to file path (e.g., /api/sms/send-verification -> api/sms/send-verification.js)
+    const apiPath = req.path.replace(/^\//, ''); // Remove leading slash
+    const filePath = path.join(__dirname, 'api', `${apiPath}.js`);
+    
+    // Check if API file exists
+    if (fs.existsSync(filePath)) {
+      // Clear require cache to allow hot reloading in development
+      delete require.cache[require.resolve(filePath)];
+      
+      // Require and execute the API handler
+      const handler = require(filePath).default;
+      if (typeof handler === 'function') {
+        await handler(req, res);
+      } else {
+        next(); // Continue to next middleware if no default export
+      }
+    } else {
+      next(); // Continue to existing hardcoded routes
+    }
+  } catch (error) {
+    console.error('API handler error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Health check
 app.get('/health', (req, res) => {
   console.log('🔍 HEALTH CHECK - Code is updated!');

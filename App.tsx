@@ -14,6 +14,7 @@ import { AuthNavigator } from './src/navigation/AuthNavigator';
 import { CustomAlertProvider } from './src/components/CustomAlert';
 import { InAppNotificationProvider } from './src/components/InAppNotificationProvider';
 import { NotificationSettingsProvider } from './src/context/NotificationSettingsContext';
+import { ConfettiProvider } from './src/context/ConfettiContext';
 import { useNotificationSettings } from './src/context/NotificationSettingsContext';
 import { NotificationService } from './src/services/NotificationService';
 import { useUserNotificationMonitor } from './src/services/UserNotificationMonitor';
@@ -166,13 +167,15 @@ export default function App() {
             <SubscriptionProvider>
               <BusinessProvider>
                 <CustomAlertProvider>
-                  <TeamProvider>
-                    <NotificationSettingsProvider>
-                      <InAppNotificationProvider>
-                        <AppContent />
-                      </InAppNotificationProvider>
-                    </NotificationSettingsProvider>
-                  </TeamProvider>
+                  <ConfettiProvider>
+                    <TeamProvider>
+                      <NotificationSettingsProvider>
+                        <InAppNotificationProvider>
+                          <AppContent />
+                        </InAppNotificationProvider>
+                      </NotificationSettingsProvider>
+                    </TeamProvider>
+                  </ConfettiProvider>
                 </CustomAlertProvider>
               </BusinessProvider>
             </SubscriptionProvider>

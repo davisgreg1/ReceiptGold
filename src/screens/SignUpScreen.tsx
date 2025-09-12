@@ -17,6 +17,12 @@ import { Logo } from '../components/Logo';
 import { CustomAlert } from '../components/CustomAlert';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { DisplayText, BodyText, ButtonText, BrandText } from '../components/Typography';
+import { PhoneVerificationScreen } from './PhoneVerificationScreen';
+import PhoneAuthService from '../services/PhoneAuthService';
+import { auth } from '../config/firebase';
+import { useConfettiContext } from '../context/ConfettiContext';
+import { useRevenueCatPayments } from '../hooks/useRevenueCatPayments';
+import { useInAppNotifications } from '../components/InAppNotificationProvider';
 
 interface SignUpScreenProps {
   onNavigateToSignIn: () => void;
@@ -27,20 +33,50 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
 }) => {
   const { theme } = useTheme();
   const { signUp } = useAuth();
+  const [step, setStep] = useState<'signup' | 'phone'>('signup');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(false);
   const { alertState, showError, showSuccess, showFirebaseError, hideAlert } = useCustomAlert();
+  const { triggerConfetti } = useConfettiContext();
+  const { restorePurchases } = useRevenueCatPayments();
+  const { showNotification } = useInAppNotifications();
+
+  const handleAutoRestore = async () => {
+    try {
+      console.log('🔄 Automatically checking for existing subscriptions...');
+      const restored = await restorePurchases();
+      
+      if (restored) {
+        console.log('✅ Subscription restored successfully on signup!');
+        showNotification({
+          type: "success",
+          title: "🎉 Welcome Back!",
+          message: "Your premium subscription has been restored! All your features are ready to use.",
+        });
+        // Add extra confetti for restored premium users! 🎊
+        triggerConfetti();
+      } else {
+        console.log('📝 No existing subscription found - user starts with trial');
+      }
+    } catch (error) {
+      console.error('❌ Error during automatic restore:', error);
+      // Don't show error to user - this is background operation
+      // They can manually restore later if needed
+    }
+  };
 
   const handleSignUp = async () => {
     // Trim email only, keep passwords as-is since spaces might be intentional
     const trimmedEmail = email.trim();
     
-    if (!trimmedEmail || !password || !confirmPassword) {
-      showError('Error', 'Please fill in all fields');
+    if (!trimmedEmail || !password || !confirmPassword || !phoneNumber) {
+      showError('Error', 'Please fill in all fields including phone number');
       return;
     }
 
@@ -49,21 +85,86 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
       return;
     }
 
+    // Validate phone number format
+    const phoneValidation = PhoneAuthService.validatePhoneNumber(phoneNumber);
+    if (!phoneValidation.isValid) {
+      showError('Error', phoneValidation.error || 'Please enter a valid phone number');
+      return;
+    }
+
     if (password.length < 6) {
       showError('Error', 'Password must be at least 6 characters');
       return;
     }
 
+    // Don't create account yet - verify phone first
+    if (!phoneVerified) {
+      setStep('phone');
+      showSuccess('Phone Verification Required', 'Please verify your phone number before creating your account');
+      return;
+    }
+
+    // Only create account after phone is verified
     setLoading(true);
     try {
       await signUp(trimmedEmail, password);
-      showSuccess('Success', 'Account created successfully!');
+      showSuccess('Welcome!', 'Your account is ready to use');
     } catch (error: any) {
       showFirebaseError(error, 'Sign Up Error');
     } finally {
       setLoading(false);
     }
   };
+
+  const handlePhoneVerificationSuccess = async (verifiedPhone: string, result: any) => {
+    console.log('✅ Phone verification successful for signup:', verifiedPhone);
+    console.log('🎊 About to trigger confetti for account creation...');
+    setPhoneVerified(true);
+    
+    // 🎊 CELEBRATE ACCOUNT CREATION! 🎊
+    console.log('🎊 Triggering global confetti for account creation');
+    triggerConfetti();
+    
+    // Don't change step - stay on phone screen while creating account
+    setLoading(true);
+    try {
+      const trimmedEmail = email.trim();
+      await signUp(trimmedEmail, password);
+      
+      // Give a brief moment for the success message, then let auth context navigate
+      setTimeout(() => {
+        showSuccess('Welcome!', 'Your account has been created successfully');
+      }, 200);
+      
+      // 🔄 Automatically attempt to restore any existing subscriptions
+      // Run this in the background after account creation
+      setTimeout(async () => {
+        await handleAutoRestore();
+      }, 1000);
+    } catch (error: any) {
+      showFirebaseError(error, 'Account Creation Error');
+      // On error, go back to signup form
+      setStep('signup');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBackToSignup = () => {
+    setStep('signup');
+  };
+
+  // Show phone verification screen before account creation
+  if (step === 'phone') {
+    return (
+      <PhoneVerificationScreen
+        mode="signup"
+        initialPhoneNumber={phoneNumber}
+        onVerificationSuccess={handlePhoneVerificationSuccess}
+        onBack={handleBackToSignup}
+      />
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
@@ -188,6 +289,29 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
                   />
                 </TouchableOpacity>
               </View>
+            </View>
+
+            <View style={styles.inputContainer}>
+              <BodyText size="medium" color="primary" style={{ marginBottom: 8 }}>
+                Phone Number
+              </BodyText>
+              <TextInput
+                style={[
+                  styles.input,
+                  {
+                    backgroundColor: theme.background.secondary,
+                    borderColor: theme.border.primary,
+                    color: theme.text.primary,
+                  },
+                ]}
+                placeholder="+1 (555) 123-4567"
+                placeholderTextColor={theme.text.tertiary}
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                keyboardType="phone-pad"
+                autoComplete="tel"
+                textContentType="telephoneNumber"
+              />
             </View>
 
             <TouchableOpacity

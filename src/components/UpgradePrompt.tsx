@@ -14,6 +14,7 @@ import { useRevenueCatPayments } from "../hooks/useRevenueCatPayments";
 import { useAuth } from "../context/AuthContext";
 import { SubscriptionTierKey } from "../services/revenuecatService";
 import { useInAppNotifications } from "./InAppNotificationProvider";
+import { useConfettiContext } from "../context/ConfettiContext";
 
 interface UpgradePromptProps {
   visible: boolean;
@@ -36,6 +37,7 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
 
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const { triggerConfetti } = useConfettiContext();
 
   // Map SubscriptionTier to SubscriptionTierKey for RevenueCat
   const mapTierToRevenueCatKey = (tier: SubscriptionTier): SubscriptionTierKey => {
@@ -67,6 +69,9 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
       );
 
       if (success) {
+        // 🎊 CELEBRATE UPGRADE! 🎊
+        triggerConfetti();
+        
         showNotification({
           type: "success",
           title: "Subscription",
@@ -237,6 +242,8 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
           </TouchableOpacity>
         </View>
       </View>
+      
+      {/* Confetti Celebration for Upgrade */}
     </Modal>
   );
 };
