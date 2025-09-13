@@ -28,7 +28,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
+exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testPauseWebhook = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -2480,6 +2480,39 @@ exports.debugWebhook = (0, https_1.onRequest)((req, res) => {
         timestamp: new Date().toISOString(),
     });
 });
+// Test function for RevenueCat SUBSCRIPTION_PAUSED webhook
+exports.testPauseWebhook = (0, https_1.onRequest)(async (req, res) => {
+    try {
+        Logger.info('🧪 Testing SUBSCRIPTION_PAUSED webhook...', {});
+        const { userId } = req.body;
+        if (!userId) {
+            res.status(400).json({ error: 'userId is required in request body' });
+            return;
+        }
+        // Create a mock SUBSCRIPTION_PAUSED event
+        const mockEvent = {
+            type: 'SUBSCRIPTION_PAUSED',
+            original_app_user_id: userId,
+            event_timestamp_ms: Date.now(),
+            product_id: 'rc_growth_monthly' // Mock product ID
+        };
+        Logger.info('📤 Simulating SUBSCRIPTION_PAUSED event for user: ${userId}', {});
+        // Call the handler directly
+        await handleSubscriptionPausedEvent(mockEvent);
+        Logger.info('✅ SUBSCRIPTION_PAUSED webhook test completed successfully', {});
+        res.status(200).json({
+            success: true,
+            message: `Successfully tested SUBSCRIPTION_PAUSED webhook for user: ${userId}`,
+            eventType: 'SUBSCRIPTION_PAUSED',
+            userId: userId,
+            timestamp: new Date(mockEvent.event_timestamp_ms).toISOString()
+        });
+    }
+    catch (error) {
+        Logger.error('❌ Error testing SUBSCRIPTION_PAUSED webhook:', { error: error });
+        res.status(500).json({ error: `Failed to test webhook: ${error.message}` });
+    }
+});
 // Function to test Plaid webhooks using sandbox fire_webhook endpoint
 exports.testPlaidWebhook = (0, https_1.onCall)(async (request) => {
     if (!request.auth) {
@@ -2931,6 +2964,18 @@ exports.revenueCatWebhookHandler = (0, https_1.onRequest)(async (req, res) => {
             case 'NON_RENEWING_PURCHASE':
                 await handleSubscriptionEvent(event);
                 break;
+            case 'BILLING_ISSUE':
+                await handleBillingIssueEvent(event);
+                break;
+            case 'EXPIRATION':
+                await handleExpirationEvent(event);
+                break;
+            case 'SUBSCRIPTION_PAUSED':
+                await handleSubscriptionPausedEvent(event);
+                break;
+            case 'REFUND_REVERSED':
+                await handleRefundReversedEvent(event);
+                break;
             default:
                 Logger.info('Unhandled event type: ${event.type}', {});
         }
@@ -3015,6 +3060,150 @@ async function handleSubscriptionEvent(event) {
     }
     catch (error) {
         Logger.error('❌ Error handling subscription event:', { error: error });
+        throw error;
+    }
+}
+async function handleBillingIssueEvent(event) {
+    try {
+        const { original_app_user_id, event_timestamp_ms, type } = event;
+        const userId = original_app_user_id;
+        Logger.info('Processing billing issue event for user: ${userId}', {});
+        console.log(`⏰ Event timestamp: ${new Date(event_timestamp_ms)}`);
+        if (!userId) {
+            Logger.error('❌ No user ID found in billing issue event', {});
+            return;
+        }
+        // Get user's current subscription document
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const currentSub = await subscriptionRef.get();
+        if (currentSub.exists) {
+            // Update subscription with billing issue status
+            const subscriptionUpdate = {
+                lastRevenueCatEvent: type,
+                lastRevenueCatEventTimestamp: new Date(event_timestamp_ms),
+                billingIssue: true,
+                billingIssueDate: new Date(event_timestamp_ms),
+                updatedAt: new Date()
+            };
+            await subscriptionRef.set(subscriptionUpdate, { merge: true });
+            Logger.info('Billing issue recorded for user ${userId}', {});
+            // TODO: Consider adding user notification logic here
+            // TODO: Consider adding dunning management logic here
+        }
+        else {
+            Logger.warn('No subscription document found for user with billing issue: ${userId}', {});
+        }
+    }
+    catch (error) {
+        Logger.error('❌ Error handling billing issue event:', { error: error });
+        throw error;
+    }
+}
+async function handleExpirationEvent(event) {
+    try {
+        const { original_app_user_id, event_timestamp_ms, type } = event;
+        const userId = original_app_user_id;
+        Logger.info('Processing expiration event for user: ${userId}', {});
+        console.log(`⏰ Event timestamp: ${new Date(event_timestamp_ms)}`);
+        if (!userId) {
+            Logger.error('❌ No user ID found in expiration event', {});
+            return;
+        }
+        // Get user's current subscription document
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const currentSub = await subscriptionRef.get();
+        if (currentSub.exists) {
+            // Update subscription to free tier since it expired
+            const subscriptionUpdate = {
+                currentTier: 'free',
+                lastRevenueCatEvent: type,
+                lastRevenueCatEventTimestamp: new Date(event_timestamp_ms),
+                expiredAt: new Date(event_timestamp_ms),
+                billingIssue: false,
+                updatedAt: new Date()
+            };
+            await subscriptionRef.set(subscriptionUpdate, { merge: true });
+            Logger.info('Subscription expired for user ${userId} - downgraded to free', {});
+            // TODO: Consider adding user notification logic here
+        }
+        else {
+            Logger.warn('No subscription document found for expired user: ${userId}', {});
+        }
+    }
+    catch (error) {
+        Logger.error('❌ Error handling expiration event:', { error: error });
+        throw error;
+    }
+}
+async function handleSubscriptionPausedEvent(event) {
+    try {
+        const { original_app_user_id, event_timestamp_ms, type } = event;
+        const userId = original_app_user_id;
+        Logger.info('Processing subscription paused event for user: ${userId}', {});
+        console.log(`⏰ Event timestamp: ${new Date(event_timestamp_ms)}`);
+        if (!userId) {
+            Logger.error('❌ No user ID found in subscription paused event', {});
+            return;
+        }
+        // Get user's current subscription document
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const currentSub = await subscriptionRef.get();
+        if (currentSub.exists) {
+            // Update subscription with paused status
+            const subscriptionUpdate = {
+                lastRevenueCatEvent: type,
+                lastRevenueCatEventTimestamp: new Date(event_timestamp_ms),
+                isPaused: true,
+                pausedAt: new Date(event_timestamp_ms),
+                updatedAt: new Date()
+            };
+            await subscriptionRef.set(subscriptionUpdate, { merge: true });
+            Logger.info('Subscription paused for user ${userId}', {});
+            // TODO: Consider adding user notification logic here
+        }
+        else {
+            Logger.warn('No subscription document found for user with paused subscription: ${userId}', {});
+        }
+    }
+    catch (error) {
+        Logger.error('❌ Error handling subscription paused event:', { error: error });
+        throw error;
+    }
+}
+async function handleRefundReversedEvent(event) {
+    try {
+        const { original_app_user_id, event_timestamp_ms, type, product_id } = event;
+        const userId = original_app_user_id;
+        Logger.info('Processing refund reversed event for user: ${userId}', {});
+        console.log(`⏰ Event timestamp: ${new Date(event_timestamp_ms)}`);
+        if (!userId) {
+            Logger.error('❌ No user ID found in refund reversed event', {});
+            return;
+        }
+        // Map product ID to tier for restoration
+        const tier = mapProductIdToTier(product_id);
+        // Get user's current subscription document
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const currentSub = await subscriptionRef.get();
+        if (currentSub.exists) {
+            // Restore subscription since refund was reversed
+            const subscriptionUpdate = {
+                currentTier: tier,
+                lastRevenueCatEvent: type,
+                lastRevenueCatEventTimestamp: new Date(event_timestamp_ms),
+                billingIssue: false,
+                updatedAt: new Date()
+            };
+            await subscriptionRef.set(subscriptionUpdate, { merge: true });
+            Logger.info('Subscription restored for user ${userId} due to refund reversal', {});
+            // TODO: Consider adding user notification logic here
+        }
+        else {
+            Logger.warn('No subscription document found for user with refund reversal: ${userId}', {});
+        }
+    }
+    catch (error) {
+        Logger.error('❌ Error handling refund reversed event:', { error: error });
         throw error;
     }
 }
