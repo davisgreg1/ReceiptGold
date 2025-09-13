@@ -8,6 +8,7 @@ import Stripe from "stripe";
 import { onCall, HttpsError, CallableRequest, onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
 const sgMail = require('@sendgrid/mail');
+const jwt = require('jsonwebtoken');
 
 // Structured logging utility for production
 class Logger {
@@ -438,6 +439,328 @@ function getTierFromPriceId(priceId: string): string {
 
   return tier;
 }
+
+// DeviceCheck configuration
+const getDeviceCheckConfig = () => {
+  const keyId = process.env.APPLE_DEVICE_CHECK_KEY_ID;
+  const teamId = process.env.APPLE_TEAM_ID;
+  const privateKey = process.env.APPLE_DEVICE_CHECK_PRIVATE_KEY;
+  
+  if (!keyId || !teamId || !privateKey) {
+    throw new Error('DeviceCheck configuration incomplete. Set APPLE_DEVICE_CHECK_KEY_ID, APPLE_TEAM_ID, and APPLE_DEVICE_CHECK_PRIVATE_KEY');
+  }
+  
+  return { keyId, teamId, privateKey };
+};
+
+// Generate JWT for Apple DeviceCheck API
+function generateDeviceCheckJWT(): string {
+  const config = getDeviceCheckConfig();
+  
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    iss: config.teamId,
+    iat: now,
+    exp: now + (60 * 60) // 1 hour expiration
+  };
+  
+  const header = {
+    alg: 'ES256',
+    kid: config.keyId
+  };
+  
+  return jwt.sign(payload, config.privateKey, { 
+    algorithm: 'ES256',
+    header: header
+  });
+}
+
+
+// Helper function to check if token is a base64 fallback token
+function isBase64FallbackToken(token: string): boolean {
+  try {
+    const decoded = Buffer.from(token, 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded);
+    return parsed.platform && parsed.deviceId;
+  } catch {
+    return false;
+  }
+}
+
+// Fallback device check using Firestore
+async function queryFallbackDeviceCheck(deviceToken: string): Promise<{ bit0: boolean; bit1: boolean; last_update_time?: string }> {
+  try {
+    const deviceDoc = await db.collection('device_tracking').doc(deviceToken).get();
+    
+    if (!deviceDoc.exists) {
+      return { bit0: false, bit1: false };
+    }
+    
+    const data = deviceDoc.data();
+    return {
+      bit0: data?.hasCreatedAccount || false,
+      bit1: false,
+      last_update_time: data?.lastUpdated || data?.createdAt
+    };
+  } catch (error) {
+    Logger.error('Fallback device check query failed', { error: (error as Error).message });
+    return { bit0: false, bit1: false };
+  }
+}
+
+// Update fallback device check in Firestore
+async function updateFallbackDeviceCheck(deviceToken: string, bits: { bit0?: boolean; bit1?: boolean }): Promise<void> {
+  try {
+    await db.collection('deviceChecks').doc(deviceToken).set({
+      ...bits,
+      last_update_time: new Date().toISOString(),
+      updated_at: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch (error) {
+    Logger.error('Fallback device check update failed', { error: (error as Error).message });
+    throw error;
+  }
+}
+
+// Query DeviceCheck two bits for a device
+async function queryDeviceCheck(deviceToken: string): Promise<{ bit0: boolean; bit1: boolean; last_update_time?: string }> {
+  try {
+    // Check if this is a fallback token (base64 encoded JSON from our React Native service)
+    const isFallbackToken = isBase64FallbackToken(deviceToken);
+    
+    if (isFallbackToken) {
+      Logger.info('Using fallback device check (Firestore-based)');
+      return await queryFallbackDeviceCheck(deviceToken);
+    }
+    
+    Logger.info('Using Apple DeviceCheck API');
+    const jwtToken = generateDeviceCheckJWT();
+    
+    const response = await fetch('https://api.devicecheck.apple.com/v1/query_two_bits', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${jwtToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        device_token: deviceToken,
+        timestamp: Date.now()
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`DeviceCheck query failed: ${response.status} - ${errorText}`);
+    }
+    
+    const data = await response.json();
+    return {
+      bit0: data.bit0 || false,
+      bit1: data.bit1 || false,
+      last_update_time: data.last_update_time
+    };
+  } catch (error) {
+    Logger.error('DeviceCheck query failed', { error: (error as Error).message });
+    throw error;
+  }
+}
+
+// Update DeviceCheck two bits for a device
+async function updateDeviceCheck(deviceToken: string, bits: { bit0?: boolean; bit1?: boolean }): Promise<void> {
+  try {
+    // Check if this is a fallback token (base64 encoded JSON from our React Native service)
+    const isFallbackToken = isBase64FallbackToken(deviceToken);
+    
+    if (isFallbackToken) {
+      Logger.info('Using fallback device check update (Firestore-based)');
+      await updateFallbackDeviceCheck(deviceToken, bits);
+      return;
+    }
+    
+    Logger.info('Using Apple DeviceCheck API for update');
+    const jwtToken = generateDeviceCheckJWT();
+    
+    const response = await fetch('https://api.devicecheck.apple.com/v1/update_two_bits', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${jwtToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        device_token: deviceToken,
+        timestamp: Date.now(),
+        bit0: bits.bit0,
+        bit1: bits.bit1
+      })
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`DeviceCheck update failed: ${response.status} - ${errorText}`);
+    }
+  } catch (error) {
+    Logger.error('DeviceCheck update failed', { error: (error as Error).message });
+    throw error;
+  }
+}
+
+// Pre-flight check for user creation with DeviceCheck (HTTP function to avoid auth requirements)
+export const checkDeviceForAccountCreation = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
+  try {
+    if (req.method !== 'POST') {
+      res.status(405).json({ error: 'Method not allowed' });
+      return;
+    }
+
+    const { deviceToken, email } = req.body.data || req.body;
+    
+    if (!deviceToken || !email) {
+      res.status(400).json({ 
+        error: { 
+          code: 'invalid-argument', 
+          message: 'deviceToken and email are required' 
+        } 
+      });
+      return;
+    }
+    
+    Logger.info('Checking device for account creation', { email });
+    
+    // Check if this device token already exists in our database
+    try {
+      const db = admin.firestore();
+      const deviceDoc = await db.collection('device_tracking').doc(deviceToken).get();
+      
+      if (deviceDoc.exists && deviceDoc.data()?.hasCreatedAccount) {
+        Logger.warn('Device has already created an account', { email, deviceToken: deviceToken.substring(0, 20) + '...' });
+        res.status(400).json({ 
+          error: { 
+            code: 'already-exists', 
+            message: 'This device has already been used to create an account. Please sign in with your existing account instead.' 
+          } 
+        });
+        return;
+      }
+      
+      Logger.info('Device token not found in database - allowing account creation');
+    } catch (error) {
+      Logger.error('Error checking device token in database', { error: (error as Error).message });
+      // Don't block account creation if database check fails - allow as fallback
+    }
+    
+    // Check if email already exists
+    try {
+      await admin.auth().getUserByEmail(email);
+      res.status(400).json({ 
+        error: { 
+          code: 'already-exists', 
+          message: 'An account with this email already exists' 
+        } 
+      });
+      return;
+    } catch (error) {
+      // User doesn't exist, which is what we want
+      if ((error as any).code !== 'auth/user-not-found') {
+        Logger.error('Error checking email existence', { error: (error as Error).message });
+        res.status(500).json({ 
+          error: { 
+            code: 'internal', 
+            message: 'Failed to verify email availability' 
+          } 
+        });
+        return;
+      }
+    }
+    
+    Logger.info('Device and email are eligible for account creation', { email });
+    
+    res.status(200).json({
+      data: {
+        success: true,
+        canCreateAccount: true,
+        message: 'Device is eligible for account creation'
+      }
+    });
+    
+  } catch (error) {
+    Logger.error('Error checking device for account creation', { error: (error as Error).message });
+    res.status(500).json({ 
+      error: { 
+        code: 'internal', 
+        message: `Failed to check device eligibility: ${(error as Error).message}` 
+      } 
+    });
+  }
+});
+
+// Complete account creation after Firebase Auth user is created
+export const completeAccountCreation = onRequest({ cors: true, invoker: 'public' }, async (req: Request, res: Response) => {
+  try {
+    Logger.info('Complete account creation request received', { 
+      body: req.body,
+      bodyData: req.body.data,
+      method: req.method,
+      headers: req.headers['content-type']
+    });
+    
+    const requestBody = req.body.data || req.body;
+    const { deviceToken } = requestBody;
+    
+    Logger.info('Extracting deviceToken', { requestBody, deviceToken });
+    
+    if (!deviceToken) {
+      Logger.error('deviceToken is missing from request body', { body: req.body });
+      res.status(400).json({ error: { message: 'deviceToken is required', status: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    
+    Logger.info('Completing account creation with DeviceCheck');
+    
+    // Check if this is a fallback token (base64 encoded device info)
+    const isFallbackToken = isBase64FallbackToken(deviceToken);
+    
+    if (isFallbackToken) {
+      // For fallback tokens, mark device as used in Firestore
+      try {
+        const db = admin.firestore();
+        const deviceRef = db.collection('device_tracking').doc(deviceToken);
+        await deviceRef.set({
+          hasCreatedAccount: true,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+        });
+        Logger.info('Fallback device marked as having created account');
+      } catch (error) {
+        Logger.warn('Failed to update fallback device tracking', { error: (error as Error).message });
+      }
+    } else {
+      // For real DeviceCheck tokens, use Apple DeviceCheck API
+      try {
+        await updateDeviceCheck(deviceToken, { bit0: true });
+        Logger.info('DeviceCheck updated - device marked as having created account');
+      } catch (error) {
+        Logger.warn('DeviceCheck update failed, but account creation continues', { error: (error as Error).message });
+        // Don't fail account creation if DeviceCheck update fails
+      }
+    }
+    
+    res.json({
+      data: {
+        success: true,
+        message: 'Account creation completed successfully'
+      }
+    });
+    
+  } catch (error) {
+    Logger.error('Error completing account creation', { error: (error as Error).message });
+    res.status(500).json({ 
+      error: { 
+        message: `Failed to complete account creation: ${(error as Error).message}`,
+        status: 'INTERNAL'
+      }
+    });
+  }
+});
 
 // 1. User Creation Trigger (updated for Firebase Functions v6)
 export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.auth.UserRecord) => {
@@ -3143,6 +3466,97 @@ export const debugWebhook = onRequest((req, res) => {
     bodyLength: req.body?.length || 0,
     timestamp: new Date().toISOString(),
   });
+});
+
+// Test DeviceCheck functionality
+// Test endpoint to mark a device as used (for testing blocking logic)
+export const markDeviceUsed = onRequest({ cors: true }, async (req: Request, res: Response) => {
+  try {
+    const { deviceToken } = req.body.data || req.body;
+    
+    if (!deviceToken) {
+      res.status(400).json({ error: 'deviceToken is required' });
+      return;
+    }
+    
+    const db = admin.firestore();
+    await db.collection('device_tracking').doc(deviceToken).set({
+      hasCreatedAccount: true,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      testDevice: true
+    });
+    
+    res.json({ success: true, message: 'Device marked as used', deviceToken });
+  } catch (error) {
+    Logger.error('Error marking device as used', { error: (error as Error).message });
+    res.status(500).json({ error: 'Failed to mark device as used' });
+  }
+});
+
+// Simple endpoint to save device token for testing
+export const saveDeviceToken = onRequest({ cors: true }, async (req: Request, res: Response) => {
+  try {
+    const deviceToken = req.query.token as string;
+    
+    if (!deviceToken) {
+      res.status(400).json({ error: 'token parameter is required' });
+      return;
+    }
+    
+    const db = admin.firestore();
+    await db.collection('device_tracking').doc(deviceToken).set({
+      hasCreatedAccount: true,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+      testDevice: true
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Device token saved', 
+      deviceToken: deviceToken.substring(0, 20) + '...' 
+    });
+  } catch (error) {
+    Logger.error('Error saving device token', { error: (error as Error).message });
+    res.status(500).json({ error: 'Failed to save device token' });
+  }
+});
+
+export const testDeviceCheck = onRequest(async (req: Request, res: Response) => {
+  try {
+    const { deviceToken, action } = req.body;
+    
+    if (!deviceToken) {
+      res.status(400).json({ error: 'deviceToken is required' });
+      return;
+    }
+    
+    if (action === 'query') {
+      const result = await queryDeviceCheck(deviceToken);
+      res.status(200).json({
+        success: true,
+        action: 'query',
+        result: result
+      });
+    } else if (action === 'update') {
+      const { bit0, bit1 } = req.body;
+      await updateDeviceCheck(deviceToken, { bit0, bit1 });
+      res.status(200).json({
+        success: true,
+        action: 'update',
+        message: 'DeviceCheck bits updated successfully'
+      });
+    } else {
+      res.status(400).json({ error: 'action must be "query" or "update"' });
+    }
+    
+  } catch (error) {
+    Logger.error('DeviceCheck test failed', { error: (error as Error).message });
+    res.status(500).json({ 
+      error: `DeviceCheck test failed: ${(error as Error).message}` 
+    });
+  }
 });
 
 // Function to test Plaid webhooks using sandbox fire_webhook endpoint

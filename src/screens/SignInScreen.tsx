@@ -18,8 +18,6 @@ import { Logo } from '../components/Logo';
 import { CustomAlert } from '../components/CustomAlert';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { Typography, DisplayText, BodyText, ButtonText, BrandText } from '../components/Typography';
-import { PhoneVerificationScreen } from './PhoneVerificationScreen';
-import PhoneAuthService from '../services/PhoneAuthService';
 
 interface SignInScreenProps {
   onNavigateToSignUp: () => void;
@@ -32,7 +30,6 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
 }) => {
   const { theme } = useTheme();
   const { signIn } = useAuth();
-  const [signinMode, setSigninMode] = useState<'email' | 'phone'>('email');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -76,26 +73,6 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
     }
   };
 
-  const handlePhoneVerificationSuccess = (verifiedPhone: string, result: any) => {
-    console.log('✅ Phone verification successful for signin:', verifiedPhone);
-    // User is now signed in with phone
-    showSuccess('Welcome!', 'Successfully signed in with phone number');
-  };
-
-  const handleBackToEmailSignin = () => {
-    setSigninMode('email');
-  };
-
-  // Show phone verification screen if phone signin mode
-  if (signinMode === 'phone') {
-    return (
-      <PhoneVerificationScreen
-        mode="signin"
-        onVerificationSuccess={handlePhoneVerificationSuccess}
-        onBack={handleBackToEmailSignin}
-      />
-    );
-  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
@@ -225,14 +202,6 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
               </Typography>
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.phoneSigninButton}
-              onPress={() => setSigninMode('phone')}
-            >
-              <Typography variant="body-medium" color="secondary" style={{ textAlign: 'center' }}>
-                Or sign in with phone number
-              </Typography>
-            </TouchableOpacity>
           </View>
 
           {/* Sign Up Link */}
@@ -362,11 +331,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 20,
     paddingVertical: 8,
-  },
-  phoneSigninButton: {
-    alignItems: 'center',
-    marginTop: 16,
-    paddingVertical: 12,
   },
   forgotPasswordText: {
     fontSize: 16,
