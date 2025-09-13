@@ -28,7 +28,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
+exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -437,16 +437,35 @@ exports.checkDeviceForAccountCreation = (0, https_1.onRequest)({ cors: true, inv
             const db = admin.firestore();
             const deviceDoc = await db.collection('device_tracking').doc(deviceToken).get();
             if (deviceDoc.exists && ((_a = deviceDoc.data()) === null || _a === void 0 ? void 0 : _a.hasCreatedAccount)) {
-                Logger.warn('Device has already created an account', { email, deviceToken: deviceToken.substring(0, 20) + '...' });
-                res.status(400).json({
-                    error: {
-                        code: 'already-exists',
-                        message: 'This device has already been used to create an account. Please sign in with your existing account instead.'
-                    }
-                });
-                return;
+                const deviceData = deviceDoc.data();
+                // Check if there's an exception for deleted accounts with unsubscribed status
+                if (await checkDeletedAccountException(deviceData, email)) {
+                    Logger.info('Device blocking exception: Previous account was deleted and unsubscribed - allowing new account creation', {
+                        email,
+                        deviceToken: deviceToken.substring(0, 20) + '...'
+                    });
+                    // Update device record to reflect the new account creation attempt
+                    await deviceDoc.ref.update({
+                        previousAccountDeleted: true,
+                        allowedNewAccountAt: admin.firestore.FieldValue.serverTimestamp(),
+                        newAccountEmail: email,
+                        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                }
+                else {
+                    Logger.warn('Device has already created an account', { email, deviceToken: deviceToken.substring(0, 20) + '...' });
+                    res.status(400).json({
+                        error: {
+                            code: 'already-exists',
+                            message: 'This device has already been used to create an account. Please sign in with your existing account instead.'
+                        }
+                    });
+                    return;
+                }
             }
-            Logger.info('Device token not found in database - allowing account creation');
+            else {
+                Logger.info('Device token not found in database - allowing account creation');
+            }
         }
         catch (error) {
             Logger.error('Error checking device token in database', { error: error.message });
@@ -2495,6 +2514,8 @@ exports.onUserDelete = functionsV1.auth.user().onDelete(async (user) => {
             batch.delete(doc.ref);
         });
         await batch.commit();
+        // Update device tracking records to mark account as deleted
+        await updateDeviceTrackingForDeletedAccount(userId);
         Logger.info('User ${userId} data deleted successfully', {});
     }
     catch (error) {
@@ -3410,5 +3431,383 @@ function shouldUpdateUsageLimits(currentTier, newTier) {
     const tierPriority = { free: 0, starter: 1, growth: 2, professional: 3 };
     return (tierPriority[newTier] || 0) <
         (tierPriority[currentTier] || 0);
+}
+// Check account holder subscription status for teammate sign-in
+exports.checkAccountHolderSubscription = (0, https_1.onCall)(async (request) => {
+    var _a, _b;
+    try {
+        const { accountHolderId } = request.data;
+        if (!accountHolderId) {
+            throw new Error('accountHolderId is required');
+        }
+        Logger.info('Checking account holder subscription status', { accountHolderId });
+        // Get account holder's user document to find their subscription
+        const db = admin.firestore();
+        const userDoc = await db.collection('users').doc(accountHolderId).get();
+        if (!userDoc.exists) {
+            Logger.warn('Account holder not found', { accountHolderId });
+            return { hasActiveSubscription: false };
+        }
+        const userData = userDoc.data();
+        const subscription = userData === null || userData === void 0 ? void 0 : userData.subscription;
+        if (!subscription) {
+            Logger.info('No subscription found for account holder', { accountHolderId });
+            return { hasActiveSubscription: false };
+        }
+        // Check if subscription is active AND includes team management features
+        const isActive = subscription.status === 'active' &&
+            subscription.tier !== 'free' &&
+            new Date(((_b = (_a = subscription.expiresAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) || subscription.expiresAt) > new Date();
+        // Check if the tier includes team management features
+        // Only growth, professional, and teammate tiers support team management
+        const hasTeamManagement = ['growth', 'professional', 'teammate'].includes(subscription.tier);
+        const canAccessTeamFeatures = isActive && hasTeamManagement;
+        Logger.info('Account holder subscription check result', {
+            accountHolderId,
+            hasActiveSubscription: isActive,
+            hasTeamManagement,
+            canAccessTeamFeatures,
+            tier: subscription.tier,
+            status: subscription.status
+        });
+        return { hasActiveSubscription: canAccessTeamFeatures };
+    }
+    catch (error) {
+        Logger.error('Error checking account holder subscription', { error: error.message });
+        // Return false to block access when there's an error, for security
+        return { hasActiveSubscription: false };
+    }
+});
+// Automatically manage teammate access when account holder subscription changes
+exports.onSubscriptionStatusChange = functionsV1.firestore
+    .document('subscriptions/{userId}')
+    .onUpdate(async (change, context) => {
+    try {
+        const userId = context.params.userId;
+        const beforeData = change.before.data();
+        const afterData = change.after.data();
+        const beforeSubscription = beforeData;
+        const afterSubscription = afterData;
+        // Check if subscription status changed from active to inactive
+        const wasActive = (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.status) === 'active' &&
+            (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.currentTier) !== 'free';
+        const isNowInactive = (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.status) !== 'active' ||
+            (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.currentTier) === 'free';
+        if (wasActive && isNowInactive) {
+            Logger.info('Account holder subscription became inactive, revoking teammate access', {
+                accountHolderId: userId,
+                previousStatus: beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.status,
+                newStatus: afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.status,
+                previousTier: beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.currentTier,
+                newTier: afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.currentTier
+            });
+            await revokeTeammateAccess(userId);
+            return; // Exit early to avoid duplicate processing
+        }
+        // Check if account holder lost professional tier (but subscription is still active)
+        const hadProfessionalTier = (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.currentTier) === 'professional';
+        const lostProfessionalTier = hadProfessionalTier && (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.currentTier) !== 'professional';
+        if (lostProfessionalTier && (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.status) === 'active') {
+            Logger.info('Account holder lost professional tier, suspending teammates', {
+                accountHolderId: userId,
+                previousTier: beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.currentTier,
+                newTier: afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.currentTier
+            });
+            await suspendTeammatesForProfessionalTierLoss(userId);
+        }
+        // Check if account holder regained professional tier
+        const didNotHaveProfessionalTier = (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.currentTier) !== 'professional';
+        const regainedProfessionalTier = didNotHaveProfessionalTier && (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.currentTier) === 'professional';
+        if (regainedProfessionalTier && (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.status) === 'active') {
+            Logger.info('Account holder regained professional tier, reactivating suspended teammates', {
+                accountHolderId: userId,
+                previousTier: beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.currentTier,
+                newTier: afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.currentTier
+            });
+            await reactivateTeammatesForProfessionalTier(userId);
+        }
+    }
+    catch (error) {
+        Logger.error('Error handling subscription status change', {
+            userId: context.params.userId,
+            error: error.message
+        });
+    }
+});
+// Update device tracking records when an account is deleted
+async function updateDeviceTrackingForDeletedAccount(userId) {
+    var _a, _b;
+    try {
+        const db = admin.firestore();
+        // Get user's subscription status before deletion
+        const userDoc = await db.collection('users').doc(userId).get();
+        const userData = userDoc.exists ? userDoc.data() : null;
+        const subscription = userData === null || userData === void 0 ? void 0 : userData.subscription;
+        // Determine subscription status
+        const hadActiveSubscription = (subscription === null || subscription === void 0 ? void 0 : subscription.status) === 'active' &&
+            (subscription === null || subscription === void 0 ? void 0 : subscription.tier) !== 'free' &&
+            new Date(((_b = (_a = subscription === null || subscription === void 0 ? void 0 : subscription.expiresAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) || (subscription === null || subscription === void 0 ? void 0 : subscription.expiresAt)) > new Date();
+        const subscriptionStatus = (subscription === null || subscription === void 0 ? void 0 : subscription.status) || 'none';
+        // Find device tracking records directly by userId (much more reliable!)
+        const deviceQuery = db.collection('device_tracking')
+            .where('userId', '==', userId)
+            .where('hasCreatedAccount', '==', true);
+        const deviceSnapshot = await deviceQuery.get();
+        if (deviceSnapshot.empty) {
+            Logger.info('No device tracking records found for deleted user', {
+                userId: userId.substring(0, 8) + '...'
+            });
+            return;
+        }
+        Logger.info('Found device tracking records for deleted user', {
+            userId: userId.substring(0, 8) + '...',
+            recordCount: deviceSnapshot.size
+        });
+        // Update all device records for this user
+        const updatePromises = deviceSnapshot.docs.map(async (doc) => {
+            try {
+                await doc.ref.update({
+                    accountDeleted: true,
+                    accountDeletedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    hadActiveSubscription,
+                    subscriptionStatus,
+                    note: `Account deleted - ${hadActiveSubscription ? 'had active subscription' : 'no active subscription'}`
+                });
+                Logger.info('Updated device tracking record for deleted account', {
+                    deviceId: doc.id.substring(0, 20) + '...',
+                    hadActiveSubscription,
+                    subscriptionStatus
+                });
+            }
+            catch (updateError) {
+                Logger.error('Failed to update device tracking record', {
+                    deviceId: doc.id.substring(0, 20) + '...',
+                    error: updateError.message
+                });
+            }
+        });
+        await Promise.all(updatePromises);
+        Logger.info('Completed device tracking updates for deleted account', {
+            userId: userId.substring(0, 8) + '...',
+            recordsUpdated: deviceSnapshot.size,
+            hadActiveSubscription,
+            subscriptionStatus
+        });
+    }
+    catch (error) {
+        Logger.error('Error updating device tracking for deleted account', {
+            userId: userId.substring(0, 8) + '...',
+            error: error.message
+        });
+        // Don't throw error - this shouldn't block account deletion
+    }
+}
+// Check if device blocking should be bypassed for deleted accounts with unsubscribed status
+async function checkDeletedAccountException(deviceData, _newEmail) {
+    var _a, _b, _c, _d;
+    try {
+        // Check if we have stored information about the previous account
+        if (!deviceData.createdAt || !deviceData.note) {
+            Logger.info('No previous account information available for exception check');
+            return false;
+        }
+        // Look for deleted account markers in the device data
+        if (deviceData.accountDeleted === true || ((_a = deviceData.note) === null || _a === void 0 ? void 0 : _a.includes('Account deleted'))) {
+            Logger.info('Previous account was marked as deleted, checking subscription status');
+            // Check if subscription was cancelled/expired/free before deletion
+            if (deviceData.hadActiveSubscription === false ||
+                deviceData.subscriptionStatus === 'cancelled' ||
+                deviceData.subscriptionStatus === 'expired' ||
+                deviceData.subscriptionStatus === 'free' ||
+                deviceData.subscriptionStatus === 'none' ||
+                ((_b = deviceData.note) === null || _b === void 0 ? void 0 : _b.includes('unsubscribed')) ||
+                ((_c = deviceData.note) === null || _c === void 0 ? void 0 : _c.includes('no active subscription'))) {
+                Logger.info('Previous account was deleted with inactive subscription - allowing exception');
+                return true;
+            }
+        }
+        // Additional check: if enough time has passed (e.g., 30 days) since account creation,
+        // we can be more lenient and allow new account creation
+        const accountCreatedAt = ((_d = deviceData.createdAt) === null || _d === void 0 ? void 0 : _d.toDate) ? deviceData.createdAt.toDate() : new Date(deviceData.createdAt);
+        const daysSinceCreation = (Date.now() - accountCreatedAt.getTime()) / (1000 * 60 * 60 * 24);
+        if (daysSinceCreation > 30) {
+            Logger.info('Previous account is older than 30 days - allowing exception', { daysSinceCreation });
+            return true;
+        }
+        Logger.info('No exception criteria met for device blocking bypass');
+        return false;
+    }
+    catch (error) {
+        Logger.error('Error checking deleted account exception', { error: error.message });
+        // On error, don't allow exception to maintain security
+        return false;
+    }
+}
+// Helper function to revoke access for all teammates of an account holder
+async function revokeTeammateAccess(accountHolderId) {
+    try {
+        const db = admin.firestore();
+        // Get all active team members for this account holder
+        const teamMembersQuery = db.collection('teamMembers')
+            .where('accountHolderId', '==', accountHolderId)
+            .where('status', '==', 'active');
+        const teamMembersSnapshot = await teamMembersQuery.get();
+        if (teamMembersSnapshot.empty) {
+            Logger.info('No active team members found for account holder', { accountHolderId });
+            return;
+        }
+        Logger.info('Found team members to revoke access for', {
+            accountHolderId,
+            count: teamMembersSnapshot.size
+        });
+        // Revoke refresh tokens for all teammates (this forces them to re-authenticate)
+        const revocationPromises = teamMembersSnapshot.docs.map(async (doc) => {
+            const teamMember = doc.data();
+            const teammateUserId = teamMember.userId;
+            try {
+                // Revoke all refresh tokens for this user (forces re-authentication)
+                await admin.auth().revokeRefreshTokens(teammateUserId);
+                // Update the team member record to indicate access was revoked
+                await doc.ref.update({
+                    accessRevokedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    accessRevokedReason: 'Account holder subscription inactive',
+                    lastActiveAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                Logger.info('Revoked access for teammate', {
+                    accountHolderId,
+                    teammateUserId,
+                    teammateEmail: teamMember.email
+                });
+            }
+            catch (error) {
+                Logger.error('Failed to revoke access for teammate', {
+                    accountHolderId,
+                    teammateUserId,
+                    error: error.message
+                });
+            }
+        });
+        await Promise.all(revocationPromises);
+        Logger.info('Completed revoking access for all teammates', { accountHolderId });
+    }
+    catch (error) {
+        Logger.error('Error revoking teammate access', {
+            accountHolderId,
+            error: error.message
+        });
+        throw error;
+    }
+}
+// Suspend teammates when account holder loses professional tier
+async function suspendTeammatesForProfessionalTierLoss(accountHolderId) {
+    try {
+        const db = admin.firestore();
+        // Get all active team members for this account holder
+        const teamMembersQuery = db.collection('teamMembers')
+            .where('accountHolderId', '==', accountHolderId)
+            .where('status', '==', 'active');
+        const teamMembersSnapshot = await teamMembersQuery.get();
+        if (teamMembersSnapshot.empty) {
+            Logger.info('No active team members found for account holder', { accountHolderId });
+            return;
+        }
+        Logger.info('Found team members to suspend due to professional tier loss', {
+            accountHolderId,
+            count: teamMembersSnapshot.size
+        });
+        // Suspend all teammates (without revoking tokens - they can still sign in but with suspended status)
+        const suspensionPromises = teamMembersSnapshot.docs.map(async (doc) => {
+            const teamMember = doc.data();
+            const teammateUserId = teamMember.userId;
+            try {
+                // Update the team member record to suspended status
+                await doc.ref.update({
+                    status: 'suspended',
+                    suspendedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    suspendedReason: 'Account holder lost professional tier',
+                    lastActiveAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                Logger.info('Suspended teammate due to professional tier loss', {
+                    accountHolderId,
+                    teammateUserId,
+                    teammateEmail: teamMember.email
+                });
+            }
+            catch (error) {
+                Logger.error('Failed to suspend teammate', {
+                    accountHolderId,
+                    teammateUserId,
+                    error: error.message
+                });
+            }
+        });
+        await Promise.all(suspensionPromises);
+        Logger.info('Completed suspending all teammates due to professional tier loss', { accountHolderId });
+    }
+    catch (error) {
+        Logger.error('Error suspending teammates for professional tier loss', {
+            accountHolderId,
+            error: error.message
+        });
+        throw error;
+    }
+}
+// Reactivate teammates when account holder regains professional tier
+async function reactivateTeammatesForProfessionalTier(accountHolderId) {
+    try {
+        const db = admin.firestore();
+        // Get all suspended team members for this account holder who were suspended due to professional tier loss
+        const teamMembersQuery = db.collection('teamMembers')
+            .where('accountHolderId', '==', accountHolderId)
+            .where('status', '==', 'suspended')
+            .where('suspendedReason', '==', 'Account holder lost professional tier');
+        const teamMembersSnapshot = await teamMembersQuery.get();
+        if (teamMembersSnapshot.empty) {
+            Logger.info('No suspended team members found to reactivate', { accountHolderId });
+            return;
+        }
+        Logger.info('Found suspended team members to reactivate due to professional tier regained', {
+            accountHolderId,
+            count: teamMembersSnapshot.size
+        });
+        // Reactivate all teammates who were suspended due to professional tier loss
+        const reactivationPromises = teamMembersSnapshot.docs.map(async (doc) => {
+            const teamMember = doc.data();
+            const teammateUserId = teamMember.userId;
+            try {
+                // Update the team member record back to active status
+                await doc.ref.update({
+                    status: 'active',
+                    reactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    reactivatedReason: 'Account holder regained professional tier',
+                    lastActiveAt: admin.firestore.FieldValue.serverTimestamp(),
+                    // Clear suspension fields
+                    suspendedAt: admin.firestore.FieldValue.delete(),
+                    suspendedReason: admin.firestore.FieldValue.delete()
+                });
+                Logger.info('Reactivated teammate due to professional tier regained', {
+                    accountHolderId,
+                    teammateUserId,
+                    teammateEmail: teamMember.email
+                });
+            }
+            catch (error) {
+                Logger.error('Failed to reactivate teammate', {
+                    accountHolderId,
+                    teammateUserId,
+                    error: error.message
+                });
+            }
+        });
+        await Promise.all(reactivationPromises);
+        Logger.info('Completed reactivating all teammates due to professional tier regained', { accountHolderId });
+    }
+    catch (error) {
+        Logger.error('Error reactivating teammates for professional tier regained', {
+            accountHolderId,
+            error: error.message
+        });
+        throw error;
+    }
 }
 //# sourceMappingURL=index.js.map

@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   TextInput,
   TouchableOpacity,
   StyleSheet,
@@ -14,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../context/AuthContext';
+import { auth } from '../config/firebase';
 import { Logo } from '../components/Logo';
 import { CustomAlert } from '../components/CustomAlert';
 import { useCustomAlert } from '../hooks/useCustomAlert';
@@ -35,7 +35,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [isReturningUser, setIsReturningUser] = useState<boolean | null>(null);
-  const { alertState, showError, showFirebaseError, hideAlert, showSuccess } = useCustomAlert();
+  const { alertState, showError, showFirebaseError, hideAlert } = useCustomAlert();
 
   // Check if user has signed in before
   useEffect(() => {
@@ -52,6 +52,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
     }
   };
 
+
   const handleSignIn = async () => {
     // Trim email only, keep password as-is since spaces might be intentional
     const trimmedEmail = email.trim();
@@ -64,9 +65,32 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
     setLoading(true);
     try {
       await signIn(trimmedEmail, password);
+      
+      // Wait for auth state to be fully established and get fresh ID token
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Check if this is an account holder with team members who needs professional tier
+      try {
+        // Force token refresh to ensure we have a valid auth token
+        if (auth.currentUser) {
+          await auth.currentUser.getIdToken(true);
+          // Wait a moment for the token to be properly set
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+
+        // All teammate access control is now handled server-side:
+        // - Professional tier enforcement through automatic teammate suspension
+        // - Inactive subscription enforcement through teammate access revocation
+        // No client-side checks needed as server-side triggers handle everything automatically
+      } catch (checkError) {
+        console.log('⚠️ Post-authentication checks failed, allowing sign-in to proceed:', checkError);
+        // Continue with sign-in process - the check will happen again in the app context
+      }
+      
       // Mark that user has successfully signed in
       await AsyncStorage.setItem('hasSignedInBefore', 'true');
     } catch (error: any) {
+      console.error('Sign in error:', error);
       showFirebaseError(error, 'Sign In Error');
     } finally {
       setLoading(false);

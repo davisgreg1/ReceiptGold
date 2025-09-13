@@ -148,10 +148,12 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
           const deviceToken = await DeviceCheckService.generateDeviceToken();
           console.log('📱 Generated device token for storage:', deviceToken.substring(0, 30) + '...');
           
-          // Save device token to Firestore
+          // Save device token to Firestore with userId for direct tracking
           const deviceRef = doc(db, 'device_tracking', deviceToken);
           await setDoc(deviceRef, {
             hasCreatedAccount: true,
+            userId: auth.currentUser?.uid,
+            userEmail: auth.currentUser?.email,
             createdAt: serverTimestamp(),
             lastUpdated: serverTimestamp(),
             testDevice: false,

@@ -6,6 +6,7 @@ import { Text, View } from "react-native";
 import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useTeam } from "../context/TeamContext";
+import { useTeammateLogoutDetection } from "../hooks/useTeammateLogoutDetection";
 import { PremiumGate } from "../components/PremiumGate";
 import { HomeScreen } from "../screens/HomeScreen";
 import { ReceiptsListScreen } from "../screens/ReceiptsListScreen";
@@ -395,6 +396,9 @@ const linking: LinkingOptions<BottomTabParamList> = {
 const BaseAppNavigator: React.FC = () => {
   const { theme } = useTheme();
   const { isTeamMember } = useTeam();
+  
+  // Monitor for automatic teammate logouts
+  useTeammateLogoutDetection();
 
   return (
     <NavigationContainer 
