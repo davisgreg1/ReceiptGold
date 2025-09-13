@@ -1,4 +1,4 @@
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { getFunctions } from 'firebase/functions';
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
 

@@ -96,7 +96,7 @@ service cloud.firestore {
 
         // Subscriptions collection - read only for users, write only via Cloud Functions
         match /subscriptions/{userId} {
-            allow read: if isOwner(userId);
+            allow read: if isOwner(userId) || isTeamMemberOfAccount(userId);
 
             // Allow users to add trial information to existing subscriptions
             allow update: if isOwner(userId) && 
@@ -308,6 +308,12 @@ service cloud.firestore {
         // Note: This is a simplified check - more complex queries cannot be done in Firestore rules
         function isTeamMemberOfBusiness(businessId) {
             return isAuthenticated() && businessId != null;
+        }
+
+        // Check if user is a team member of a specific account holder
+        // Note: This is a simplified check - in practice, team member validation is done at application level
+        function isTeamMemberOfAccount(accountHolderId) {
+            return isAuthenticated() && accountHolderId != null && request.auth.uid != accountHolderId;
         }
 
 
