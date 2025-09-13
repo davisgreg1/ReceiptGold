@@ -394,6 +394,21 @@ service cloud.firestore {
             resource.data.status == 'pending';
         }
 
+        // Device Tracking collection - for preventing multiple accounts per device
+        match /device_tracking/{deviceToken} {
+            // Allow authenticated users to create device tracking records
+            allow create: if isAuthenticated() &&
+            // Validate required fields
+            request.resource.data.keys().hasAll(['hasCreatedAccount', 'createdAt', 'lastUpdated']) &&
+            request.resource.data.hasCreatedAccount == true;
+            
+            // Only Cloud Functions can read and update device tracking (for blocking logic)
+            allow read, update: if false;
+            
+            // Don't allow deletion of device tracking records
+            allow delete: if false;
+        }
+
         // Team Members collection - account holders and team members can read, limited write access
         match /teamMembers/{memberId} {
             // Account holders can read and list all their team members
