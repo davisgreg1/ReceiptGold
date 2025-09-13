@@ -39,7 +39,6 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [checkingDevice, setCheckingDevice] = useState(false);
   const { alertState, showError, showSuccess, showFirebaseError, hideAlert } = useCustomAlert();
   const { triggerConfetti } = useConfettiContext();
   const { restorePurchases } = useRevenueCatPayments();
@@ -70,14 +69,23 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
   };
 
   const checkDeviceEligibility = async (email: string): Promise<boolean> => {
-    setCheckingDevice(true);
     try {
       console.log('🔍 Checking device eligibility for account creation...');
       const result = await DeviceCheckService.checkDeviceEligibility(email);
       console.log("🚀 ~ checkDeviceEligibility ~ result:", result)
       
       if (!result.canCreateAccount) {
-        showError('Account Creation Blocked', result.message);
+        showError(
+          'Account Creation Blocked', 
+          result.message,
+          {
+            primaryButtonText: 'Sign In Instead',
+            onPrimaryPress: () => {
+              hideAlert();
+              onNavigateToSignIn();
+            }
+          }
+        );
         return false;
       }
       
@@ -88,8 +96,6 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
       // On error, allow account creation to avoid blocking legitimate users
       console.log('⚠️ DeviceCheck failed - allowing account creation as fallback');
       return true;
-    } finally {
-      setCheckingDevice(false);
     }
   };
 
@@ -295,10 +301,10 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
             <TouchableOpacity
               style={[styles.signUpButton, { backgroundColor: theme.gold.primary }]}
               onPress={handleSignUp}
-              disabled={loading || checkingDevice}
+              disabled={loading}
             >
               <ButtonText size="large" color="inverse">
-                {checkingDevice ? 'Checking Device...' : loading ? 'Creating Account...' : 'Create Account'}
+                {loading ? 'Creating Account...' : 'Create Account'}
               </ButtonText>
             </TouchableOpacity>
           </View>
