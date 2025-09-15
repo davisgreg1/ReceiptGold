@@ -218,6 +218,18 @@ export class TeamService {
         throw new Error('Invitation has expired');
       }
 
+      // Validation: Check if accepting user has an active subscription
+      const subscriptionDoc = await getDoc(doc(db, 'subscriptions', userId));
+
+      if (subscriptionDoc.exists()) {
+        const subscriptionData = subscriptionDoc.data();
+
+        // Check if user has any active subscription or trial
+        if (subscriptionData?.status === 'active' && subscriptionData?.currentTier !== 'free') {
+          throw new Error('Users with active subscriptions cannot become team members. Please cancel your subscription first.');
+        }
+      }
+
       // Create team member
       const teamMember: Omit<TeamMember, 'id'> = {
         accountHolderId: invitation.accountHolderId,

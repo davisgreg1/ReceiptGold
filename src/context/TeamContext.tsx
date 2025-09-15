@@ -205,7 +205,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentMembership(null);
       setAccountHolderId(user.uid);
 
-      const hasTeamFeature = canAccessFeature('teamManagement');
+      const hasTeamFeature = subscription?.tier !== 'free' && subscription?.tier !== 'starter';
       
       if (hasTeamFeature) {
         const [members, invitations, stats] = await Promise.all([
@@ -230,7 +230,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
       isLoadingRef.current = false;
     }
-  }, [user]);
+  }, [user?.uid]); // Only depend on user.uid to prevent loops
 
   const refreshTeamData = useCallback(async () => {
     // For refresh operations, don't clear existing data during loading
@@ -275,7 +275,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentMembership(null);
       setAccountHolderId(user.uid);
 
-      const hasTeamFeature = canAccessFeature('teamManagement');
+      const hasTeamFeature = subscription?.tier !== 'free' && subscription?.tier !== 'starter';
       
       if (hasTeamFeature) {
         const [members, invitations, stats] = await Promise.all([
@@ -297,7 +297,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to refresh team data');
     }
-  }, [user, canAccessFeature]);
+  }, [user?.uid]); // Remove canAccessFeature to prevent function recreation
 
   const hasReachedMemberLimit = useCallback((): boolean => {
     const maxMembers = subscription.limits.maxTeamMembers;

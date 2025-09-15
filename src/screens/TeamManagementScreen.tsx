@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useTeam } from '../context/TeamContext';
@@ -156,30 +156,6 @@ export const TeamManagementScreen: React.FC = () => {
   const { showError, showSuccess, showWarning } = useCustomAlert();
   const [refreshing, setRefreshing] = useState(false);
   const lastRefreshRef = useRef<number>(0);
-  const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
-
-  // Smart caching with useFocusEffect - only refresh if data is stale
-  useFocusEffect(
-    useCallback(() => {
-      const now = Date.now();
-      const timeSinceLastRefresh = now - lastRefreshRef.current;
-      
-      // Only refresh if:
-      // 1. We haven't refreshed in the last 5 minutes, OR
-      // 2. We have no team data and we're not currently loading
-      const shouldRefresh = 
-        timeSinceLastRefresh > CACHE_DURATION || 
-        (teamMembers.length === 0 && teamInvitations.length === 0 && !loading);
-      
-      if (shouldRefresh) {
-        console.log('📱 TeamManagementScreen: Refreshing stale data on focus');
-        refreshTeamData();
-        lastRefreshRef.current = now;
-      } else {
-        console.log('📱 TeamManagementScreen: Using cached data (refreshed', Math.round(timeSinceLastRefresh / 1000), 'seconds ago)');
-      }
-    }, [refreshTeamData, teamMembers.length, teamInvitations.length, loading])
-  );
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
