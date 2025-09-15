@@ -3604,7 +3604,7 @@ async function updateDeviceTrackingForDeletedAccount(userId) {
 }
 // Check if device blocking should be bypassed for deleted accounts with unsubscribed status
 async function checkDeletedAccountException(deviceData, _newEmail) {
-    var _a, _b, _c, _d;
+    var _a, _b, _c;
     try {
         // Check if we have stored information about the previous account
         if (!deviceData.createdAt || !deviceData.note) {
@@ -3613,22 +3613,22 @@ async function checkDeletedAccountException(deviceData, _newEmail) {
         }
         // Look for deleted account markers in the device data
         if (deviceData.accountDeleted === true || ((_a = deviceData.note) === null || _a === void 0 ? void 0 : _a.includes('Account deleted'))) {
-            Logger.info('Previous account was marked as deleted, checking subscription status');
-            // Check if subscription was cancelled/expired/free before deletion
-            if (deviceData.hadActiveSubscription === false ||
-                deviceData.subscriptionStatus === 'cancelled' ||
-                deviceData.subscriptionStatus === 'expired' ||
-                deviceData.subscriptionStatus === 'free' ||
-                deviceData.subscriptionStatus === 'none' ||
-                ((_b = deviceData.note) === null || _b === void 0 ? void 0 : _b.includes('unsubscribed')) ||
-                ((_c = deviceData.note) === null || _c === void 0 ? void 0 : _c.includes('no active subscription'))) {
-                Logger.info('Previous account was deleted with inactive subscription - allowing exception');
-                return true;
+            Logger.info('Previous account was deleted, checking if it had active subscription/trial');
+            // Block recreation if previous account had active subscription or trial
+            if (deviceData.hadActiveSubscription === true ||
+                deviceData.subscriptionStatus === 'active' ||
+                deviceData.subscriptionStatus === 'trialing' ||
+                ((_b = deviceData.note) === null || _b === void 0 ? void 0 : _b.includes('had active subscription'))) {
+                Logger.info('Previous deleted account had active subscription/trial - blocking recreation to prevent abuse');
+                return false;
             }
+            // Allow recreation if previous account had no active subscription/trial
+            Logger.info('Previous deleted account had no active subscription/trial - allowing recreation');
+            return true;
         }
         // Additional check: if enough time has passed (e.g., 30 days) since account creation,
         // we can be more lenient and allow new account creation
-        const accountCreatedAt = ((_d = deviceData.createdAt) === null || _d === void 0 ? void 0 : _d.toDate) ? deviceData.createdAt.toDate() : new Date(deviceData.createdAt);
+        const accountCreatedAt = ((_c = deviceData.createdAt) === null || _c === void 0 ? void 0 : _c.toDate) ? deviceData.createdAt.toDate() : new Date(deviceData.createdAt);
         const daysSinceCreation = (Date.now() - accountCreatedAt.getTime()) / (1000 * 60 * 60 * 24);
         if (daysSinceCreation > 30) {
             Logger.info('Previous account is older than 30 days - allowing exception', { daysSinceCreation });
@@ -3702,50 +3702,92 @@ async function revokeTeammateAccess(accountHolderId) {
 async function suspendTeammatesForProfessionalTierLoss(accountHolderId) {
     try {
         const db = admin.firestore();
-        // Get all active team members for this account holder
+        Logger.info('Professional tier downgrade detected - clearing all team data', { accountHolderId });
+        // Get all team members for this account holder (active or suspended)
         const teamMembersQuery = db.collection('teamMembers')
-            .where('accountHolderId', '==', accountHolderId)
-            .where('status', '==', 'active');
+            .where('accountHolderId', '==', accountHolderId);
         const teamMembersSnapshot = await teamMembersQuery.get();
-        if (teamMembersSnapshot.empty) {
-            Logger.info('No active team members found for account holder', { accountHolderId });
+        // Get all team invitations for this account holder
+        const teamInvitationsQuery = db.collection('teamInvitations')
+            .where('accountHolderId', '==', accountHolderId);
+        const teamInvitationsSnapshot = await teamInvitationsQuery.get();
+        // Get team stats document
+        const teamStatsDoc = await db.collection('teamStats').doc(accountHolderId).get();
+        const totalItems = teamMembersSnapshot.size + teamInvitationsSnapshot.size + (teamStatsDoc.exists ? 1 : 0);
+        if (totalItems === 0) {
+            Logger.info('No team data found for account holder', { accountHolderId });
             return;
         }
-        Logger.info('Found team members to suspend due to professional tier loss', {
+        Logger.info('Found team data to clear due to professional tier loss', {
             accountHolderId,
-            count: teamMembersSnapshot.size
+            teamMembers: teamMembersSnapshot.size,
+            teamInvitations: teamInvitationsSnapshot.size,
+            hasTeamStats: teamStatsDoc.exists
         });
-        // Suspend all teammates (without revoking tokens - they can still sign in but with suspended status)
-        const suspensionPromises = teamMembersSnapshot.docs.map(async (doc) => {
+        // Delete all team members
+        const deleteMemberPromises = teamMembersSnapshot.docs.map(async (doc) => {
             const teamMember = doc.data();
-            const teammateUserId = teamMember.userId;
             try {
-                // Update the team member record to suspended status
-                await doc.ref.update({
-                    status: 'suspended',
-                    suspendedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    suspendedReason: 'Account holder lost professional tier',
-                    lastActiveAt: admin.firestore.FieldValue.serverTimestamp()
-                });
-                Logger.info('Suspended teammate due to professional tier loss', {
+                await doc.ref.delete();
+                Logger.info('Deleted team member due to professional tier loss', {
                     accountHolderId,
-                    teammateUserId,
+                    teammateUserId: teamMember.userId,
                     teammateEmail: teamMember.email
                 });
             }
             catch (error) {
-                Logger.error('Failed to suspend teammate', {
+                Logger.error('Failed to delete team member', {
                     accountHolderId,
-                    teammateUserId,
+                    teammateUserId: teamMember.userId,
                     error: error.message
                 });
             }
         });
-        await Promise.all(suspensionPromises);
-        Logger.info('Completed suspending all teammates due to professional tier loss', { accountHolderId });
+        // Delete all team invitations
+        const deleteInvitationPromises = teamInvitationsSnapshot.docs.map(async (doc) => {
+            const invitation = doc.data();
+            try {
+                await doc.ref.delete();
+                Logger.info('Deleted team invitation due to professional tier loss', {
+                    accountHolderId,
+                    inviteEmail: invitation.inviteEmail
+                });
+            }
+            catch (error) {
+                Logger.error('Failed to delete team invitation', {
+                    accountHolderId,
+                    inviteEmail: invitation.inviteEmail,
+                    error: error.message
+                });
+            }
+        });
+        // Delete team stats if exists
+        let deleteStatsPromise = Promise.resolve();
+        if (teamStatsDoc.exists) {
+            deleteStatsPromise = teamStatsDoc.ref.delete().then(() => {
+                Logger.info('Deleted team stats due to professional tier loss', { accountHolderId });
+            }).catch((error) => {
+                Logger.error('Failed to delete team stats', {
+                    accountHolderId,
+                    error: error.message
+                });
+            });
+        }
+        // Execute all deletions in parallel
+        await Promise.all([
+            ...deleteMemberPromises,
+            ...deleteInvitationPromises,
+            deleteStatsPromise
+        ]);
+        Logger.info('Completed clearing all team data due to professional tier loss', {
+            accountHolderId,
+            deletedMembers: teamMembersSnapshot.size,
+            deletedInvitations: teamInvitationsSnapshot.size,
+            deletedStats: teamStatsDoc.exists
+        });
     }
     catch (error) {
-        Logger.error('Error suspending teammates for professional tier loss', {
+        Logger.error('Error clearing team data for professional tier loss', {
             accountHolderId,
             error: error.message
         });
@@ -3755,55 +3797,15 @@ async function suspendTeammatesForProfessionalTierLoss(accountHolderId) {
 // Reactivate teammates when account holder regains professional tier
 async function reactivateTeammatesForProfessionalTier(accountHolderId) {
     try {
-        const db = admin.firestore();
-        // Get all suspended team members for this account holder who were suspended due to professional tier loss
-        const teamMembersQuery = db.collection('teamMembers')
-            .where('accountHolderId', '==', accountHolderId)
-            .where('status', '==', 'suspended')
-            .where('suspendedReason', '==', 'Account holder lost professional tier');
-        const teamMembersSnapshot = await teamMembersQuery.get();
-        if (teamMembersSnapshot.empty) {
-            Logger.info('No suspended team members found to reactivate', { accountHolderId });
-            return;
-        }
-        Logger.info('Found suspended team members to reactivate due to professional tier regained', {
-            accountHolderId,
-            count: teamMembersSnapshot.size
+        // Since we now delete all team data when professional tier is lost,
+        // there are no suspended teammates to reactivate.
+        // The account holder will need to re-invite teammates if they upgrade back to professional.
+        Logger.info('Professional tier regained - no teammates to reactivate (all team data was cleared on downgrade)', {
+            accountHolderId
         });
-        // Reactivate all teammates who were suspended due to professional tier loss
-        const reactivationPromises = teamMembersSnapshot.docs.map(async (doc) => {
-            const teamMember = doc.data();
-            const teammateUserId = teamMember.userId;
-            try {
-                // Update the team member record back to active status
-                await doc.ref.update({
-                    status: 'active',
-                    reactivatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                    reactivatedReason: 'Account holder regained professional tier',
-                    lastActiveAt: admin.firestore.FieldValue.serverTimestamp(),
-                    // Clear suspension fields
-                    suspendedAt: admin.firestore.FieldValue.delete(),
-                    suspendedReason: admin.firestore.FieldValue.delete()
-                });
-                Logger.info('Reactivated teammate due to professional tier regained', {
-                    accountHolderId,
-                    teammateUserId,
-                    teammateEmail: teamMember.email
-                });
-            }
-            catch (error) {
-                Logger.error('Failed to reactivate teammate', {
-                    accountHolderId,
-                    teammateUserId,
-                    error: error.message
-                });
-            }
-        });
-        await Promise.all(reactivationPromises);
-        Logger.info('Completed reactivating all teammates due to professional tier regained', { accountHolderId });
     }
     catch (error) {
-        Logger.error('Error reactivating teammates for professional tier regained', {
+        Logger.error('Error in reactivateTeammatesForProfessionalTier', {
             accountHolderId,
             error: error.message
         });

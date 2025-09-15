@@ -247,8 +247,8 @@ class RevenueCatService {
     try {
       if (forceRefresh) {
         console.log('🔄 Force refreshing customer info from RevenueCat servers...');
-        // Force a fresh fetch by calling restorePurchases which updates the cache
-        await Purchases.restorePurchases();
+        // Force a fresh fetch by calling syncPurchases which updates the cache without OS prompts
+        await Purchases.syncPurchases();
       }
       const customerInfo = await Purchases.getCustomerInfo();
       return customerInfo;

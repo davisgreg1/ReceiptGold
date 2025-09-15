@@ -5,10 +5,10 @@ import {
   ScrollView,
   Pressable,
   StyleSheet,
-  Dimensions,
   Platform,
   Animated,
   StatusBar,
+  Linking,
 } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { LinearGradient } from "expo-linear-gradient";
@@ -26,7 +26,6 @@ import { StackNavigationProp } from "@react-navigation/stack";
 import { RouteProp } from "@react-navigation/native";
 import { useConfettiContext } from "../context/ConfettiContext";
 
-const { width, height } = Dimensions.get("window");
 
 type BillingPeriod = "monthly" | "annual";
 
@@ -93,6 +92,21 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
     } catch (error) {
       console.error("❌ Failed to load RevenueCat pricing:", error);
     }
+  };
+
+  const handleCancelSubscription = () => {
+    // For iOS/Android app stores, users need to cancel through their platform settings
+    const cancelUrl = Platform.OS === 'ios'
+      ? 'https://apps.apple.com/account/subscriptions'
+      : 'https://play.google.com/store/account/subscriptions';
+
+    Linking.openURL(cancelUrl).catch(() => {
+      showNotification({
+        type: "error",
+        title: "Unable to Open",
+        message: "Please visit your App Store account settings to manage subscriptions.",
+      });
+    });
   };
 
   const loadCurrentBillingPeriod = async () => {
@@ -783,6 +797,20 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
               <Text style={[styles.swipeHint, { color: theme.text.tertiary }]}>
                 💡 Swipe left or right to switch billing periods
               </Text>
+
+              {/* Footer */}
+              <View style={styles.footer}>
+                <View style={styles.footerTextContainer}>
+                  <Pressable onPress={handleCancelSubscription}>
+                    <Text style={[styles.footerText, styles.cancelLink, { color: theme.gold.primary }]}>
+                      Cancel
+                    </Text>
+                  </Pressable>
+                  <Text style={[styles.footerText, { color: theme.text.tertiary }]}>
+                    {" anytime • Secure payment"}
+                  </Text>
+                </View>
+              </View>
             </View>
           </GestureDetector>
         </ScrollView>
@@ -1001,6 +1029,27 @@ const styles = StyleSheet.create({
   shimmerGradient: {
     width: "100%",
     height: "100%",
+  },
+  footer: {
+    paddingHorizontal: 40,
+    paddingBottom: 20,
+    paddingTop: 20,
+    alignItems: "center",
+  },
+  footerTextContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    flexWrap: "wrap",
+  },
+  footerText: {
+    fontSize: 12,
+    lineHeight: 20,
+    textAlign: "center",
+  },
+  cancelLink: {
+    textDecorationLine: "underline",
+    fontWeight: "600",
   },
 });
 
