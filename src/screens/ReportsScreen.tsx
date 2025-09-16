@@ -1153,6 +1153,7 @@ export default function ReportsScreen() {
         onClose={() => setShowExportSelector(false)}
         onExport={handleExport}
         availableCategories={availableCategories}
+        customCategories={customCategories}
       />
     </>
   );
