@@ -160,7 +160,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
               <Ionicons name="headset-outline" size={80} color={theme.gold.primary} />
             </View>
             <Text style={[styles.title, { color: theme.text.primary }]}>
-              Contact Support
+              Get Help
             </Text>
             <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
               We're here to help! Send us a message and we'll respond within 24 hours.

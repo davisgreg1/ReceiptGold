@@ -321,7 +321,8 @@ export const NotificationSettingsScreen: React.FC = () => {
       flex: 1,
     },
     header: {
-      padding: 20,
+      paddingHorizontal: 20,
+      paddingVertical: 10,
       borderBottomWidth: 1,
       borderBottomColor: theme.border.primary,
     },
@@ -686,110 +687,6 @@ export const NotificationSettingsScreen: React.FC = () => {
           </Text>
         </View>
 
-        {/* Permission Status */}
-        <View style={styles.statusSection}>
-          <View style={styles.statusRow}>
-            <Ionicons
-              name={permissionStatus === 'granted' ? 'checkmark-circle' : 'alert-circle'}
-              size={24}
-              color={getPermissionStatusColor()}
-              style={styles.statusIcon}
-            />
-            <Text style={[styles.statusText, { color: getPermissionStatusColor() }]}>
-              {getPermissionStatusText()}
-            </Text>
-          </View>
-
-          {(permissionStatus === 'denied' || permissionStatus === 'undetermined') && (
-            <TouchableOpacity style={styles.requestButton} onPress={requestPermissions}>
-              <Text style={styles.requestButtonText}>
-                {permissionStatus === 'undetermined' ? 'Allow Notifications' : 'Enable Notifications'}
-              </Text>
-            </TouchableOpacity>
-          )}
-
-          {fcmToken && __DEV__ && (
-            <View style={styles.tokenSection}>
-              <TouchableOpacity onPress={copyTokenToClipboard}>
-                <Text style={styles.tokenText} numberOfLines={2}>
-                  {fcmToken.startsWith('ExpoToken[') 
-                    ? `Legacy Expo Token: ${fcmToken.substring(0, 30)}...` 
-                    : `Native ${Platform.OS === 'ios' ? 'APNs' : 'FCM'} Token: ${fcmToken.substring(0, 30)}...`}
-                </Text>
-                <Text style={[styles.tokenText, { marginTop: 8, color: theme.status.success }]}>
-                  ✅ Using {fcmToken.startsWith('ExpoToken[') ? 'Expo Legacy' : 'Direct FCM/APNs'} delivery
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {__DEV__ && (
-            <View style={styles.webhookTestSection}>
-              <Text style={styles.webhookTestTitle}>Debug Tools</Text>
-              <Text style={styles.webhookTestDescription}>
-                Development and testing tools
-              </Text>
-              
-              <TouchableOpacity 
-                style={[styles.requestButton, { backgroundColor: theme.status.warning, marginBottom: 8 }]}
-                onPress={regenerateToken}
-              >
-                <Text style={[styles.requestButtonText, { color: '#FFFFFF' }]}>
-                  🔄 Regenerate Push Token
-                </Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={[styles.requestButton, { backgroundColor: theme.status.success, marginBottom: 16 }]}
-                onPress={testLocalNotificationTrigger}
-              >
-                <Text style={[styles.requestButtonText, { color: '#FFFFFF' }]}>
-                  🧪 Test Local Notification
-                </Text>
-              </TouchableOpacity>
-              
-              <Text style={[styles.webhookTestTitle, { marginBottom: 4 }]}>Webhook Tests</Text>
-              <Text style={[styles.webhookTestDescription, { marginBottom: 12 }]}>
-                Test Plaid webhook notifications
-              </Text>
-              {console.log('🧪 Webhook test section rendering in dev mode')}
-              
-              <View style={styles.webhookButtonGrid}>
-                <TouchableOpacity 
-                  style={[styles.webhookButton, { backgroundColor: '#FF6B6B' }]}
-                  onPress={() => testWebhook('PENDING_EXPIRATION')}
-                >
-                  <Text style={styles.webhookButtonIcon}>🔴</Text>
-                  <Text style={styles.webhookButtonText}>Connection Issue</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[styles.webhookButton, { backgroundColor: '#4ECDC4' }]}
-                  onPress={() => testWebhook('NEW_ACCOUNTS_AVAILABLE')}
-                >
-                  <Text style={styles.webhookButtonIcon}>🆕</Text>
-                  <Text style={styles.webhookButtonText}>New Accounts</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[styles.webhookButton, { backgroundColor: '#45B7D1' }]}
-                  onPress={() => testWebhook('LOGIN_REPAIRED')}
-                >
-                  <Text style={styles.webhookButtonIcon}>✅</Text>
-                  <Text style={styles.webhookButtonText}>Login Repaired</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={[styles.webhookButton, { backgroundColor: '#96CEB4' }]}
-                  onPress={() => testWebhook('TRANSACTIONS')}
-                >
-                  <Text style={styles.webhookButtonIcon}>💳</Text>
-                  <Text style={styles.webhookButtonText}>New Transactions</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        </View>
 
         <View style={styles.section}>
           {/* Master Toggle */}
@@ -841,8 +738,14 @@ export const NotificationSettingsScreen: React.FC = () => {
                   )}
                 </View>
                 <View style={styles.frequencyContent}>
-                  <Text style={styles.frequencyTitle}>{option.label}</Text>
-                  <Text style={styles.frequencyDescription}>{option.description}</Text>
+                  <Text style={[
+                    styles.frequencyTitle,
+                    !settings.notificationsEnabled && { color: theme.text.secondary }
+                  ]}>{option.label}</Text>
+                  <Text style={[
+                    styles.frequencyDescription,
+                    !settings.notificationsEnabled && { color: theme.text.secondary }
+                  ]}>{option.description}</Text>
                 </View>
               </TouchableOpacity>
             ))}
@@ -852,7 +755,10 @@ export const NotificationSettingsScreen: React.FC = () => {
           <Text style={styles.sectionTitle}>Quiet Hours</Text>
           <View style={styles.quietHoursSection}>
             <View style={styles.quietHoursHeader}>
-              <Text style={styles.quietHoursTitle}>Do Not Disturb</Text>
+              <Text style={[
+                styles.quietHoursTitle,
+                !settings.notificationsEnabled && { color: theme.text.secondary }
+              ]}>Do Not Disturb</Text>
               <Switch
                 value={settings.quietHours.enabled}
                 onValueChange={(value) => updateSetting('quietHours', {
