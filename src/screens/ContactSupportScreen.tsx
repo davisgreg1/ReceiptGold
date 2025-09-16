@@ -15,6 +15,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../context/AuthContext';
+import { useSubscription } from '../context/SubscriptionContext';
 import { Signature } from '../components/Signature';
 import { useCustomAlert } from '../hooks/useCustomAlert';
 import { httpsCallable } from 'firebase/functions';
@@ -31,8 +32,54 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
 }) => {
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { subscription } = useSubscription();
   const { showError, showSuccess } = useCustomAlert();
   const scrollViewRef = useRef<ScrollView>(null);
+
+  const getSupportMessage = () => {
+    switch (subscription.currentTier) {
+      case 'free':
+        return "We're here to help! Check our help center and community forums for answers to common questions.";
+      case 'starter':
+        return "We're here to help! Send us an email and we'll respond within 48 hours.";
+      case 'growth':
+        return "We're here to help! Send us a message and we'll respond within 24 hours with priority support.";
+      case 'professional':
+        return "We're here to help! Your dedicated account manager will respond within 12 hours for immediate assistance.";
+      default:
+        return "We're here to help! Send us a message and we'll get back to you as soon as possible.";
+    }
+  };
+
+  const getSuccessMessage = () => {
+    switch (subscription.currentTier) {
+      case 'free':
+        return 'Thank you for contacting us. Please check our help center for immediate answers to common questions.';
+      case 'starter':
+        return 'Thank you for contacting us. We\'ll get back to you within 48 hours.';
+      case 'growth':
+        return 'Thank you for contacting us. We\'ll get back to you within 24 hours with priority support.';
+      case 'professional':
+        return 'Thank you for contacting us. Your dedicated account manager will respond within 12 hours.';
+      default:
+        return 'Thank you for contacting us. We\'ll get back to you as soon as possible.';
+    }
+  };
+
+  const getFooterResponseTime = () => {
+    switch (subscription.currentTier) {
+      case 'free':
+        return "Self-service via help center • Community support available";
+      case 'starter':
+        return "Response time: Within 48 hours • Available: Mon-Fri, 9 AM - 6 PM EST";
+      case 'growth':
+        return "Response time: Within 24 hours • Priority support • Available: Mon-Fri, 9 AM - 6 PM EST";
+      case 'professional':
+        return "Response time: Within 12 hours • Dedicated account manager • Available: Mon-Sun, 8 AM - 8 PM EST";
+      default:
+        return "Available: Mon-Fri, 9 AM - 6 PM EST";
+    }
+  };
   
   const [category, setCategory] = useState<SupportCategory>('general');
   const [subject, setSubject] = useState('');
@@ -88,7 +135,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
 
       showSuccess(
         'Message Sent!',
-        'Thank you for contacting us. We\'ll get back to you within 24 hours.'
+        getSuccessMessage()
       );
 
       // Reset form
@@ -163,7 +210,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
               Get Help
             </Text>
             <Text style={[styles.subtitle, { color: theme.text.secondary }]}>
-              We're here to help! Send us a message and we'll respond within 24 hours.
+              {getSupportMessage()}
             </Text>
           </View>
 
@@ -386,7 +433,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
           {/* Footer */}
           <View style={styles.footer}>
             <Text style={[styles.footerText, { color: theme.text.tertiary }]}>
-              Response time: Within 24 hours • Available: Mon-Fri, 9 AM - 6 PM EST
+              {getFooterResponseTime()}
             </Text>
           </View>
 
