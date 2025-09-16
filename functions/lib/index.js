@@ -28,7 +28,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
+exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -3812,4 +3812,164 @@ async function reactivateTeammatesForProfessionalTier(accountHolderId) {
         throw error;
     }
 }
+// Send Contact Support Email
+exports.sendContactSupportEmail = (0, https_1.onCall)({
+    cors: true,
+    enforceAppCheck: false,
+    consumeAppCheckToken: false
+}, async (request) => {
+    var _a, _b, _c, _d;
+    const { category, subject, message, userEmail, userId } = request.data;
+    const authUserId = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid;
+    Logger.info('📧 Processing contact support email', {
+        category,
+        subject: subject.substring(0, 50) + '...',
+        userEmail,
+        userId: authUserId || userId
+    });
+    try {
+        // Validate input
+        if (!(subject === null || subject === void 0 ? void 0 : subject.trim()) || !(message === null || message === void 0 ? void 0 : message.trim())) {
+            throw new https_1.HttpsError('invalid-argument', 'Subject and message are required');
+        }
+        if (!category || !['billing', 'technical', 'general'].includes(category)) {
+            throw new https_1.HttpsError('invalid-argument', 'Invalid support category');
+        }
+        // Get user information if authenticated (optional)
+        let userInfo = {};
+        if (authUserId) {
+            try {
+                const userDoc = await db.collection('users').doc(authUserId).get();
+                if (userDoc.exists) {
+                    const userData = userDoc.data();
+                    userInfo = {
+                        userId: authUserId,
+                        email: (userData === null || userData === void 0 ? void 0 : userData.email) || userEmail,
+                        displayName: userData === null || userData === void 0 ? void 0 : userData.displayName,
+                        createdAt: userData === null || userData === void 0 ? void 0 : userData.createdAt,
+                        subscription: userData === null || userData === void 0 ? void 0 : userData.subscription
+                    };
+                }
+            }
+            catch (error) {
+                Logger.warn('Could not fetch user data for support email', {
+                    userId: authUserId,
+                    error: error.message
+                });
+                userInfo = {
+                    userId: authUserId,
+                    email: userEmail
+                };
+            }
+        }
+        else {
+            // Handle unauthenticated users
+            userInfo = {
+                email: userEmail || 'No email provided',
+                userId: 'unauthenticated',
+                note: 'User not authenticated - sent via support form'
+            };
+        }
+        // Get device and app information from request headers
+        const deviceInfo = {
+            userAgent: ((_b = request.rawRequest) === null || _b === void 0 ? void 0 : _b.headers['user-agent']) || 'Unknown',
+            platform: ((_c = request.rawRequest) === null || _c === void 0 ? void 0 : _c.headers['x-platform']) || 'Unknown',
+            appVersion: ((_d = request.rawRequest) === null || _d === void 0 ? void 0 : _d.headers['x-app-version']) || 'Unknown',
+            timestamp: new Date().toISOString()
+        };
+        // Get SendGrid API key from environment
+        const sendgridApiKey = process.env.SENDGRID_API_KEY;
+        if (!sendgridApiKey) {
+            Logger.error('❌ SENDGRID_API_KEY environment variable not set');
+            throw new https_1.HttpsError('internal', 'Email service not configured');
+        }
+        // Configure SendGrid
+        sgMail.setApiKey(sendgridApiKey);
+        // Create comprehensive email content
+        const categoryEmoji = {
+            billing: '💳',
+            technical: '🔧',
+            general: '💬'
+        };
+        const emailBody = `
+${categoryEmoji[category]} SUPPORT REQUEST - ${category.toUpperCase()}
+
+📧 USER MESSAGE:
+${message}
+
+👤 USER INFORMATION:
+• Email: ${userInfo.email || 'Not provided'}
+• User ID: ${userInfo.userId || 'Not authenticated'}
+• Display Name: ${userInfo.displayName || 'Not provided'}
+• Account Created: ${userInfo.createdAt ? new Date(userInfo.createdAt.toDate()).toLocaleString() : 'Unknown'}
+• Subscription: ${userInfo.subscription || 'Unknown'}
+
+📱 DEVICE & APP INFORMATION:
+• Platform: ${deviceInfo.platform}
+• App Version: ${deviceInfo.appVersion}
+• User Agent: ${deviceInfo.userAgent}
+• Timestamp: ${deviceInfo.timestamp}
+
+🔗 QUICK ACTIONS:
+${userInfo.userId ? `• View User: https://console.firebase.google.com/project/receiptgold/firestore/data/users/${userInfo.userId}` : '• User not authenticated'}
+${userInfo.email ? `• Reply to: ${userInfo.email}` : ''}
+
+---
+This email was sent automatically from the ReceiptGold mobile app.
+    `.trim();
+        const msg = {
+            to: 'support@receiptgold.com',
+            from: {
+                email: 'noreply@receiptgold.com',
+                name: 'ReceiptGold Support System'
+            },
+            replyTo: userInfo.email || undefined,
+            subject: `[${category.toUpperCase()}] ${subject}`,
+            text: emailBody,
+            html: emailBody.replace(/\n/g, '<br>').replace(/• /g, '&bull; ')
+        };
+        // Send the email
+        const response = await sgMail.send(msg);
+        Logger.info('✅ Contact support email sent successfully', {
+            to: 'support@receiptgold.com',
+            from: userInfo.email,
+            category,
+            subject,
+            statusCode: response[0].statusCode
+        });
+        // Log support request for analytics
+        try {
+            await db.collection('supportRequests').add({
+                category,
+                subject,
+                userEmail: userInfo.email,
+                userId: userInfo.userId,
+                timestamp: admin.firestore.FieldValue.serverTimestamp(),
+                deviceInfo,
+                status: 'sent'
+            });
+        }
+        catch (logError) {
+            Logger.warn('Failed to log support request to Firestore', {
+                error: logError.message
+            });
+        }
+        return {
+            success: true,
+            message: 'Support request sent successfully'
+        };
+    }
+    catch (error) {
+        Logger.error('❌ Failed to send contact support email', {
+            error: error.message,
+            category,
+            subject,
+            userEmail
+        });
+        if (error instanceof https_1.HttpsError) {
+            throw error;
+        }
+        throw new https_1.HttpsError('internal', 'Failed to send support request. Please try again.');
+    }
+});
 //# sourceMappingURL=index.js.map

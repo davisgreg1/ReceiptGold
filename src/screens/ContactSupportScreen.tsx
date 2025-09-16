@@ -15,9 +15,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { useAuth } from '../context/AuthContext';
-import { Logo } from '../components/Logo';
 import { Signature } from '../components/Signature';
 import { useCustomAlert } from '../hooks/useCustomAlert';
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../config/firebase';
 
 interface ContactSupportScreenProps {
   navigation: any;
@@ -52,26 +53,79 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
 
     setLoading(true);
     try {
-      // Simulate API call - replace with actual implementation
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      // Call Firebase function to send email
+      const sendContactSupportEmail = httpsCallable(functions, 'sendContactSupportEmail');
+
+      // Test Firebase connection first
+      console.log('🔍 Testing Firebase connection...', {
+        functionsApp: functions.app.name,
+        functionsRegion: 'us-central1',
+        userAuth: {
+          uid: user?.uid,
+          email: user?.email,
+          isAuthenticated: !!user
+        }
+      });
+
+      console.log('🔍 Sending support email with data:', {
+        category,
+        subject: subject.trim(),
+        userEmail: user?.email,
+        userId: user?.uid,
+        isAuthenticated: !!user
+      });
+
+      const result = await sendContactSupportEmail({
+        category,
+        subject: subject.trim(),
+        message: message.trim(),
+        userEmail: user?.email || '',
+        userId: user?.uid || ''
+      });
+
+      console.log('✅ Support email sent successfully:', result.data);
+      console.log('✅ Full response:', result);
+
       showSuccess(
-        'Message Sent!', 
+        'Message Sent!',
         'Thank you for contacting us. We\'ll get back to you within 24 hours.'
       );
-      
+
       // Reset form
       setSubject('');
       setMessage('');
       setCategory('general');
-      
+
       // Navigate back after showing success
       setTimeout(() => {
         navigation.goBack();
       }, 2000);
-      
-    } catch (error) {
-      showError('Error', 'Failed to send message. Please try again.');
+
+    } catch (error: any) {
+      console.error('❌ Failed to send support email:', error);
+      console.error('❌ Error details:', {
+        code: error?.code,
+        message: error?.message,
+        details: error?.details,
+        stack: error?.stack
+      });
+
+      // Handle specific error messages
+      let errorMessage = 'Failed to send message. Please try again.';
+
+      if (error?.code === 'functions/invalid-argument') {
+        errorMessage = error.message || 'Please check your input and try again.';
+      } else if (error?.code === 'functions/unauthenticated') {
+        errorMessage = `Authentication error: ${error.message}. Please try signing out and back in.`;
+      } else if (error?.code === 'functions/internal') {
+        errorMessage = 'Service temporarily unavailable. Please try again later.';
+      } else if (error?.code === 'functions/not-found') {
+        errorMessage = 'Support service not available. Please contact us directly at support@receiptgold.com.';
+      } else if (error?.message) {
+        errorMessage = error.message;
+      }
+
+      showError('Error', errorMessage);
     } finally {
       setLoading(false);
     }

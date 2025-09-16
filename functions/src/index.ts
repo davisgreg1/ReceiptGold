@@ -4674,3 +4674,188 @@ async function reactivateTeammatesForProfessionalTier(accountHolderId: string): 
     throw error;
   }
 }
+
+// Send Contact Support Email
+export const sendContactSupportEmail = onCall<{
+  category: string;
+  subject: string;
+  message: string;
+  userEmail?: string;
+  userId?: string;
+}>(async (request: CallableRequest<{
+  category: string;
+  subject: string;
+  message: string;
+  userEmail?: string;
+  userId?: string;
+}>) => {
+  const { category, subject, message, userEmail, userId } = request.data;
+  const authUserId = request.auth?.uid;
+
+  Logger.info('📧 Processing contact support email', {
+    category,
+    subject: subject.substring(0, 50) + '...',
+    userEmail,
+    userId: authUserId || userId,
+    isAuthenticated: !!authUserId,
+    requestAuth: !!request.auth
+  });
+
+  try {
+    // Validate input
+    if (!subject?.trim() || !message?.trim()) {
+      throw new HttpsError('invalid-argument', 'Subject and message are required');
+    }
+
+    if (!category || !['billing', 'technical', 'general'].includes(category)) {
+      throw new HttpsError('invalid-argument', 'Invalid support category');
+    }
+
+    // Get user information if authenticated (optional)
+    let userInfo: any = {};
+    if (authUserId) {
+      try {
+        const userDoc = await db.collection('users').doc(authUserId).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          userInfo = {
+            userId: authUserId,
+            email: userData?.email || userEmail,
+            displayName: userData?.displayName,
+            createdAt: userData?.createdAt,
+            subscription: userData?.subscription
+          };
+        }
+      } catch (error) {
+        Logger.warn('Could not fetch user data for support email', {
+          userId: authUserId,
+          error: (error as Error).message
+        });
+        userInfo = {
+          userId: authUserId,
+          email: userEmail
+        };
+      }
+    } else {
+      // Handle unauthenticated users
+      userInfo = {
+        email: userEmail || 'No email provided',
+        userId: 'unauthenticated',
+        note: 'User not authenticated - sent via support form'
+      };
+    }
+
+    // Get device and app information from request headers
+    const deviceInfo = {
+      userAgent: request.rawRequest?.headers['user-agent'] || 'Unknown',
+      platform: request.rawRequest?.headers['x-platform'] || 'Unknown',
+      appVersion: request.rawRequest?.headers['x-app-version'] || 'Unknown',
+      timestamp: new Date().toISOString()
+    };
+
+    // Get SendGrid API key from environment
+    const sendgridApiKey = process.env.SENDGRID_API_KEY;
+    if (!sendgridApiKey) {
+      Logger.error('❌ SENDGRID_API_KEY environment variable not set');
+      throw new HttpsError('internal', 'Email service not configured');
+    }
+
+    // Configure SendGrid
+    sgMail.setApiKey(sendgridApiKey);
+
+    // Create comprehensive email content
+    const categoryEmoji = {
+      billing: '💳',
+      technical: '🔧',
+      general: '💬'
+    };
+
+    const emailBody = `
+${categoryEmoji[category as keyof typeof categoryEmoji]} SUPPORT REQUEST - ${category.toUpperCase()}
+
+📧 USER MESSAGE:
+${message}
+
+👤 USER INFORMATION:
+• Email: ${userInfo.email || 'Not provided'}
+• User ID: ${userInfo.userId || 'Not authenticated'}
+• Display Name: ${userInfo.displayName || 'Not provided'}
+• Account Created: ${userInfo.createdAt ? new Date(userInfo.createdAt.toDate()).toLocaleString() : 'Unknown'}
+• Subscription: ${userInfo.subscription || 'Unknown'}
+
+📱 DEVICE & APP INFORMATION:
+• Platform: ${deviceInfo.platform}
+• App Version: ${deviceInfo.appVersion}
+• User Agent: ${deviceInfo.userAgent}
+• Timestamp: ${deviceInfo.timestamp}
+
+🔗 QUICK ACTIONS:
+${userInfo.userId ? `• View User: https://console.firebase.google.com/project/receiptgold/firestore/data/users/${userInfo.userId}` : '• User not authenticated'}
+${userInfo.email ? `• Reply to: ${userInfo.email}` : ''}
+
+---
+This email was sent automatically from the ReceiptGold mobile app.
+    `.trim();
+
+    const msg = {
+      to: 'support@receiptgold.com',
+      from: {
+        email: 'noreply@receiptgold.com',
+        name: 'ReceiptGold Support System'
+      },
+      replyTo: userInfo.email || undefined,
+      subject: `[${category.toUpperCase()}] ${subject}`,
+      text: emailBody,
+      html: emailBody.replace(/\n/g, '<br>').replace(/• /g, '&bull; ')
+    };
+
+    // Send the email
+    const response = await sgMail.send(msg);
+
+    Logger.info('✅ Contact support email sent successfully', {
+      to: 'support@receiptgold.com',
+      from: userInfo.email,
+      category,
+      subject,
+      statusCode: response[0].statusCode
+    });
+
+    // Log support request for analytics
+    try {
+      await db.collection('supportRequests').add({
+        category,
+        subject,
+        userEmail: userInfo.email,
+        userId: userInfo.userId,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        deviceInfo,
+        status: 'sent'
+      });
+    } catch (logError) {
+      Logger.warn('Failed to log support request to Firestore', {
+        error: (logError as Error).message
+      });
+    }
+
+    return {
+      success: true,
+      message: 'Support request sent successfully'
+    };
+
+  } catch (error) {
+    Logger.error('❌ Failed to send contact support email', {
+      error: (error as Error).message,
+      category,
+      subject,
+      userEmail
+    });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError('internal', 'Failed to send support request. Please try again.');
+  }
+});
+
+
