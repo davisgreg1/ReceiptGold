@@ -7,6 +7,13 @@ import { ReceiptCategoryService } from './ReceiptCategoryService';
 import { CustomCategory } from './CustomCategoryService';
 import { ExportOptions } from '../components/ExportSelector';
 
+interface ReceiptImage {
+  url: string;
+  thumbnail?: string;
+  size: number;
+  uploadedAt: any;
+}
+
 interface Receipt {
   amount: number;
   category: string;
@@ -16,6 +23,7 @@ interface Receipt {
   description?: string;
   id?: string;
   status?: string;
+  images?: ReceiptImage[];
   tax?: {
     deductible: boolean;
   };
@@ -199,6 +207,29 @@ export class ReportExportService {
           color: #666;
           font-size: 12px;
         }
+        .receipt-images {
+          margin: 30px 0;
+        }
+        .receipt-image-section {
+          margin: 20px 0;
+          padding: 15px;
+          border: 1px solid #ddd;
+          border-radius: 8px;
+          background: #f9f9f9;
+        }
+        .receipt-image-title {
+          font-size: 16px;
+          font-weight: bold;
+          margin-bottom: 10px;
+          color: #333;
+        }
+        .receipt-image {
+          max-width: 100%;
+          height: auto;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          margin: 5px 0;
+        }
       </style>
     </head>
     <body>
@@ -288,6 +319,32 @@ export class ReportExportService {
             }).join('')}
           </tbody>
         </table>
+      </div>
+      ` : ''}
+
+      ${options.includeImages ? `
+      <div class="receipt-images">
+        <h3>Receipt Images</h3>
+        ${receipts
+          .filter(receipt => receipt.images && receipt.images.length > 0)
+          .map(receipt => {
+            const receiptDate = receipt.createdAt?.toDate() || receipt.date?.toDate();
+            const businessName = receipt.businessId
+              ? getBusinessById(receipt.businessId)?.name || "Unknown Business"
+              : "Personal";
+            return `
+              <div class="receipt-image-section">
+                <div class="receipt-image-title">
+                  ${businessName} - ${formatCurrency(receipt.amount)}
+                  ${receiptDate ? ` - ${format(receiptDate, "MM/dd/yyyy")}` : ''}
+                  ${receipt.description ? ` - ${receipt.description}` : ''}
+                </div>
+                ${receipt.images?.map(image => `
+                  <img src="${image.url}" alt="Receipt Image" class="receipt-image" />
+                `).join('')}
+              </div>
+            `;
+          }).join('')}
       </div>
       ` : ''}
 

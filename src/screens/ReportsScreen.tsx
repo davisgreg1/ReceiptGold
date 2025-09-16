@@ -47,6 +47,13 @@ import { ReportExportService } from '../services/ReportExportService';
 import { CSVExportService } from '../services/CSVExportService';
 import { ExcelExportService } from '../services/ExcelExportService';
 
+interface ReceiptImage {
+  url: string;
+  thumbnail?: string;
+  size: number;
+  uploadedAt: any;
+}
+
 interface Receipt {
   amount: number;
   category: string;
@@ -56,6 +63,7 @@ interface Receipt {
   description?: string;
   id?: string;
   status?: string;
+  images?: ReceiptImage[];
   tax?: {
     deductible: boolean;
   };
@@ -400,6 +408,7 @@ export default function ReportsScreen() {
             businessId: data.businessId,
             description: data.description,
             status: data.status || 'active',
+            images: data.images || [],
             tax: data.tax || undefined,
           });
         });
@@ -522,6 +531,7 @@ export default function ReportsScreen() {
           businessId: data.businessId,
           description: data.description,
           status: data.status || 'active',
+          images: data.images || [],
           tax: data.tax || undefined,
         });
       });

@@ -5,6 +5,13 @@ import { ReceiptCategoryService } from './ReceiptCategoryService';
 import { CustomCategory } from './CustomCategoryService';
 import { ExportOptions } from '../components/ExportSelector';
 
+interface ReceiptImage {
+  url: string;
+  thumbnail?: string;
+  size: number;
+  uploadedAt: any;
+}
+
 interface Receipt {
   amount: number;
   category: string;
@@ -14,6 +21,7 @@ interface Receipt {
   description?: string;
   id?: string;
   status?: string;
+  images?: ReceiptImage[];
   tax?: {
     deductible: boolean;
   };
