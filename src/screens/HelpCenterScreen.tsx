@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../theme/ThemeProvider";
+import { useSubscription } from "../context/SubscriptionContext";
 import { Signature } from "../components/Signature";
 
 // Reusable FAQ Components
@@ -626,10 +627,26 @@ export const HelpCenterScreen: React.FC<HelpCenterScreenProps> = ({
   navigation,
 }) => {
   const { theme } = useTheme();
+  const { subscription } = useSubscription();
   const [expandedFAQ, setExpandedFAQ] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const faqLayouts = useRef<{ [key: string]: number }>({});
+
+  const getSupportMessage = () => {
+    switch (subscription.currentTier) {
+      case 'free':
+        return "We're here to help! Check our help center and community forums for answers to common questions.";
+      case 'starter':
+        return "We're here to help! Send us an email and we'll respond within 48 hours.";
+      case 'growth':
+        return "We're here to help! Send us a message and we'll respond within 24 hours with priority support.";
+      case 'professional':
+        return "We're here to help! Your dedicated account manager will respond within 12 hours for immediate assistance.";
+      default:
+        return `We're here to help! [Tier: ${subscription.currentTier}] Check our help center and community forums for answers to common questions.`;
+    }
+  };
 
   const toggleFAQ = (id: string) => {
     setExpandedFAQ(expandedFAQ === id ? null : id);
@@ -928,23 +945,25 @@ Thanks!`;
                     { color: theme.text.secondary },
                   ]}
                 >
-                  Get personalized help from our team within 24 hours
+                  {getSupportMessage()}
                 </Text>
               </View>
             </View>
             <View style={styles.supportActions}>
-              <TouchableOpacity
-                style={[
-                  styles.supportButton,
-                  { backgroundColor: theme.gold.primary },
-                ]}
-                onPress={handleContactSupport}
-              >
-                <Ionicons name="chatbubble-outline" size={16} color="white" />
-                <Text style={styles.supportButtonText} numberOfLines={1}>
-                  Contact Support
-                </Text>
-              </TouchableOpacity>
+              {subscription.currentTier !== 'free' && (
+                <TouchableOpacity
+                  style={[
+                    styles.supportButton,
+                    { backgroundColor: theme.gold.primary },
+                  ]}
+                  onPress={handleContactSupport}
+                >
+                  <Ionicons name="chatbubble-outline" size={16} color="white" />
+                  <Text style={styles.supportButtonText} numberOfLines={1}>
+                    Contact Support
+                  </Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity
                 style={[
                   styles.supportButton,
@@ -952,6 +971,7 @@ Thanks!`;
                     backgroundColor: "transparent",
                     borderColor: theme.gold.primary,
                     borderWidth: 1,
+                    flex: subscription.currentTier === 'free' ? 1 : 1,
                   },
                 ]}
                 onPress={handleEmailSupport}
