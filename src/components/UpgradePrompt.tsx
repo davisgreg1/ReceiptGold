@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -12,7 +12,11 @@ import { useTheme } from "../theme/ThemeProvider";
 import { SubscriptionTier } from "../context/SubscriptionContext";
 import { useRevenueCatPayments } from "../hooks/useRevenueCatPayments";
 import { useAuth } from "../context/AuthContext";
-import { SubscriptionTierKey } from "../services/revenuecatService";
+import {
+  SubscriptionTierKey,
+  revenueCatService,
+  SUBSCRIPTION_TIERS,
+} from "../services/revenuecatService";
 import { useInAppNotifications } from "./InAppNotificationProvider";
 import { useConfettiContext } from "../context/ConfettiContext";
 
@@ -37,10 +41,32 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
 
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [pricing, setPricing] = useState<any>({});
   const { triggerConfetti } = useConfettiContext();
 
+  // Fetch pricing from RevenueCat on component mount
+  useEffect(() => {
+    const fetchPricing = async () => {
+      try {
+        console.log("🔍 Fetching pricing from RevenueCat...");
+        const pricingData = await revenueCatService.getRevenueCatPricing();
+        console.log("💰 Retrieved pricing data:", pricingData);
+        setPricing(pricingData);
+      } catch (error) {
+        console.error("Failed to fetch pricing:", error);
+        // Keep using fallback prices if RevenueCat fails
+      }
+    };
+
+    if (visible) {
+      fetchPricing();
+    }
+  }, [visible]);
+
   // Map SubscriptionTier to SubscriptionTierKey for RevenueCat
-  const mapTierToRevenueCatKey = (tier: SubscriptionTier): SubscriptionTierKey => {
+  const mapTierToRevenueCatKey = (
+    tier: SubscriptionTier
+  ): SubscriptionTierKey => {
     switch (tier) {
       case "starter":
         return "starter";
@@ -61,9 +87,10 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
 
     setLoading(true);
     try {
-      // Start the RevenueCat payment flow
+      // Start the RevenueCat payment flow (defaulting to monthly billing)
       const success = await handleSubscriptionWithRevenueCat(
         mapTierToRevenueCatKey(requiredTier),
+        "monthly", // Default to monthly billing for upgrade prompts
         user.email,
         user.displayName || "User"
       );
@@ -71,7 +98,7 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
       if (success) {
         // 🎊 CELEBRATE UPGRADE! 🎊
         triggerConfetti();
-        
+
         showNotification({
           type: "success",
           title: "Subscription",
@@ -91,15 +118,48 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
   };
 
   const getTierInfo = (tier: SubscriptionTier) => {
+    // Get pricing from RevenueCat if available, otherwise use fallback
+    const getPrice = (tierKey: string) => {
+      const tierPricing = pricing[tierKey];
+      if (tierPricing?.monthly?.price) {
+        return tierPricing.monthly.price;
+      }
+
+      // Fallback to SUBSCRIPTION_TIERS configuration if RevenueCat data is unavailable
+      const tierConfig = SUBSCRIPTION_TIERS[tierKey as SubscriptionTierKey];
+      if (tierConfig?.monthlyPrice) {
+        return `$${tierConfig.monthlyPrice.toFixed(2)}`;
+      }
+
+      // Final fallback if tier is not found
+      return "Contact Support";
+    };
+
     switch (tier) {
       case "starter":
-        return { name: "Starter Plan", price: "$9.99", color: "#3B82F6" };
+        return {
+          name: "Starter Plan",
+          price: getPrice("starter"),
+          color: "#3B82F6",
+        };
       case "growth":
-        return { name: "Growth Plan", price: "$19.99", color: "#8B5CF6" };
+        return {
+          name: "Growth Plan",
+          price: getPrice("growth"),
+          color: "#8B5CF6",
+        };
       case "professional":
-        return { name: "Professional Plan", price: "$39.99", color: "#F59E0B" };
+        return {
+          name: "Professional Plan",
+          price: getPrice("professional"),
+          color: "#F59E0B",
+        };
       default:
-        return { name: "Starter Plan", price: "$9.99", color: "#3B82F6" };
+        return {
+          name: "Starter Plan",
+          price: getPrice("starter"),
+          color: "#3B82F6",
+        };
     }
   };
 
@@ -242,7 +302,7 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
           </TouchableOpacity>
         </View>
       </View>
-      
+
       {/* Confetti Celebration for Upgrade */}
     </Modal>
   );
@@ -254,16 +314,14 @@ const getBenefits = (tier: SubscriptionTier): string[] => {
       return [
         "50 receipt generations",
         "LLC-specific expense categories",
-        // "Educational content",
-        // "Basic compliance features",
         "Email support",
       ];
     case "growth":
       return [
         "Everything in Starter",
         "Advanced reporting",
-        // "Tax preparation tools",
-        // "Accounting software integrations",
+        "Tax preparation tools",
+        "Accounting software integrations",
         "Priority support",
         "Quarterly tax reminders",
       ];
@@ -271,10 +329,7 @@ const getBenefits = (tier: SubscriptionTier): string[] => {
       return [
         "Everything in Growth",
         "Multi-business management",
-        // "White-label options",
-        // "API access",
-        // "Dedicated account manager",
-        // "Custom compliance workflows",
+        "Dedicated account manager",
       ];
     default:
       return [];

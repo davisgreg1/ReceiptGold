@@ -14,6 +14,8 @@ import { useTheme } from '../theme/ThemeProvider';
 import { useBusiness } from '../context/BusinessContext';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { format, subDays, subMonths, startOfDay, endOfDay } from 'date-fns';
+import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
+import { CustomCategory } from '../services/CustomCategoryService';
 
 
 export interface ExportOptions {
@@ -35,6 +37,7 @@ interface ExportSelectorProps {
   onClose: () => void;
   onExport: (options: ExportOptions) => void;
   availableCategories: string[];
+  customCategories: CustomCategory[];
 }
 
 type DateRangePresetType = {
@@ -63,6 +66,7 @@ export const ExportSelector: React.FC<ExportSelectorProps> = ({
   onClose,
   onExport,
   availableCategories,
+  customCategories,
 }) => {
   const { theme } = useTheme();
   const { businesses } = useBusiness();
@@ -452,7 +456,7 @@ export const ExportSelector: React.FC<ExportSelectorProps> = ({
                         : theme.text.primary
                     }
                   ]}>
-                    {category}
+                    {ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories)}
                   </Text>
                 </TouchableOpacity>
               ))}

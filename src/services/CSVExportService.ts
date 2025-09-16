@@ -85,7 +85,7 @@ export class CSVExportService {
       const row = [
         receiptDate ? format(receiptDate, "yyyy-MM-dd") : "Unknown",
         receipt.amount.toString(),
-        receipt.category || "Uncategorized",
+        ReceiptCategoryService.getCategoryDisplayName(receipt.category as any, customCategories),
         businessName,
         (receipt.description || "").replace(/,/g, ";"),
       ];
@@ -147,7 +147,7 @@ export class CSVExportService {
           const row = [
             receiptDate ? format(receiptDate, "yyyy-MM-dd") : "Unknown",
             receipt.amount.toString(),
-            receipt.category || "Uncategorized",
+            ReceiptCategoryService.getCategoryDisplayName(receipt.category as any, customCategories),
             businessName,
             (receipt.description || "").replace(/,/g, ";"),
           ];
@@ -160,7 +160,7 @@ export class CSVExportService {
       return groupedContent;
     } else {
       const grouped = receipts.reduce((acc, receipt) => {
-        const category = receipt.category || "Uncategorized";
+        const category = ReceiptCategoryService.getCategoryDisplayName(receipt.category as any, customCategories);
         if (!acc[category]) acc[category] = [];
         acc[category].push(receipt);
         return acc;
@@ -178,7 +178,7 @@ export class CSVExportService {
           const row = [
             receiptDate ? format(receiptDate, "yyyy-MM-dd") : "Unknown",
             receipt.amount.toString(),
-            receipt.category || "Uncategorized",
+            ReceiptCategoryService.getCategoryDisplayName(receipt.category as any, customCategories),
             businessName,
             (receipt.description || "").replace(/,/g, ";"),
           ];

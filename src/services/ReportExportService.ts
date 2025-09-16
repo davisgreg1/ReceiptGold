@@ -96,8 +96,9 @@ export class ReportExportService {
   ): string {
     const totalAmount = receipts.reduce((sum, receipt) => sum + receipt.amount, 0);
     const categoryTotals = receipts.reduce((acc, receipt) => {
-      const normalizedCategory = this.normalizeCategory(receipt.category, customCategories);
-      acc[normalizedCategory] = (acc[normalizedCategory] || 0) + receipt.amount;
+      // Use original category for display purposes, normalize for grouping logic only
+      const originalCategory = receipt.category || 'Uncategorized';
+      acc[originalCategory] = (acc[originalCategory] || 0) + receipt.amount;
       return acc;
     }, {} as Record<string, number>);
 

@@ -581,9 +581,9 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
             </View>
           </View>
 
-          {/* Features Preview */}
+          {/* Features List */}
           <View style={styles.featuresPreview}>
-            {planData.features.slice(0, 2).map((feature, idx) => (
+            {planData.features.map((feature, idx) => (
               <View key={idx} style={styles.featureRow}>
                 <Ionicons
                   name="checkmark-circle"
@@ -592,19 +592,12 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
                 />
                 <Text
                   style={[styles.featureText, { color: theme.text.secondary }]}
-                  numberOfLines={1}
+                  numberOfLines={2}
                 >
                   {feature}
                 </Text>
               </View>
             ))}
-            {planData.features.length > 2 && (
-              <Text
-                style={[styles.moreFeatures, { color: theme.text.secondary }]}
-              >
-                +{planData.features.length - 2} more features
-              </Text>
-            )}
           </View>
 
           {/* Action Button */}
