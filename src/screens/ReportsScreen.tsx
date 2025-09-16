@@ -13,7 +13,7 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { View, StyleSheet, ScrollView, Dimensions, RefreshControl } from "react-native";
+import { View, StyleSheet, ScrollView, RefreshControl } from "react-native";
 import {
   Text,
   Button,
@@ -34,9 +34,6 @@ import {
 import { db } from "../config/firebase";
 import { useAuth } from "../context/AuthContext";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
-import { PremiumGate } from "../components/PremiumGate";
-import * as Sharing from "expo-sharing";
-import * as FileSystem from "expo-file-system";
 import { format } from "date-fns";
 import type { StackNavigationProp } from "@react-navigation/stack";
 import { ReceiptCategoryService } from '../services/ReceiptCategoryService';
@@ -44,6 +41,11 @@ import { CustomCategoryService, CustomCategory } from '../services/CustomCategor
 import { formatCurrency } from '../utils/formatCurrency';
 import { useTheme } from "../theme/ThemeProvider";
 import { Ionicons } from "@expo/vector-icons";
+import { ExportSelector, ExportOptions } from '../components/ExportSelector';
+import { useCustomAlert } from '../components/CustomAlert';
+import { ReportExportService } from '../services/ReportExportService';
+import { CSVExportService } from '../services/CSVExportService';
+import { ExcelExportService } from '../services/ExcelExportService';
 
 interface Receipt {
   amount: number;
@@ -66,6 +68,7 @@ export default function ReportsScreen() {
   const { isTeamMember, currentMembership, accountHolderId } = useTeam();
   const navigation = useNavigation<StackNavigationProp<any>>();
   const { theme } = useTheme();
+  const { showWarning } = useCustomAlert();
   
   console.log('ReportsScreen render:', { user: !!user, subscription: !!subscription, theme: !!theme });
   
@@ -77,6 +80,7 @@ export default function ReportsScreen() {
   const [selectedDateRange, setSelectedDateRange] = useState<
     "week" | "month" | "year"
   >("month");
+  const [showExportSelector, setShowExportSelector] = useState(false);
 
   // Normalize category names for consistent grouping
   const normalizeCategory = (category: string | undefined): string => {
@@ -231,8 +235,6 @@ export default function ReportsScreen() {
       }, {} as Record<string, number>);
   }, [receipts]);
 
-  // Screen dimensions for the chart
-  const screenWidth = Dimensions.get("window").width;
 
   // Date range filters
   const dateRangeFilter = useMemo(() => {
@@ -302,11 +304,11 @@ export default function ReportsScreen() {
     const fetchReceipts = async () => {
       try {
         const receiptsRef = collection(db, "receipts");
-        const effectiveAccountHolderId = accountHolderId || user.uid;
+        const effectiveAccountHolderId = accountHolderId || user!.uid;
         let querySnapshot;
 
         console.log('🔍 Reports receipt visibility check:', {
-          userId: user.uid,
+          userId: user!.uid,
           isTeamMember,
           currentMembership: currentMembership?.role,
           accountHolderId,
@@ -342,10 +344,11 @@ export default function ReportsScreen() {
           
           // Filter for regular team members (only their own receipts)
           if (isTeamMember && currentMembership?.role !== 'admin') {
-            querySnapshot.docs = querySnapshot.docs.filter(doc => {
+            const filteredDocs = querySnapshot.docs.filter(doc => {
               const data = doc.data();
-              return data.teamAttribution?.createdByUserId === user.uid;
+              return data.teamAttribution?.createdByUserId === user!.uid;
             });
+            querySnapshot = { docs: filteredDocs };
           }
           
         } catch (error: any) {
@@ -372,7 +375,7 @@ export default function ReportsScreen() {
               
               // For regular team members, only show receipts they created
               if (isTeamMember && currentMembership?.role !== 'admin') {
-                return data.teamAttribution?.createdByUserId === user.uid;
+                return data.teamAttribution?.createdByUserId === user!.uid;
               }
               
               return true;
@@ -465,10 +468,11 @@ export default function ReportsScreen() {
         
         // Filter for regular team members (only their own receipts)
         if (isTeamMember && currentMembership?.role !== 'admin') {
-          querySnapshot.docs = querySnapshot.docs.filter(doc => {
+          const filteredDocs = querySnapshot.docs.filter(doc => {
             const data = doc.data();
-            return data.teamAttribution?.createdByUserId === user.uid;
+            return data.teamAttribution?.createdByUserId === user!.uid;
           });
+          querySnapshot = { docs: filteredDocs };
         }
         
       } catch (error: any) {
@@ -493,7 +497,7 @@ export default function ReportsScreen() {
             
             // For regular team members, only show receipts they created
             if (isTeamMember && currentMembership?.role !== 'admin') {
-              return data.teamAttribution?.createdByUserId === user.uid;
+              return data.teamAttribution?.createdByUserId === user!.uid;
             }
             
             return true;
@@ -542,34 +546,132 @@ export default function ReportsScreen() {
     }, [user, refreshData])
   );
 
-  const exportToCSV = async () => {
-    try {
-      const csvContent = [
-        "Date,Amount,Category,Business,Description",
-        ...receipts.map((receipt) => {
-          const receiptDate = receipt.createdAt?.toDate() || receipt.date?.toDate();
-          const businessName = receipt.businessId 
-            ? getBusinessById(receipt.businessId)?.name || "Unknown Business"
-            : "Personal";
-          return [
-            receiptDate ? format(receiptDate, "yyyy-MM-dd") : "Unknown",
-            receipt.amount.toString(),
-            receipt.category,
-            businessName,
-            (receipt.description || "").replace(/,/g, ";"),
-          ].join(",");
-        }),
-      ]
-        .join("\n");
-      const fileName = `receipts_${new Date().toISOString().split("T")[0]}.csv`;
-      const filePath = `${FileSystem.documentDirectory}${fileName}`;
+  // Get available categories for export selector (must be before early returns)
+  const availableCategories = useMemo(() => {
+    const categories = new Set<string>();
+    receipts.forEach(receipt => {
+      const normalizedCategory = normalizeCategory(receipt.category);
+      categories.add(normalizedCategory);
+    });
+    return Array.from(categories).sort();
+  }, [receipts]);
 
-      await FileSystem.writeAsStringAsync(filePath, csvContent);
-      await Sharing.shareAsync(filePath);
+  const exportToCSV = async () => {
+    setShowExportSelector(true);
+  };
+
+  const handleExport = async (options: ExportOptions) => {
+    try {
+      console.log('=== Export Debug Info ===');
+      console.log('Total receipts:', receipts.length);
+      console.log('Export options:', {
+        dateRange: {
+          start: options.dateRange.start.toISOString(),
+          end: options.dateRange.end.toISOString()
+        },
+        includePersonal: options.includePersonal,
+        selectedBusinesses: options.selectedBusinesses,
+        categories: options.categories,
+        taxDeductibleOnly: options.taxDeductibleOnly
+      });
+
+      // Filter receipts based on export options
+      const filteredReceipts = receipts.filter((receipt, index) => {
+        const receiptDate = receipt.createdAt?.toDate() || receipt.date?.toDate();
+        const category = normalizeCategory(receipt.category);
+
+        // Debug first few receipts
+        if (index < 3) {
+          console.log(`Receipt ${index}:`, {
+            date: receiptDate?.toISOString(),
+            amount: receipt.amount,
+            category: receipt.category,
+            normalizedCategory: category,
+            businessId: receipt.businessId,
+            taxDeductible: receipt.tax?.deductible
+          });
+        }
+
+        // Date range filter - be more lenient with dates
+        if (receiptDate) {
+          if (receiptDate < options.dateRange.start || receiptDate > options.dateRange.end) {
+            if (index < 3) console.log(`Receipt ${index} filtered out by date`);
+            return false;
+          }
+        } else {
+          // If no date, assume it's old and might be in range
+          if (index < 3) console.log(`Receipt ${index} has no date, including`);
+        }
+
+        // Business/Personal filter
+        if (receipt.businessId) {
+          // This is a business receipt
+          if (!options.selectedBusinesses.includes(receipt.businessId)) {
+            if (index < 3) console.log(`Receipt ${index} filtered out by business`);
+            return false;
+          }
+        } else {
+          // This is a personal receipt
+          if (!options.includePersonal) {
+            if (index < 3) console.log(`Receipt ${index} filtered out - personal not included`);
+            return false;
+          }
+        }
+
+        // Category filter - make sure categories match
+        if (options.categories.length > 0 && !options.categories.includes(category)) {
+          if (index < 3) console.log(`Receipt ${index} filtered out by category. Receipt category: "${category}", allowed: ${options.categories}`);
+          return false;
+        }
+
+        // Tax deductible filter
+        if (options.taxDeductibleOnly) {
+          if (!receipt.tax?.deductible) {
+            if (index < 3) console.log(`Receipt ${index} filtered out - not tax deductible`);
+            return false;
+          }
+        }
+
+        if (index < 3) console.log(`Receipt ${index} passed all filters`);
+        return true;
+      });
+
+      console.log('Filtered receipts count:', filteredReceipts.length);
+
+      // If no receipts match filters, export all receipts as fallback
+      const receiptsToExport = filteredReceipts.length > 0 ? filteredReceipts : receipts;
+      console.log('Final receipts to export:', receiptsToExport.length);
+
+      if (receiptsToExport.length === 0) {
+        showWarning('No Data to Export', 'No receipts found to export. Please check your filters or add some receipts first.');
+        return;
+      }
+
+      // Use the appropriate export service based on format
+      if (options.format === 'csv') {
+        const csvService = CSVExportService.getInstance();
+        await csvService.generateCSV(receiptsToExport, options, customCategories, getBusinessById);
+      } else if (options.format === 'excel') {
+        const excelService = ExcelExportService.getInstance();
+        await excelService.generateExcel(receiptsToExport, options, customCategories, getBusinessById);
+      } else if (options.format === 'pdf') {
+        try {
+          const pdfService = ReportExportService.getInstance();
+          await pdfService.generatePDF(receiptsToExport, options, customCategories, getBusinessById);
+        } catch (pdfError) {
+          console.error('PDF generation failed, falling back to CSV:', pdfError);
+          // Fallback to CSV if PDF generation fails
+          const csvService = CSVExportService.getInstance();
+          await csvService.generateCSV(receiptsToExport, options, customCategories, getBusinessById);
+          showWarning('PDF Export Issue', 'PDF generation failed. Report exported as CSV instead.');
+        }
+      }
     } catch (error) {
-      console.error("Error exporting CSV:", error);
+      console.error("Error exporting:", error);
+      showWarning('Export Error', 'Failed to export report. Please try again.');
     }
   };
+
 
   console.log('ReportsScreen render state:', { loading, error, receiptsCount: receipts.length, user: !!user });
 
@@ -709,20 +811,20 @@ export default function ReportsScreen() {
 
   const basicReport = generateBasicReport();
   const advancedReport = generateAdvancedReport();
-  const trends = advancedReport?.trends || [];
 
   return (
-    <ScrollView 
-      style={[styles.container, { backgroundColor: theme.background.primary }]}
-      refreshControl={
-        <RefreshControl
-          refreshing={refreshing}
-          onRefresh={refreshData}
-          colors={[theme.gold.primary]}
-          tintColor={theme.gold.primary}
-        />
-      }
-    >
+    <>
+      <ScrollView
+        style={[styles.container, { backgroundColor: theme.background.primary }]}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={refreshData}
+            colors={[theme.gold.primary]}
+            tintColor={theme.gold.primary}
+          />
+        }
+      >
       {/* Header Card with Date Range */}
       <View style={[
         styles.headerCard,
@@ -843,8 +945,11 @@ export default function ReportsScreen() {
                 ]}>
                   <View style={styles.categoryInfo}>
                     <Text style={[styles.categoryName, { color: theme.text.primary }]}>
-                      {__DEV__ && console.log('🔍 Display category:', { category, displayName: ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories) })}
-                      {ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories)}
+                      {(() => {
+                        const displayName = ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories);
+                        if (__DEV__) console.log('🔍 Display category:', { category, displayName });
+                        return displayName;
+                      })()}
                     </Text>
                     <Text style={[styles.categoryAmount, { color: theme.gold.primary }]}>
                       {formatCurrency(amount)}
@@ -881,7 +986,7 @@ export default function ReportsScreen() {
             labelStyle={{ color: theme.background.primary }}
             icon="download-outline"
           >
-            Export CSV
+            Export Report
           </Button>
           <Button
             mode="outlined"
@@ -1011,8 +1116,11 @@ export default function ReportsScreen() {
                   { borderColor: theme.border.primary }
                 ]}>
                   <Text style={[styles.taxCategoryName, { color: theme.text.primary }]}>
-                    {__DEV__ && console.log('🔍 Tax category display:', { category, displayName: ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories) })}
-                    {ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories)}
+                    {(() => {
+                      const displayName = ReceiptCategoryService.getCategoryDisplayName(category as any, customCategories);
+                      if (__DEV__) console.log('🔍 Tax category display:', { category, displayName });
+                      return displayName;
+                    })()}
                   </Text>
                   <Text style={[styles.taxCategoryAmount, { color: theme.gold.primary }]}>
                     {formatCurrency(amount)}
@@ -1027,7 +1135,16 @@ export default function ReportsScreen() {
           </View>
         </>
       )}
-    </ScrollView>
+      </ScrollView>
+
+      {/* Export Selector Modal */}
+      <ExportSelector
+        visible={showExportSelector}
+        onClose={() => setShowExportSelector(false)}
+        onExport={handleExport}
+        availableCategories={availableCategories}
+      />
+    </>
   );
 };
 
