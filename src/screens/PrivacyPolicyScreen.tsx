@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -18,8 +18,14 @@ interface PrivacyPolicyScreenProps {
 interface PolicySection {
   id: string;
   title: string;
-  content: string;
+  content: PolicyContent[];
   icon: string;
+}
+
+interface PolicyContent {
+  type: 'header' | 'text' | 'list';
+  text?: string;
+  items?: string[];
 }
 
 const policySections: PolicySection[] = [
@@ -27,252 +33,652 @@ const policySections: PolicySection[] = [
     id: '1',
     title: 'Information We Collect',
     icon: 'information-circle-outline',
-    content: `We collect information you provide directly to us, such as when you create an account, scan receipts, or contact us for support.
-
-**Personal Information:**
-• Email address and account credentials
-• Name and business information (if provided)
-• Payment information (processed securely through Stripe)
-
-**Receipt Data:**
-• Photos of receipts you scan
-• Extracted text and data from receipts
-• Categories and tags you assign
-• Dates, amounts, and vendor information
-
-**Usage Information:**
-• How you interact with our app
-• Features you use most frequently
-• Device information (model, OS version)
-• App performance and error logs
-
-**Financial Data (Professional users):**
-• Bank transaction data (via Plaid integration)
-• Account balances and transaction history
-• This data is encrypted and never stored permanently`
+    content: [
+      {
+        type: 'text',
+        text: 'We collect information you provide directly to us, such as when you create an account, scan receipts, or contact us for support.'
+      },
+      {
+        type: 'header',
+        text: 'Personal Information:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Email address and account credentials',
+          'Name and business information (if provided)',
+          'Payment information (processed securely through payment processing services)',
+          'Device identifiers and push notification tokens',
+          'Team member information when you invite collaborators'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Receipt Data:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Photos of receipts you scan using camera or image picker',
+          'Extracted text and data from receipts (processed via AI/OCR)',
+          'Categories and tags you assign',
+          'Dates, amounts, vendor information, and tax details',
+          'Receipt metadata (location if enabled, timestamp)'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Usage Information:'
+      },
+      {
+        type: 'list',
+        items: [
+          'How you interact with our app features',
+          'Subscription tier and billing information',
+          'Team management activities',
+          'Device information (model, OS version, platform)',
+          'App performance metrics and crash reports',
+          'Feature usage analytics and user preferences'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Financial Data (Professional users):'
+      },
+      {
+        type: 'list',
+        items: [
+          'Bank transaction data (via financial services integration providers)',
+          'Account balances and transaction history',
+          'This data is encrypted in transit and not permanently stored',
+          'Financial connections are tokenized for security'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Team Data:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Business information for team accounts',
+          'Team member roles and permissions',
+          'Invitation tokens and collaboration history',
+          'Team usage statistics and billing information'
+        ]
+      }
+    ]
   },
   {
     id: '2',
     title: 'How We Use Your Information',
     icon: 'settings-outline',
-    content: `We use your information to provide, maintain, and improve ReceiptGold's services.
-
-**Core Services:**
-• Process and organize your receipt data
-• Generate expense reports and tax documents
-• Sync your data across devices
-• Provide customer support
-
-**Service Improvement:**
-• Analyze usage patterns to improve features
-• Develop new functionality based on user needs
-• Ensure app stability and performance
-• Prevent fraud and abuse
-
-**Communications:**
-• Send important service updates
-• Respond to your support requests
-• Notify you about new features (with your consent)
-• Send billing and account notifications
-
-We never sell your personal information to third parties or use it for advertising purposes outside of our own service improvements.`
+    content: [
+      {
+        type: 'text',
+        text: 'We use your information to provide, maintain, and improve ReceiptGold\'s services.'
+      },
+      {
+        type: 'header',
+        text: 'Core Services:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Process and organize your receipt data using AI/OCR technology',
+          'Generate expense reports and tax documents in multiple formats',
+          'Sync your data across devices using cloud infrastructure and database services',
+          'Provide customer support and troubleshooting',
+          'Manage team accounts and collaboration features',
+          'Process subscription payments through subscription and payment processing services'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Service Improvement:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Analyze usage patterns to improve features and performance',
+          'Develop new functionality based on user needs and feedback',
+          'Ensure app stability through crash reporting and monitoring',
+          'Prevent fraud, abuse, and unauthorized access',
+          'Optimize AI models for better receipt processing accuracy'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Communications:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Send important service updates and security notifications',
+          'Respond to your support requests and feedback',
+          'Send push notifications for app updates (with your consent)',
+          'Send billing and subscription notifications',
+          'Facilitate team invitations and collaboration'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Legal and Compliance:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Comply with applicable laws and regulations',
+          'Respond to legal requests and government inquiries',
+          'Protect our rights and investigate potential violations',
+          'Maintain audit trails for security purposes'
+        ]
+      },
+      {
+        type: 'text',
+        text: 'We never sell your personal information to third parties or use it for advertising purposes outside of our own service improvements.'
+      }
+    ]
   },
   {
     id: '3',
     title: 'Data Storage & Security',
     icon: 'shield-checkmark-outline',
-    content: `Your data security is our top priority. We implement industry-standard security measures.
-
-**Encryption:**
-• All data is encrypted in transit using TLS 1.3
-• Receipt images are encrypted at rest
-• Database connections use encrypted protocols
-• API communications are secured end-to-end
-
-**Storage:**
-• Data is stored on secure Firebase/Google Cloud servers
-• Servers are located in secure data centers
-• Regular security audits and compliance checks
-• Automated backups with encryption
-
-**Access Controls:**
-• Multi-factor authentication for our team
-• Role-based access to user data
-• Regular access reviews and updates
-• Logging and monitoring of all data access
-
-**Data Retention:**
-• Receipt data is retained while your account is active
-• Deleted data is permanently removed within 30 days
-• You can request data deletion at any time
-• Financial connection data is not permanently stored`
+    content: [
+      {
+        type: 'text',
+        text: 'Your data security is our top priority. We implement industry-standard security measures.'
+      },
+      {
+        type: 'header',
+        text: 'Encryption:'
+      },
+      {
+        type: 'list',
+        items: [
+          'All data is encrypted in transit using TLS 1.3',
+          'Receipt images are encrypted at rest in cloud storage services',
+          'Database connections use encrypted protocols',
+          'API communications are secured end-to-end',
+          'Payment data is tokenized and never stored locally'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Storage:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Data is stored on secure cloud infrastructure providers',
+          'Servers are located in secure, compliant data centers',
+          'Regular security audits and vulnerability assessments',
+          'Automated backups with encryption and versioning',
+          'Geographic redundancy for data protection'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Access Controls:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Multi-factor authentication for our development team',
+          'Role-based access controls with principle of least privilege',
+          'Regular access reviews and security updates',
+          'Comprehensive logging and monitoring of all data access',
+          'Secure service account keys with rotation policies'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Application Security:'
+      },
+      {
+        type: 'list',
+        items: [
+          'React Native app with secure coding practices',
+          'Device-level security features (biometric authentication)',
+          'Secure token management for API access',
+          'Regular security testing and code reviews',
+          'Vulnerability scanning and penetration testing'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Data Retention:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Receipt data is retained while your account is active',
+          'Deleted data is permanently removed within 30 days',
+          'You can request immediate data deletion at any time',
+          'Financial connection data is not permanently stored',
+          'Team data is retained for audit and compliance purposes',
+          'Backup data follows the same retention policies'
+        ]
+      }
+    ]
   },
   {
     id: '4',
     title: 'Third-Party Services',
     icon: 'link-outline',
-    content: `ReceiptGold integrates with trusted third-party services to provide enhanced functionality.
-
-**Plaid (Bank Connections):**
-• Used for secure bank account connections
-• Plaid has its own privacy policy and security measures
-• Transaction data is encrypted and transmitted securely
-• We don't store your banking credentials
-
-**Stripe (Payment Processing):**
-• Handles all subscription and payment processing
-• Your payment information is never stored on our servers
-• Stripe is PCI DSS compliant and highly secure
-• Subject to Stripe's privacy policy
-
-**Google Cloud/Firebase:**
-• Provides secure data storage and authentication
-• Servers located in secure, compliant data centers
-• Subject to Google's privacy and security standards
-• Automatic scaling and backup capabilities
-
-**OpenAI (Receipt Processing):**
-• Used to extract text and data from receipt images
-• Receipt images are processed but not permanently stored
-• Data is transmitted securely and deleted after processing
-• Subject to OpenAI's privacy policy
-
-We carefully vet all third-party services and ensure they meet our security standards.`
+    content: [
+      {
+        type: 'text',
+        text: 'ReceiptGold integrates with trusted third-party services to provide enhanced functionality.'
+      },
+      {
+        type: 'header',
+        text: 'Financial Services Integration Providers:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Used for secure bank account connections in Professional tier',
+          'Transaction data is encrypted and transmitted securely',
+          'We don\'t store your banking credentials or account numbers',
+          'Connections use tokenized access that can be revoked anytime',
+          'Subject to respective provider privacy policies and security measures'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Subscription and Payment Processing Services:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Handle all subscription billing and payment processing',
+          'Integrate with Apple App Store and Google Play Store',
+          'Your payment information is never stored on our servers',
+          'Provide secure subscription validation and receipt verification',
+          'Subject to respective provider privacy policies'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Cloud Infrastructure and Database Services:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Provide secure data storage, authentication, and cloud functions',
+          'Real-time database synchronization across devices',
+          'Push notification services for app updates',
+          'Servers located in secure, compliant data centers worldwide',
+          'Automatic scaling, monitoring, and backup capabilities',
+          'Subject to industry-leading privacy and security standards'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'AI and Machine Learning Processing Services:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Used to extract text and data from receipt images',
+          'Receipt images are processed using machine learning models',
+          'Images are processed securely and not permanently stored by providers',
+          'Data transmission is encrypted and time-limited',
+          'Multiple providers may be used for optimal accuracy'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Development and Distribution Platforms:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Provide app development and distribution infrastructure',
+          'Handle app updates and development tools',
+          'Subject to platform privacy policies and security standards',
+          'Do not access user data within the app'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Analytics and Performance Monitoring Services:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Monitor app performance and crash reporting',
+          'Analyze usage patterns for service improvement',
+          'Provide anonymized analytics data',
+          'Help ensure app stability and optimal user experience'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Device and Platform Services:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Camera and image picker functionality',
+          'Device storage and file system access',
+          'Push notification services',
+          'App store distribution and update mechanisms'
+        ]
+      },
+      {
+        type: 'text',
+        text: 'We carefully vet all third-party services and ensure they meet our security standards before integration. For a current list of our data processing partners and subprocessors, please visit: https://receiptgold.com/data-processors'
+      }
+    ]
   },
   {
     id: '5',
     title: 'Your Privacy Rights',
     icon: 'person-outline',
-    content: `You have full control over your personal information and privacy settings.
-
-**Access & Download:**
-• View all data we have about you
-• Download your receipt data and reports
-• Request a complete data export
-• Access your account information anytime
-
-**Correction & Updates:**
-• Update your profile information
-• Correct any inaccurate receipt data
-• Modify your preferences and settings
-• Change your email or password
-
-**Deletion Rights:**
-• Delete individual receipts or data
-• Close your account and delete all data
-• Request immediate data purging
-• Export data before deletion
-
-**Privacy Controls:**
-• Control email notifications and communications
-• Manage data sharing preferences
-• Set up two-factor authentication
-• Review connected services and permissions
-
-**California Residents (CCPA):**
-• Right to know what personal information is collected
-• Right to delete personal information
-• Right to opt-out of sale (we don't sell data)
-• Non-discrimination for exercising privacy rights`
+    content: [
+      {
+        type: 'text',
+        text: 'You have full control over your personal information and privacy settings.'
+      },
+      {
+        type: 'header',
+        text: 'Access & Download:'
+      },
+      {
+        type: 'list',
+        items: [
+          'View all data we have about you',
+          'Download your receipt data and reports',
+          'Request a complete data export',
+          'Access your account information anytime'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Correction & Updates:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Update your profile information',
+          'Correct any inaccurate receipt data',
+          'Modify your preferences and settings',
+          'Change your email or password'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Deletion Rights:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Delete individual receipts or data',
+          'Close your account and delete all data',
+          'Request immediate data purging',
+          'Export data before deletion'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Privacy Controls:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Control email notifications and communications',
+          'Manage data sharing preferences',
+          'Set up two-factor authentication',
+          'Review connected services and permissions'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'California Residents (CCPA):'
+      },
+      {
+        type: 'list',
+        items: [
+          'Right to know what personal information is collected',
+          'Right to delete personal information',
+          'Right to opt-out of sale (we don\'t sell data)',
+          'Non-discrimination for exercising privacy rights'
+        ]
+      }
+    ]
   },
   {
     id: '6',
     title: 'Data Sharing',
     icon: 'share-outline',
-    content: `We are committed to protecting your privacy and do not sell your personal information.
-
-**We Never Share:**
-• Your personal receipt data with advertisers
-• Individual transaction information
-• Personal contact information
-• Financial account details
-
-**Limited Sharing Cases:**
-• With your explicit consent for specific features
-• When required by law or legal process
-• To protect our rights and prevent fraud
-• With service providers under strict contracts
-
-**Service Providers:**
-• Cloud storage providers (encrypted data only)
-• Payment processors (for billing purposes)
-• Customer support tools (when you contact us)
-• Analytics services (anonymized usage data)
-
-**Business Transfers:**
-• In case of merger or acquisition
-• Your data rights would be maintained
-• You would be notified of any changes
-• Option to delete data before transfer
-
-**Legal Requirements:**
-• Court orders or legal subpoenas
-• Government requests where legally required
-• To protect safety and prevent harm
-• Always with appropriate legal review`
+    content: [
+      {
+        type: 'text',
+        text: 'We are committed to protecting your privacy and do not sell your personal information.'
+      },
+      {
+        type: 'header',
+        text: 'We Never Share:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Your personal receipt data with advertisers or marketers',
+          'Individual transaction information with third parties',
+          'Personal contact information for marketing purposes',
+          'Financial account details or banking information',
+          'Team collaboration data outside your organization'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Limited Sharing Cases:'
+      },
+      {
+        type: 'list',
+        items: [
+          'With your explicit consent for specific features',
+          'When required by law or valid legal process',
+          'To protect our rights and prevent fraud or abuse',
+          'With authorized service providers under strict data processing agreements',
+          'For team features when you invite team members'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Service Providers (Data Processors):'
+      },
+      {
+        type: 'list',
+        items: [
+          'Cloud infrastructure and database services (encrypted data only)',
+          'Subscription and payment processing services (for billing and subscription management)',
+          'AI and machine learning processing services (for receipt text extraction - temporary processing only)',
+          'Customer support tools (when you contact us for assistance)',
+          'Analytics services (anonymized usage data for app improvement)',
+          'Security monitoring services (for fraud prevention and system protection)'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Team Features:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Data shared within your team is controlled by your team settings',
+          'Team administrators can access team member receipt data as configured',
+          'Business information is shared with invited team members',
+          'Team usage statistics may be shared with account holders'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Business Transfers:'
+      },
+      {
+        type: 'list',
+        items: [
+          'In case of merger, acquisition, or business restructuring',
+          'Your data rights and protections would be maintained',
+          'You would be notified of any material changes',
+          'Option to delete data before transfer if legally permissible'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Legal Requirements:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Court orders or valid legal subpoenas',
+          'Government requests where legally required and appropriate',
+          'To protect safety and prevent harm to users or others',
+          'To investigate fraud or violations of our terms',
+          'Always reviewed by legal counsel before compliance'
+        ]
+      }
+    ]
   },
   {
     id: '7',
     title: 'International Users',
     icon: 'globe-outline',
-    content: `ReceiptGold is available globally, and we comply with international privacy regulations.
-
-**GDPR Compliance (EU Users):**
-• Lawful basis for data processing
-• Right to access, rectify, and erase data
-• Right to data portability
-• Right to object to processing
-• Data Protection Officer available for contact
-
-**Data Transfers:**
-• Data may be processed in the United States
-• We use appropriate safeguards for international transfers
-• Standard Contractual Clauses with service providers
-• Compliance with Privacy Shield principles
-
-**Local Laws:**
-• We comply with applicable local privacy laws
-• Regular review of international regulations
-• Updates to practices as laws evolve
-• Local data residency options where required
-
-**Contact for International Users:**
-• EU users can contact our DPO directly
-• Specific forms for GDPR requests
-• Local language support where possible
-• Recognition of all applicable privacy rights`
+    content: [
+      {
+        type: 'text',
+        text: 'ReceiptGold is available globally, and we comply with international privacy regulations.'
+      },
+      {
+        type: 'header',
+        text: 'GDPR Compliance (EU Users):'
+      },
+      {
+        type: 'list',
+        items: [
+          'Lawful basis for data processing',
+          'Right to access, rectify, and erase data',
+          'Right to data portability',
+          'Right to object to processing',
+          'Data Protection Officer available for contact'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Data Transfers:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Data may be processed in the United States',
+          'We use appropriate safeguards for international transfers',
+          'Standard Contractual Clauses with service providers',
+          'Compliance with Privacy Shield principles'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Local Laws:'
+      },
+      {
+        type: 'list',
+        items: [
+          'We comply with applicable local privacy laws',
+          'Regular review of international regulations',
+          'Updates to practices as laws evolve',
+          'Local data residency options where required'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Contact for International Users:'
+      },
+      {
+        type: 'list',
+        items: [
+          'EU users can contact our DPO directly',
+          'Specific forms for GDPR requests',
+          'Local language support where possible',
+          'Recognition of all applicable privacy rights'
+        ]
+      }
+    ]
   },
   {
     id: '8',
     title: 'Updates & Contact',
     icon: 'mail-outline',
-    content: `We may update this privacy policy from time to time to reflect changes in our practices.
-
-**Policy Updates:**
-• We will notify you of material changes
-• Updates posted on our website and in-app
-• Continued use constitutes acceptance
-• Previous versions available upon request
-
-**Effective Date:**
-This privacy policy is effective as of August 16, 2025.
-
-**How to Contact Us:**
-If you have questions about this privacy policy or our data practices:
-
-• Email: privacy@receiptgold.com
-• Support: Through the app's Contact Support feature
-• Mail: ReceiptGold Privacy Team
-  123 Business Ave
-  San Francisco, CA 94102
-
-**Data Protection Officer:**
-• EU users: dpo@receiptgold.com
-• Response within 30 days
-• Dedicated to privacy matters
-• Available for all privacy-related questions
-
-We're committed to transparency and will always respond promptly to your privacy concerns and requests.`
+    content: [
+      {
+        type: 'text',
+        text: 'We may update this privacy policy from time to time to reflect changes in our practices.'
+      },
+      {
+        type: 'header',
+        text: 'Policy Updates:'
+      },
+      {
+        type: 'list',
+        items: [
+          'We will notify you of material changes',
+          'Updates posted on our website and in-app',
+          'Continued use constitutes acceptance',
+          'Previous versions available upon request'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Effective Date:'
+      },
+      {
+        type: 'text',
+        text: 'This privacy policy is effective as of January 15, 2025.'
+      },
+      {
+        type: 'header',
+        text: 'How to Contact Us:'
+      },
+      {
+        type: 'text',
+        text: 'If you have questions about this privacy policy or our data practices:'
+      },
+      {
+        type: 'list',
+        items: [
+          'Email: privacy@receiptgold.com',
+          'Support: Through the app\'s Contact Support feature',
+          'Mail: GregDavisTech, LLC\n  Privacy Team\n  123 Business Ave\n  San Francisco, CA 94102'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Data Protection Officer:'
+      },
+      {
+        type: 'list',
+        items: [
+          'EU users: dpo@receiptgold.com',
+          'Response within 30 days',
+          'Dedicated to privacy matters',
+          'Available for all privacy-related questions'
+        ]
+      },
+      {
+        type: 'header',
+        text: 'Data Processing Partners:'
+      },
+      {
+        type: 'text',
+        text: 'For a current list of our data processing partners and subprocessors, please visit: https://receiptgold.com/data-processors'
+      },
+      {
+        type: 'text',
+        text: 'We\'re committed to transparency and will always respond promptly to your privacy concerns and requests.'
+      }
+    ]
   }
 ];
 
@@ -281,16 +687,35 @@ export const PrivacyPolicyScreen: React.FC<PrivacyPolicyScreenProps> = ({
 }) => {
   const { theme } = useTheme();
   const [expandedSection, setExpandedSection] = useState<string | null>('1');
+  const scrollViewRef = useRef<ScrollView>(null);
+  const sectionPositions = useRef<{ [key: string]: number }>({});
 
   const toggleSection = (id: string) => {
-    setExpandedSection(expandedSection === id ? null : id);
+    const newExpandedSection = expandedSection === id ? null : id;
+    setExpandedSection(newExpandedSection);
+
+    // Scroll to section if expanding
+    if (newExpandedSection && sectionPositions.current[id] !== undefined) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({
+          y: Math.max(0, sectionPositions.current[id] - 20),
+          animated: true
+        });
+      }, 100); // Small delay to ensure section is expanded
+    }
   };
 
-  const lastUpdated = 'August 16, 2025';
+  const handleSectionLayout = (id: string, event: any) => {
+    const { y } = event.nativeEvent.layout;
+    sectionPositions.current[id] = y;
+  };
+
+  const lastUpdated = 'January 15, 2025';
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
-      <ScrollView 
+      <ScrollView
+        ref={scrollViewRef}
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -364,6 +789,7 @@ export const PrivacyPolicyScreen: React.FC<PrivacyPolicyScreenProps> = ({
           {policySections.map((section, index) => (
             <View
               key={section.id}
+              onLayout={(event) => handleSectionLayout(section.id, event)}
               style={[
                 styles.sectionCard,
                 {
@@ -405,9 +831,35 @@ export const PrivacyPolicyScreen: React.FC<PrivacyPolicyScreenProps> = ({
 
               {expandedSection === section.id && (
                 <View style={[styles.sectionContent, { borderTopColor: theme.border.primary }]}>
-                  <Text style={[styles.contentText, { color: theme.text.secondary }]}>
-                    {section.content}
-                  </Text>
+                  {section.content.map((item, index) => {
+                    if (item.type === 'header') {
+                      return (
+                        <Text key={index} style={[styles.contentHeader, { color: theme.text.primary }]}>
+                          {item.text}
+                        </Text>
+                      );
+                    } else if (item.type === 'text') {
+                      return (
+                        <Text key={index} style={[styles.contentText, { color: theme.text.secondary }]}>
+                          {item.text}
+                        </Text>
+                      );
+                    } else if (item.type === 'list') {
+                      return (
+                        <View key={index} style={styles.listContainer}>
+                          {item.items?.map((listItem, listIndex) => (
+                            <View key={listIndex} style={styles.listItem}>
+                              <Text style={[styles.listBullet, { color: theme.gold.primary }]}>•</Text>
+                              <Text style={[styles.listText, { color: theme.text.secondary }]}>
+                                {listItem}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      );
+                    }
+                    return null;
+                  })}
                 </View>
               )}
             </View>
@@ -570,6 +1022,34 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     paddingTop: 16,
+    marginBottom: 12,
+  },
+  contentHeader: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 16,
+    marginBottom: 8,
+    letterSpacing: 0.3,
+  },
+  listContainer: {
+    marginBottom: 16,
+  },
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+    paddingLeft: 8,
+  },
+  listBullet: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginRight: 8,
+    marginTop: 1,
+  },
+  listText: {
+    fontSize: 14,
+    lineHeight: 20,
+    flex: 1,
   },
   footer: {
     borderTopWidth: 1,
