@@ -170,6 +170,148 @@ Thanks!`;
     Linking.openURL(mailtoUrl);
   };
 
+  const renderAnswer = (answer: string) => {
+    const parts = answer.split('\n\n');
+
+    return (
+      <View style={styles.answerContainer}>
+        {parts.map((part, index) => {
+          if (!part.trim()) return null;
+
+          // Check if this part contains mixed content (numbers and bullets)
+          const lines = part.split('\n').filter(line => line.trim());
+          const hasNumbers = lines.some(line => /^\d+\./.test(line.trim()));
+          const hasBullets = lines.some(line => /^\s*•/.test(line.trim()));
+
+          if (hasNumbers || hasBullets) {
+            return (
+              <View key={index} style={styles.listContainer}>
+                {lines.map((line, lineIndex) => {
+                  const trimmedLine = line.trim();
+
+                  // Handle numbered items
+                  if (/^\d+\./.test(trimmedLine)) {
+                    const content = trimmedLine.replace(/^\d+\.\s*/, '');
+                    const boldRegex = /\*\*(.*?)\*\*/g;
+
+                    return (
+                      <View key={lineIndex} style={styles.listItem}>
+                        <Text style={[styles.listNumber, { color: theme.gold.primary }]}>
+                          {trimmedLine.match(/^\d+\./)?.[0] || ''}
+                        </Text>
+                        {boldRegex.test(content) ? (
+                          <Text style={[styles.listText, { color: theme.text.secondary }]}>
+                            {content.split(boldRegex).map((segment, segIndex) => {
+                              if (segIndex % 2 === 1) {
+                                return (
+                                  <Text key={segIndex} style={[styles.boldText, { color: theme.text.primary }]}>
+                                    {segment}
+                                  </Text>
+                                );
+                              }
+                              return segment;
+                            })}
+                          </Text>
+                        ) : (
+                          <Text style={[styles.listText, { color: theme.text.secondary }]}>
+                            {content}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  }
+
+                  // Handle bullet items (don't add extra bullet, just format existing)
+                  if (/^\s*•/.test(line)) {
+                    const content = line.replace(/^\s*•\s*/, '').trim();
+                    const boldRegex = /\*\*(.*?)\*\*/g;
+
+                    return (
+                      <View key={lineIndex} style={styles.listItem}>
+                        <Text style={[styles.bullet, { color: theme.gold.primary }]}>•</Text>
+                        {boldRegex.test(content) ? (
+                          <Text style={[styles.listText, { color: theme.text.secondary }]}>
+                            {content.split(boldRegex).map((segment, segIndex) => {
+                              if (segIndex % 2 === 1) {
+                                return (
+                                  <Text key={segIndex} style={[styles.boldText, { color: theme.text.primary }]}>
+                                    {segment}
+                                  </Text>
+                                );
+                              }
+                              return segment;
+                            })}
+                          </Text>
+                        ) : (
+                          <Text style={[styles.listText, { color: theme.text.secondary }]}>
+                            {content}
+                          </Text>
+                        )}
+                      </View>
+                    );
+                  }
+
+                  // Handle regular text within list context (check for bold text)
+                  const boldRegex = /\*\*(.*?)\*\*/g;
+                  if (boldRegex.test(line)) {
+                    const segments = line.split(boldRegex);
+                    return (
+                      <Text key={lineIndex} style={[styles.listText, { color: theme.text.secondary, marginBottom: 4 }]}>
+                        {segments.map((segment, segIndex) => {
+                          if (segIndex % 2 === 1) {
+                            return (
+                              <Text key={segIndex} style={[styles.boldText, { color: theme.text.primary }]}>
+                                {segment}
+                              </Text>
+                            );
+                          }
+                          return segment;
+                        })}
+                      </Text>
+                    );
+                  }
+
+                  return (
+                    <Text key={lineIndex} style={[styles.listText, { color: theme.text.secondary, marginBottom: 4 }]}>
+                      {line}
+                    </Text>
+                  );
+                })}
+              </View>
+            );
+          }
+
+          // Handle bold text and regular paragraphs
+          const boldRegex = /\*\*(.*?)\*\*/g;
+          if (boldRegex.test(part)) {
+            const segments = part.split(boldRegex);
+            return (
+              <Text key={index} style={[styles.answerText, { color: theme.text.secondary, marginBottom: 12 }]}>
+                {segments.map((segment, segIndex) => {
+                  if (segIndex % 2 === 1) {
+                    return (
+                      <Text key={segIndex} style={[styles.boldText, { color: theme.text.primary }]}>
+                        {segment}
+                      </Text>
+                    );
+                  }
+                  return segment;
+                })}
+              </Text>
+            );
+          }
+
+          // Regular paragraph
+          return (
+            <Text key={index} style={[styles.answerText, { color: theme.text.secondary, marginBottom: 12 }]}>
+              {part}
+            </Text>
+          );
+        })}
+      </View>
+    );
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
       <ScrollView 
@@ -324,9 +466,7 @@ Thanks!`;
 
                 {expandedFAQ === faq.id && (
                   <View style={[styles.faqAnswer, { borderTopColor: theme.border.primary }]}>
-                    <Text style={[styles.answerText, { color: theme.text.secondary }]}>
-                      {faq.answer}
-                    </Text>
+                    {renderAnswer(faq.answer)}
                   </View>
                 )}
               </View>
@@ -566,6 +706,40 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     paddingTop: 16,
+  },
+  listText: {
+    fontSize: 15,
+    lineHeight: 22,
+    flex: 1,
+  },
+  answerContainer: {
+    paddingTop: 16,
+  },
+  listContainer: {
+    marginBottom: 12,
+  },
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 6,
+    paddingRight: 8,
+  },
+  listNumber: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginRight: 8,
+    minWidth: 24,
+    textAlign: 'left',
+  },
+  bullet: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    marginRight: 8,
+    minWidth: 20,
+    textAlign: 'center',
+  },
+  boldText: {
+    fontWeight: 'bold',
   },
   supportSection: {
     marginBottom: 32,
