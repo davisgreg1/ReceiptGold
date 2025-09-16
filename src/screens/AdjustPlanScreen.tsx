@@ -874,7 +874,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingTop: Platform.OS === "ios" ? 140 : 120,
+    paddingTop: Platform.OS === "ios" ? 100 : 80,
   },
   scrollContent: {
     paddingHorizontal: 20,
@@ -882,7 +882,7 @@ const styles = StyleSheet.create({
   },
   plansGrid: {
     gap: 20,
-    marginTop: 20,
+    marginTop: 10,
   },
   planCard: {
     borderRadius: 20,

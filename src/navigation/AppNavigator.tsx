@@ -313,32 +313,32 @@ const SettingsStackNavigator = () => {
       <SettingsStack.Screen
         name="Notifications"
         component={NotificationSettingsScreen}
-        options={{ title: "Notifications" }}
+        options={{ title: "" }}
       />
       <SettingsStack.Screen
         name="Help"
         component={HelpCenterScreen}
-        options={{ title: "Help Center" }}
+        options={{ title: "" }}
       />
       <SettingsStack.Screen
         name="ContactSupport"
         component={ContactSupportScreen}
-        options={{ title: "Contact Support" }}
+        options={{ title: "" }}
       />
       <SettingsStack.Screen
         name="PrivacyPolicy"
         component={PrivacyPolicyScreen}
-        options={{ title: "Privacy Policy" }}
+        options={{ title: "" }}
       />
       <SettingsStack.Screen
         name="TermsOfService"
         component={TermsOfServiceScreen}
-        options={{ title: "Terms of Service" }}
+        options={{ title: "" }}
       />
       <SettingsStack.Screen
         name="BusinessManagement"
         component={BusinessManagementScreen}
-        options={{ title: "Business Management" }}
+        options={{ title: "" }}
       />
       <SettingsStack.Screen
         name="CreateBusiness"
@@ -348,7 +348,7 @@ const SettingsStackNavigator = () => {
       <SettingsStack.Screen
         name="TeamManagement"
         component={TeamManagementScreen}
-        options={{ title: "Team Management" }}
+        options={{ title: "" }}
       />
       <SettingsStack.Screen
         name="InviteTeammate"

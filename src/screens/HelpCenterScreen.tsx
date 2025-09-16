@@ -155,7 +155,19 @@ export const HelpCenterScreen: React.FC<HelpCenterScreenProps> = ({
   };
 
   const handleFeatureRequestEmail = () => {
-    Linking.openURL('mailto:ideas@receiptgold.com?subject=Feature Request - ReceiptGold&body=Hi ReceiptGold team,%0D%0A%0D%0AI have an idea for a new feature:%0D%0A%0D%0A[Describe your feature idea here]%0D%0A%0D%0AWhy would this be helpful:%0D%0A[Explain how this would improve your experience]%0D%0A%0D%0AThanks!');
+    const emailBody = `Hi ReceiptGold team,
+
+I have an idea for a new feature:
+
+[Describe your feature idea here]
+
+Why would this be helpful:
+[Explain how this would improve your experience]
+
+Thanks!`;
+
+    const mailtoUrl = `mailto:ideas@receiptgold.com?subject=${encodeURIComponent('Feature Request - ReceiptGold')}&body=${encodeURIComponent(emailBody)}`;
+    Linking.openURL(mailtoUrl);
   };
 
   return (
@@ -432,12 +444,13 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: 20,
+    paddingTop: 0,
     paddingBottom: 40,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 10,
+    marginTop: 10,
   },
   logoContainer: {
     width: 80,

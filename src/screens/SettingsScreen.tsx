@@ -1803,39 +1803,6 @@ export const SettingsScreen: React.FC = () => {
           </TouchableOpacity>
         </SettingsSection>
 
-        {/* Debug/Test Section - Remove in production */}
-        {__DEV__ && (
-          <SettingsSection title="Notification Tests (Dev Only)">
-            <View style={styles.testButtons}>
-              <TouchableOpacity
-                style={[styles.testButton, { backgroundColor: theme.status.info }]}
-                onPress={testNotifications}
-              >
-                <ButtonText size="small" color="inverse">
-                  Test In-App Notifications
-                </ButtonText>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[styles.testButton, { backgroundColor: theme.status.warning }]}
-                onPress={logNotificationStatus}
-              >
-                <ButtonText size="small" color="inverse">
-                  Check FCM Status
-                </ButtonText>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={[styles.testButton, { backgroundColor: theme.status.success }]}
-                onPress={testPushNotifications}
-              >
-                <ButtonText size="small" color="inverse">
-                  Test Push Notifications
-                </ButtonText>
-              </TouchableOpacity>
-            </View>
-          </SettingsSection>
-        )}
 
         {/* Signature */}
         <Signature variant="default" />
