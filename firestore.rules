@@ -331,9 +331,23 @@ service cloud.firestore {
 
         // User notifications - users can read/write their own notifications
         match /user_notifications/{notificationId} {
-            allow read, write: if isAuthenticated() && 
-            (request.auth.uid == resource.data.userId || 
+            allow read, write: if isAuthenticated() &&
+            (request.auth.uid == resource.data.userId ||
              request.auth.uid == request.resource.data.userId);
+        }
+
+        // Notifications collection - users can read/write/delete their own notifications
+        match /notifications/{notificationId} {
+            allow read, write: if isAuthenticated() &&
+            (request.auth.uid == resource.data.userId ||
+             request.auth.uid == request.resource.data.userId);
+            allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+        }
+
+        // User Settings collection - users can read/write/delete their own settings
+        match /userSettings/{userId} {
+            allow read, write, delete: if isOwner(userId);
+            allow create: if isAuthenticated() && request.auth.uid == userId;
         }
 
         // Connection notifications - read-only for users, write via Cloud Functions

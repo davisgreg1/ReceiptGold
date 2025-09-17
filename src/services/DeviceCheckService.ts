@@ -1,9 +1,21 @@
 import { getFunctions } from 'firebase/functions';
 import { Platform } from 'react-native';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 
 class DeviceCheckService {
   private static functions = getFunctions();
+
+  /**
+   * Check if DeviceCheck feature is enabled via environment variable
+   */
+  private static isFeatureEnabled(): boolean {
+    const enableDeviceCheck = Constants.expoConfig?.extra?.enableDeviceCheck ??
+                             process.env.EXPO_PUBLIC_ENABLE_DEVICE_CHECK;
+
+    // Default to false if not explicitly set to "true"
+    return enableDeviceCheck === 'true' || enableDeviceCheck === true;
+  }
 
   /**
    * Check if DeviceCheck is supported on this device
@@ -52,6 +64,15 @@ class DeviceCheckService {
     message: string;
   }> {
     try {
+      // Check if DeviceCheck feature is enabled
+      if (!this.isFeatureEnabled()) {
+        console.log('DeviceCheck feature disabled - allowing account creation');
+        return {
+          canCreateAccount: true,
+          message: 'Device check disabled - proceeding with account creation'
+        };
+      }
+
       // Check if DeviceCheck is supported
       const supported = await this.isSupported();
       if (!supported) {
@@ -122,6 +143,12 @@ class DeviceCheckService {
    */
   static async completeAccountSetup(): Promise<void> {
     try {
+      // Check if DeviceCheck feature is enabled
+      if (!this.isFeatureEnabled()) {
+        console.log('DeviceCheck feature disabled - skipping device marking');
+        return;
+      }
+
       // Check if DeviceCheck is supported
       const supported = await this.isSupported();
       if (!supported) {

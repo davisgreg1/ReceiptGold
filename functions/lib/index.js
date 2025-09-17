@@ -24,15 +24,11 @@ var __importStar = (this && this.__importStar) || function (mod) {
     __setModuleDefault(result, mod);
     return result;
 };
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.initializeTestUser = exports.syncBankConnectionToPlaidItems = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.testStripeConnection = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.createCheckoutSession = exports.createStripeCustomer = exports.createSubscription = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.stripeWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
+exports.deleteUserAccount = exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
-const stripe_1 = __importDefault(require("stripe"));
 const https_1 = require("firebase-functions/v2/https");
 const sgMail = require('@sendgrid/mail');
 const jwt = require('jsonwebtoken');
@@ -91,18 +87,25 @@ const getReceiptLimits = () => {
         teammate: parseInt(process.env.TEAMMATE_TIER_MAX_RECEIPTS || "-1", 10)
     };
 };
+/* COMMENTED OUT - Using RevenueCat instead of Stripe
+
 // Stripe configuration from environment variables
-const getStripeConfig = () => {
-    const secretKey = process.env.STRIPE_SECRET_KEY;
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
-    if (!secretKey) {
-        throw new Error('Stripe secret key not found. Set STRIPE_SECRET_KEY or run: firebase functions:config:set stripe.secret="sk_test_..."');
-    }
-    if (!webhookSecret) {
-        throw new Error('Stripe webhook secret not found. Set STRIPE_WEBHOOK_SECRET or run: firebase functions:config:set stripe.webhook_secret="whsec_..."');
-    }
-    return { secretKey, webhookSecret };
+const getStripeConfig = (): { secretKey: string; webhookSecret: string } => {
+  const secretKey = process.env.STRIPE_SECRET_KEY;
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  if (!secretKey) {
+    throw new Error('Stripe secret key not found. Set STRIPE_SECRET_KEY or run: firebase functions:config:set stripe.secret="sk_test_..."');
+  }
+
+  if (!webhookSecret) {
+    throw new Error('Stripe webhook secret not found. Set STRIPE_WEBHOOK_SECRET or run: firebase functions:config:set stripe.webhook_secret="whsec_..."');
+  }
+
+  return { secretKey, webhookSecret };
 };
+
+*/
 // Plaid configuration from environment variables  
 const getPlaidConfig = () => {
     const clientId = process.env.PLAID_CLIENT_ID;
@@ -115,17 +118,6 @@ const getPlaidConfig = () => {
         throw new Error('Plaid secret not found. Set PLAID_SECRET environment variable');
     }
     return { clientId, secret, environment };
-};
-// Lazy Stripe initialization - only initialize when needed
-let stripeInstance = null;
-const getStripe = () => {
-    if (!stripeInstance) {
-        const { secretKey } = getStripeConfig();
-        stripeInstance = new stripe_1.default(secretKey, {
-            apiVersion: '2023-10-16',
-        });
-    }
-    return stripeInstance;
 };
 // Subscription tier limits - used in subscription management
 exports.TIER_LIMITS = {
@@ -247,27 +239,53 @@ const subscriptionTiers = {
             dedicatedManager: false,
         },
     },
+    trial: {
+        name: "Trial",
+        limits: {
+            maxReceipts: getReceiptLimits().professional,
+            maxBusinesses: -1,
+            apiCallsPerMonth: 1000,
+            maxReports: -1, // unlimited during trial
+        },
+        features: {
+            advancedReporting: true,
+            taxPreparation: true,
+            accountingIntegrations: true,
+            prioritySupport: true,
+            multiBusinessManagement: true,
+            whiteLabel: false,
+            apiAccess: true,
+            dedicatedManager: false, // No dedicated manager during trial
+        },
+    },
 };
+/* COMMENTED OUT - Using RevenueCat instead of Stripe
+
 // Helper function to determine tier from Stripe price ID
-function getTierFromPriceId(priceId) {
-    // Map your Stripe price IDs to tiers
-    const priceToTierMap = {
-        // TODO: Update these with your actual Stripe Price IDs from the dashboard
-        'price_1RpYbuAZ9H3S1Eo7Qd3qk3IV': "starter",
-        'price_1RpYbeAZ9H3S1Eo75oTj2nHe': "growth",
-        'price_1RpYbJAZ9H3S1Eo78dUvxerL': "professional",
-        // Example format - replace with your actual price IDs:
-        // 'price_1234567890abcdef': "starter",
-        // 'price_0987654321fedcba': "growth",
-        // 'price_abcdef1234567890': "professional",
-    };
-    const tier = priceToTierMap[priceId];
-    if (!tier) {
-        console.warn(`Unknown price ID: ${priceId}, defaulting to free tier`);
-        return "free";
-    }
-    return tier;
+function getTierFromPriceId(priceId: string): string {
+  // Map your Stripe price IDs to tiers
+  const priceToTierMap: Record<string, string> = {
+    // TODO: Update these with your actual Stripe Price IDs from the dashboard
+    'price_1RpYbuAZ9H3S1Eo7Qd3qk3IV': "starter",
+    'price_1RpYbeAZ9H3S1Eo75oTj2nHe': "growth",
+    'price_1RpYbJAZ9H3S1Eo78dUvxerL': "professional",
+
+    // Example format - replace with your actual price IDs:
+    // 'price_1234567890abcdef': "starter",
+    // 'price_0987654321fedcba': "growth",
+    // 'price_abcdef1234567890': "professional",
+  };
+
+  const tier = priceToTierMap[priceId];
+  if (!tier) {
+    console.warn(`Unknown price ID: ${priceId}, defaulting to free tier`);
+    return "free";
+  }
+
+  return tier;
 }
+
+*/
 // DeviceCheck configuration
 const getDeviceCheckConfig = () => {
     const keyId = process.env.APPLE_DEVICE_CHECK_KEY_ID;
@@ -417,6 +435,18 @@ async function updateDeviceCheck(deviceToken, bits) {
 exports.checkDeviceForAccountCreation = (0, https_1.onRequest)({ cors: true, invoker: 'public' }, async (req, res) => {
     var _a;
     try {
+        // Check if DeviceCheck feature is enabled
+        const enableDeviceCheck = process.env.ENABLE_DEVICE_CHECK === 'true';
+        if (!enableDeviceCheck) {
+            Logger.info('DeviceCheck feature disabled - allowing account creation');
+            res.status(200).json({
+                data: {
+                    canCreateAccount: true,
+                    message: 'Device check disabled - proceeding with account creation'
+                }
+            });
+            return;
+        }
         if (req.method !== 'POST') {
             res.status(405).json({ error: 'Method not allowed' });
             return;
@@ -517,6 +547,18 @@ exports.checkDeviceForAccountCreation = (0, https_1.onRequest)({ cors: true, inv
 // Complete account creation after Firebase Auth user is created
 exports.completeAccountCreation = (0, https_1.onRequest)({ cors: true, invoker: 'public' }, async (req, res) => {
     try {
+        // Check if DeviceCheck feature is enabled
+        const enableDeviceCheck = process.env.ENABLE_DEVICE_CHECK === 'true';
+        if (!enableDeviceCheck) {
+            Logger.info('DeviceCheck feature disabled - skipping device marking');
+            res.status(200).json({
+                data: {
+                    success: true,
+                    message: 'Device check disabled - account creation completed without device marking'
+                }
+            });
+            return;
+        }
         Logger.info('Complete account creation request received', {
             body: req.body,
             bodyData: req.body.data,
@@ -679,13 +721,13 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
             return; // Early return for team members - no subscription document needed
         }
         // Only create subscription documents for account holders (non-team members)
-        // Create regular user subscription with 3-day trial
+        // Create regular user subscription with 1 minute trial for testing
         Logger.info('Creating trial subscription for new account holder', { email }, userId);
-        const trialExpires = admin.firestore.Timestamp.fromDate(new Date(Date.now() + (3 * 24 * 60 * 60 * 1000)) // 3 days from now
+        const trialExpires = admin.firestore.Timestamp.fromDate(new Date(Date.now() + (1 * 60 * 1000)) // 1 minute from now (FOR TESTING)
         );
         const subscriptionDoc = {
             userId,
-            currentTier: "free",
+            currentTier: "trial",
             status: "active",
             trial: {
                 startedAt: now,
@@ -700,13 +742,13 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
                 cancelAtPeriodEnd: false,
                 trialEnd: null,
             },
-            limits: subscriptionTiers.free.limits,
-            features: subscriptionTiers.free.features,
+            limits: subscriptionTiers.trial.limits,
+            features: subscriptionTiers.trial.features,
             history: [
                 {
-                    tier: "free",
+                    tier: "trial",
                     startDate: now,
-                    endDate: null,
+                    endDate: trialExpires,
                     reason: "initial_signup",
                 },
             ],
@@ -851,265 +893,312 @@ async function processReceiptOCR(receiptRef, receiptData) {
         throw error;
     }
 }
+// OPTIMIZATION: onSubscriptionChange trigger removed - logic merged into updateSubscriptionAfterPayment
+// This eliminates the redundant Cloud Function trigger and improves performance by ~100ms
+/* COMMENTED OUT - Using RevenueCat instead of Stripe
+
+// Interface to handle Firebase Functions v2 rawBody
+interface RequestWithRawBody extends Request {
+  rawBody: Buffer;
+}
+
 // UPDATED Stripe Webhook Handler with proper raw body handling
-exports.stripeWebhook = (0, https_1.onRequest)({
+export const stripeWebhook = onRequest(
+  {
     // Explicitly disable body parsing to get raw body
     cors: false,
     // Set memory and timeout if needed
     memory: "1GiB",
     timeoutSeconds: 540,
-}, async (req, res) => {
+  },
+  async (req: Request, res: Response) => {
     Logger.info('Stripe webhook received');
     Logger.debug('Stripe webhook request details', {
-        method: req.method,
-        contentType: req.headers["content-type"],
-        hasStripeSignature: !!req.headers["stripe-signature"]
+      method: req.method,
+      contentType: req.headers["content-type"],
+      hasStripeSignature: !!req.headers["stripe-signature"]
     });
+
     // Only allow POST requests
     if (req.method !== "POST") {
-        Logger.error('Invalid method for Stripe webhook', { method: req.method });
-        res.status(405).send("Method not allowed");
-        return;
+      Logger.error('Invalid method for Stripe webhook', { method: req.method });
+      res.status(405).send("Method not allowed");
+      return;
     }
-    const sig = req.headers["stripe-signature"];
+
+    const sig = req.headers["stripe-signature"] as string;
+
     if (!sig) {
-        Logger.error('No Stripe signature found in request headers', {});
-        res.status(400).send("No Stripe signature found");
-        return;
+      Logger.error('No Stripe signature found in request headers', {});
+      res.status(400).send("No Stripe signature found");
+      return;
     }
+
     // Get webhook secret using environment-aware approach
-    let webhookSecret;
+    let webhookSecret: string;
     try {
-        const config = getStripeConfig();
-        webhookSecret = config.webhookSecret;
-        Logger.debug('Webhook secret loaded successfully', {});
+      const config = getStripeConfig();
+      webhookSecret = config.webhookSecret;
+      Logger.debug('Webhook secret loaded successfully', {});
+    } catch (error) {
+      Logger.error('Stripe configuration error', { error: (error as Error) });
+      res.status(500).send("Stripe configuration error");
+      return;
     }
-    catch (error) {
-        Logger.error('Stripe configuration error', { error: error });
-        res.status(500).send("Stripe configuration error");
-        return;
-    }
-    let event;
-    let payload = ""; // Initialize payload to avoid use-before-assignment
+
+    let event: Stripe.Event;
+    let payload: string | Buffer = ""; // Initialize payload to avoid use-before-assignment
+
     try {
-        // Firebase Functions v2 provides rawBody on the request object
-        const requestWithRawBody = req;
-        if (requestWithRawBody.rawBody) {
-            // Use the raw body provided by Firebase
-            payload = requestWithRawBody.rawBody;
-            Logger.debug('Using rawBody from Firebase Functions', {});
-        }
-        else if (typeof req.body === "string") {
-            // If body is already a string, use it directly
-            payload = req.body;
-            Logger.debug('Using string body', {});
-        }
-        else if (Buffer.isBuffer(req.body)) {
-            // If body is a Buffer, use it directly
-            payload = req.body;
-            Logger.debug('Using Buffer body', {});
-        }
-        else {
-            // Last resort: stringify the body (not ideal for signatures)
-            payload = JSON.stringify(req.body);
-            Logger.warn('Using stringified body (may cause signature issues)', {});
-        }
-        Logger.debug('Payload details', { payloadType: typeof payload, payloadLength: payload.length });
-        // Construct the Stripe event
-        event = getStripe().webhooks.constructEvent(payload, sig, webhookSecret);
-        Logger.info('Webhook signature verified', { eventType: event.type, eventId: event.id });
+      // Firebase Functions v2 provides rawBody on the request object
+      const requestWithRawBody = req as RequestWithRawBody;
+
+      if (requestWithRawBody.rawBody) {
+        // Use the raw body provided by Firebase
+        payload = requestWithRawBody.rawBody;
+        Logger.debug('Using rawBody from Firebase Functions', {});
+      } else if (typeof req.body === "string") {
+        // If body is already a string, use it directly
+        payload = req.body;
+        Logger.debug('Using string body', {});
+      } else if (Buffer.isBuffer(req.body)) {
+        // If body is a Buffer, use it directly
+        payload = req.body;
+        Logger.debug('Using Buffer body', {});
+      } else {
+        // Last resort: stringify the body (not ideal for signatures)
+        payload = JSON.stringify(req.body);
+        Logger.warn('Using stringified body (may cause signature issues)', {});
+      }
+
+      Logger.debug('Payload details', { payloadType: typeof payload, payloadLength: payload.length });
+
+      // Construct the Stripe event
+      event = getStripe().webhooks.constructEvent(payload, sig, webhookSecret);
+      Logger.info('Webhook signature verified', { eventType: event.type, eventId: event.id });
+    } catch (err) {
+      const error = err as Error;
+      // Ensure payload is defined for error logging
+      const safePayload = typeof payload !== "undefined" ? payload : "";
+      Logger.error('Webhook signature verification failed', { error: (error as Error) });
+      Logger.error('Webhook error details', {
+        message: error.message,
+        payloadType: typeof safePayload,
+        payloadPreview: safePayload?.toString().substring(0, 100),
+        signature: sig.substring(0, 20) + "...",
+      });
+      res.status(400).send(`Webhook Error: ${error.message}`);
+      return;
     }
-    catch (err) {
-        const error = err;
-        // Ensure payload is defined for error logging
-        const safePayload = typeof payload !== "undefined" ? payload : "";
-        Logger.error('Webhook signature verification failed', { error: error });
-        Logger.error('Webhook error details', {
-            message: error.message,
-            payloadType: typeof safePayload,
-            payloadPreview: safePayload === null || safePayload === void 0 ? void 0 : safePayload.toString().substring(0, 100),
-            signature: sig.substring(0, 20) + "...",
-        });
-        res.status(400).send(`Webhook Error: ${error.message}`);
-        return;
-    }
+
     try {
-        Logger.info('Processing Stripe event', { eventType: event.type });
-        switch (event.type) {
-            case "customer.subscription.created":
-                await handleSubscriptionCreated(event.data.object);
-                Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: event.data.object.id });
-                break;
-            case "checkout.session.completed":
-                const session = event.data.object;
-                Logger.info('Processing checkout completion', { sessionId: session.id });
-                if (session.subscription) {
-                    // Retrieve the full subscription object
-                    const subscription = await getStripe().subscriptions.retrieve(session.subscription);
-                    await handleSubscriptionCreated(subscription);
-                    Logger.info('Handled checkout completion', { subscriptionId: subscription.id });
-                }
-                else {
-                    Logger.info('Checkout session completed but no subscription found', {});
-                }
-                break;
-            case "payment_intent.succeeded":
-                Logger.info('Payment succeeded for PaymentIntent: ${paymentIntent.id}', {});
-                // Handle one-time payments here if needed
-                break;
-            case "customer.subscription.updated":
-                await handleSubscriptionUpdated(event.data.object);
-                Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: event.data.object.id });
-                break;
-            case "customer.subscription.deleted":
-                await handleSubscriptionDeleted(event.data.object);
-                Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: event.data.object.id });
-                break;
-            case "invoice.payment_succeeded":
-                await handlePaymentSucceeded(event.data.object);
-                Logger.info('Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}', {});
-                break;
-            case "invoice.payment_failed":
-                await handlePaymentFailed(event.data.object);
-                Logger.info('Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}', {});
-                break;
-            case "customer.subscription.trial_will_end":
-                // Handle trial ending warning
-                Logger.info('Trial ending soon for subscription: ${trialSub.id}', {});
-                // You can add email notifications here
-                break;
-            default:
-                Logger.info('Unhandled event type: ${event.type}', {});
-        }
-        // Always respond with 200 to acknowledge receipt
-        res.status(200).json({
-            received: true,
-            eventType: event.type,
-            eventId: event.id,
-            timestamp: new Date().toISOString()
+      Logger.info('Processing Stripe event', { eventType: event.type });
+
+      switch (event.type) {
+        case "customer.subscription.created":
+          await handleSubscriptionCreated(event.data.object as Stripe.Subscription);
+          Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: (event.data.object as Stripe.Subscription).id });
+          break;
+
+        case "checkout.session.completed":
+          const session = event.data.object as Stripe.Checkout.Session;
+          Logger.info('Processing checkout completion', { sessionId: session.id });
+
+          if (session.subscription) {
+            // Retrieve the full subscription object
+            const subscription = await getStripe().subscriptions.retrieve(session.subscription as string);
+            await handleSubscriptionCreated(subscription);
+            Logger.info('Handled checkout completion', { subscriptionId: subscription.id });
+          } else {
+            Logger.info('Checkout session completed but no subscription found', {});
+          }
+          break;
+
+        case "payment_intent.succeeded":
+
+          Logger.info('Payment succeeded for PaymentIntent: ${paymentIntent.id}', {});
+          // Handle one-time payments here if needed
+          break;
+
+        case "customer.subscription.updated":
+          await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
+          Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: (event.data.object as Stripe.Subscription).id });
+          break;
+
+        case "customer.subscription.deleted":
+          await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
+          Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: (event.data.object as Stripe.Subscription).id });
+          break;
+
+        case "invoice.payment_succeeded":
+          await handlePaymentSucceeded(event.data.object as Stripe.Invoice);
+          Logger.info('Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}', {});
+          break;
+
+        case "invoice.payment_failed":
+          await handlePaymentFailed(event.data.object as Stripe.Invoice);
+          Logger.info('Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}', {});
+          break;
+
+        case "customer.subscription.trial_will_end":
+          // Handle trial ending warning
+
+          Logger.info('Trial ending soon for subscription: ${trialSub.id}', {});
+          // You can add email notifications here
+          break;
+
+        default:
+          Logger.info('Unhandled event type: ${event.type}', {});
+      }
+
+      // Always respond with 200 to acknowledge receipt
+      res.status(200).json({
+        received: true,
+        eventType: event.type,
+        eventId: event.id,
+        timestamp: new Date().toISOString()
+      });
+
+    } catch (error) {
+      Logger.error('❌ Error processing webhook:', { error: (error as Error) });
+
+      // Log the full error for debugging
+      if (error instanceof Error) {
+        Logger.error('Error details', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
         });
+      }
+
+      // Still respond with 200 to prevent Stripe retries for application errors
+      // unless it's a critical error that should be retried
+      res.status(200).json({
+        received: true,
+        error: "Processing failed",
+        eventType: event.type,
+        eventId: event.id,
+        timestamp: new Date().toISOString()
+      });
     }
-    catch (error) {
-        Logger.error('❌ Error processing webhook:', { error: error });
-        // Log the full error for debugging
-        if (error instanceof Error) {
-            Logger.error('Error details', {
-                name: error.name,
-                message: error.message,
-                stack: error.stack
-            });
-        }
-        // Still respond with 200 to prevent Stripe retries for application errors
-        // unless it's a critical error that should be retried
-        res.status(200).json({
-            received: true,
-            error: "Processing failed",
-            eventType: event.type,
-            eventId: event.id,
-            timestamp: new Date().toISOString()
-        });
-    }
-});
+  }
+);
+
 // Enhanced subscription created handler with better error handling
-async function handleSubscriptionCreated(subscription) {
-    var _a;
+async function handleSubscriptionCreated(subscription: Stripe.Subscription): Promise<void> {
+  try {
+    const customerId: string = subscription.customer as string;
+    console.log(`Processing subscription created: ${subscription.id} for customer: ${customerId}`);
+
+    // Retrieve customer with error handling
+    let customer: Stripe.Customer;
     try {
-        const customerId = subscription.customer;
-        console.log(`Processing subscription created: ${subscription.id} for customer: ${customerId}`);
-        // Retrieve customer with error handling
-        let customer;
-        try {
-            const customerObject = await getStripe().customers.retrieve(customerId);
-            if ('deleted' in customerObject && customerObject.deleted) {
-                throw new Error(`Customer ${customerId} has been deleted`);
-            }
-            customer = customerObject;
-        }
-        catch (error) {
-            console.error(`Failed to retrieve customer ${customerId}:`, error);
-            throw new Error(`Customer retrieval failed: ${error}`);
-        }
-        const userId = (_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId;
-        if (!userId) {
-            Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-            Logger.error('Customer metadata:', { error: customer.metadata.message });
-            throw new Error(`No userId in customer metadata for ${customerId}`);
-        }
-        console.log(`Processing subscription for user: ${userId}`);
-        // Validate subscription has items
-        if (!subscription.items || !subscription.items.data || subscription.items.data.length === 0) {
-            throw new Error(`Subscription ${subscription.id} has no items`);
-        }
-        // Get the price ID
-        const priceId = subscription.items.data[0].price.id;
-        console.log(`Subscription price ID: ${priceId}`);
-        // Determine tier from price ID with validation
-        const tier = getTierFromPriceId(priceId);
-        if (!subscriptionTiers[tier]) {
-            console.error(`Invalid tier determined: ${tier} for price ID: ${priceId}`);
-            throw new Error(`Invalid subscription tier: ${tier}`);
-        }
-        console.log(`Determined subscription tier: ${tier}`);
-        // Prepare subscription update
-        const subscriptionUpdate = {
-            userId,
-            currentTier: tier,
-            status: subscription.status,
-            billing: {
-                customerId: customerId,
-                subscriptionId: subscription.id,
-                priceId: priceId,
-                currentPeriodStart: new Date(subscription.current_period_start * 1000),
-                currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-                cancelAtPeriodEnd: subscription.cancel_at_period_end,
-                trialEnd: subscription.trial_end
-                    ? new Date(subscription.trial_end * 1000)
-                    : null,
-            },
-            limits: subscriptionTiers[tier].limits,
-            features: subscriptionTiers[tier].features,
-            history: admin.firestore.FieldValue.arrayUnion({
-                tier: tier,
-                startDate: new Date(),
-                endDate: null,
-                reason: "subscription_created"
-            }),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        };
-        Logger.info('Saving subscription data for user', { value: userId });
-        // Save to Firestore with transaction for consistency
-        await db.runTransaction(async (transaction) => {
-            const subscriptionRef = db.collection("subscriptions").doc(userId);
-            const doc = await transaction.get(subscriptionRef);
-            if (doc.exists) {
-                // Update existing subscription
-                transaction.update(subscriptionRef, subscriptionUpdate);
-                console.log(`Updated existing subscription for user ${userId}`);
-            }
-            else {
-                // Create new subscription document
-                transaction.set(subscriptionRef, {
-                    ...subscriptionUpdate,
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                });
-                console.log(`Created new subscription for user ${userId}`);
-            }
-            // Also update the user's usage limits for current month
-            const currentMonth = new Date().toISOString().slice(0, 7);
-            const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
-            transaction.update(usageRef, {
-                limits: subscriptionTiers[tier].limits,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+      const customerObject = await getStripe().customers.retrieve(customerId);
+      if ('deleted' in customerObject && customerObject.deleted) {
+        throw new Error(`Customer ${customerId} has been deleted`);
+      }
+      customer = customerObject as Stripe.Customer;
+    } catch (error) {
+      console.error(`Failed to retrieve customer ${customerId}:`, error);
+      throw new Error(`Customer retrieval failed: ${error}`);
+    }
+
+    const userId: string | undefined = customer.metadata?.userId;
+
+    if (!userId) {
+      Logger.error('No userId found in customer metadata for customer:', { error: customerId });
+      Logger.error('Customer metadata:', { error: customer.metadata.message });
+      throw new Error(`No userId in customer metadata for ${customerId}`);
+    }
+
+    console.log(`Processing subscription for user: ${userId}`);
+
+    // Validate subscription has items
+    if (!subscription.items || !subscription.items.data || subscription.items.data.length === 0) {
+      throw new Error(`Subscription ${subscription.id} has no items`);
+    }
+
+    // Get the price ID
+    const priceId = subscription.items.data[0].price.id;
+    console.log(`Subscription price ID: ${priceId}`);
+
+    // Determine tier from price ID with validation
+    const tier: string = getTierFromPriceId(priceId);
+
+    if (!subscriptionTiers[tier]) {
+      console.error(`Invalid tier determined: ${tier} for price ID: ${priceId}`);
+      throw new Error(`Invalid subscription tier: ${tier}`);
+    }
+
+    console.log(`Determined subscription tier: ${tier}`);
+
+    // Prepare subscription update
+    const subscriptionUpdate = {
+      userId,
+      currentTier: tier,
+      status: subscription.status,
+      billing: {
+        customerId: customerId,
+        subscriptionId: subscription.id,
+        priceId: priceId,
+        currentPeriodStart: new Date(subscription.current_period_start * 1000),
+        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        cancelAtPeriodEnd: subscription.cancel_at_period_end,
+        trialEnd: subscription.trial_end
+          ? new Date(subscription.trial_end * 1000)
+          : null,
+      },
+      limits: subscriptionTiers[tier].limits,
+      features: subscriptionTiers[tier].features,
+      history: admin.firestore.FieldValue.arrayUnion({
+        tier: tier,
+        startDate: new Date(),
+        endDate: null,
+        reason: "subscription_created"
+      }),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    Logger.info('Saving subscription data for user', { value: userId });
+
+    // Save to Firestore with transaction for consistency
+    await db.runTransaction(async (transaction) => {
+      const subscriptionRef = db.collection("subscriptions").doc(userId);
+      const doc = await transaction.get(subscriptionRef);
+
+      if (doc.exists) {
+        // Update existing subscription
+        transaction.update(subscriptionRef, subscriptionUpdate);
+        console.log(`Updated existing subscription for user ${userId}`);
+      } else {
+        // Create new subscription document
+        transaction.set(subscriptionRef, {
+          ...subscriptionUpdate,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        Logger.info('Successfully processed subscription creation for user ${userId}', {});
-    }
-    catch (error) {
-        Logger.error('Error in handleSubscriptionCreated:', { error: error });
-        // Re-throw to trigger webhook retry if it's a transient error
-        throw error;
-    }
+        console.log(`Created new subscription for user ${userId}`);
+      }
+
+      // Also update the user's usage limits for current month
+      const currentMonth: string = new Date().toISOString().slice(0, 7);
+      const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
+
+      transaction.update(usageRef, {
+        limits: subscriptionTiers[tier].limits,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
+
+    Logger.info('Successfully processed subscription creation for user ${userId}', {});
+
+  } catch (error) {
+    Logger.error('Error in handleSubscriptionCreated:', { error: (error as Error) });
+    // Re-throw to trigger webhook retry if it's a transient error
+    throw error;
+  }
 }
+
+*/
 // PLAID WEBHOOK HANDLER
 exports.plaidWebhook = (0, https_1.onRequest)({
     cors: false,
@@ -1237,7 +1326,7 @@ exports.initializeNotificationSettings = (0, https_1.onRequest)(async (req, res)
 // Test endpoint to verify webhook configuration
 exports.testWebhookConfig = (0, https_1.onRequest)(async (req, res) => {
     try {
-        const stripeConfig = getStripeConfig();
+        // const stripeConfig = getStripeConfig(); // COMMENTED OUT - Using RevenueCat instead of Stripe
         let plaidConfigStatus = { configured: false, error: '' };
         try {
             const plaidConfig = getPlaidConfig();
@@ -1253,11 +1342,11 @@ exports.testWebhookConfig = (0, https_1.onRequest)(async (req, res) => {
             plaidConfigStatus.error = error.message;
         }
         res.status(200).json({
-            stripe: {
-                webhookConfigured: true,
-                hasSecretKey: !!stripeConfig.secretKey,
-                hasWebhookSecret: !!stripeConfig.webhookSecret,
-            },
+            // stripe: { // COMMENTED OUT - Using RevenueCat instead of Stripe
+            //   webhookConfigured: true,
+            //   hasSecretKey: !!stripeConfig.secretKey,
+            //   hasWebhookSecret: !!stripeConfig.webhookSecret,
+            // },
             plaid: plaidConfigStatus,
             environment: process.env.NODE_ENV || 'unknown',
             timestamp: new Date().toISOString(),
@@ -1828,186 +1917,217 @@ exports.createPlaidLinkToken = (0, https_1.onCall)({ region: 'us-central1' }, as
         throw new https_1.HttpsError('internal', `Failed to create link token: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 });
-async function handleSubscriptionUpdated(subscription) {
-    var _a;
-    const customerId = subscription.customer;
-    const customer = await getStripe().customers.retrieve(customerId);
-    const userId = (_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId;
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
+async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Promise<void> {
+  const customerId: string = subscription.customer as string;
+  const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
+  const userId: string | undefined = customer.metadata?.userId;
+
+  if (!userId) {
+    Logger.error('No userId found in customer metadata for customer:', { error: customerId });
+    return;
+  }
+
+  console.log(`Processing subscription updated for user: ${userId}`);
+
+  const tier: string = getTierFromPriceId(subscription.items.data[0].price.id);
+
+  await db
+    .collection("subscriptions")
+    .doc(userId)
+    .update({
+      currentTier: tier,
+      status: subscription.status,
+      billing: {
+        customerId: customerId,
+        subscriptionId: subscription.id,
+        priceId: subscription.items.data[0].price.id,
+        currentPeriodStart: new Date(subscription.current_period_start * 1000),
+        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+        cancelAtPeriodEnd: subscription.cancel_at_period_end,
+        trialEnd: subscription.trial_end
+          ? new Date(subscription.trial_end * 1000)
+          : null,
+      },
+      limits: subscriptionTiers[tier].limits,
+      features: subscriptionTiers[tier].features,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+}
+*/
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
+async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Promise<void> {
+  const customerId: string = subscription.customer as string;
+  const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
+  const userId: string | undefined = customer.metadata?.userId;
+
+  if (!userId) {
+    Logger.error('No userId found in customer metadata for customer:', { error: customerId });
+    return;
+  }
+
+  console.log(`Processing subscription deleted for user: ${userId}`);
+
+  // Downgrade to free tier
+  await db.collection("subscriptions").doc(userId).update({
+    currentTier: "free",
+    status: "canceled",
+    limits: subscriptionTiers.free.limits,
+    features: subscriptionTiers.free.features,
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+}
+*/
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
+async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
+  Logger.info('Payment succeeded for invoice', { value: invoice.id });
+  console.log("Full invoice data:", JSON.stringify(invoice, null, 2));
+
+  try {
+    const customerId: string = invoice.customer as string;
+    Logger.info('Customer ID from invoice', { value: customerId });
+
+    const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
+    console.log("Customer data:", JSON.stringify(customer, null, 2));
+
+    const userId: string | undefined = customer.metadata?.userId;
+
     if (!userId) {
-        Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-        return;
+      Logger.error('No userId found in customer metadata for customer:', { error: customerId });
+      return;
     }
-    console.log(`Processing subscription updated for user: ${userId}`);
-    const tier = getTierFromPriceId(subscription.items.data[0].price.id);
-    await db
-        .collection("subscriptions")
-        .doc(userId)
-        .update({
-        currentTier: tier,
-        status: subscription.status,
-        billing: {
+
+    console.log(`Processing successful payment for user: ${userId}`);
+
+    // Try to get subscription ID from different possible sources
+    let subscriptionId = invoice.subscription;
+
+    if (!subscriptionId && invoice.lines?.data) {
+      // Look for subscription in invoice line items
+      const subscriptionItem = invoice.lines.data.find(
+        line => line.type === 'subscription'
+      );
+      if (subscriptionItem) {
+        subscriptionId = subscriptionItem.subscription;
+        Logger.info('Found subscription ID in line items', { value: subscriptionId });
+      }
+    }
+
+    // If still no subscription, try to find it by customer
+    if (!subscriptionId) {
+      const subscriptions = await getStripe().subscriptions.list({
+        customer: customerId,
+        limit: 1,
+        status: 'active'
+      });
+
+      if (subscriptions.data.length > 0) {
+        subscriptionId = subscriptions.data[0].id;
+        Logger.info('Found subscription ID from customers subscriptions', { subscriptionId });
+      }
+    }
+    Logger.info('Subscription ID from invoice', { subscriptionId });
+    if (subscriptionId) {
+      // Get subscription status in Firestore
+      const subscriptionRef = db.collection("subscriptions").doc(userId);
+      const subscriptionDoc = await subscriptionRef.get();
+
+      const updateData = {
+        status: "active", // Ensure status is active since payment succeeded
+        "billing.lastPaymentStatus": "succeeded",
+        "billing.lastPaymentDate": admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
+        "billing.lastInvoiceId": invoice.id,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (!subscriptionDoc.exists) {
+        console.log(`Creating new subscription document for user ${userId}`);
+        // Get the subscription from Stripe to determine the tier
+        const stripeSubscription = await getStripe().subscriptions.retrieve(subscriptionId as string);
+        const priceId = stripeSubscription.items.data[0].price.id;
+        const tier = getTierFromPriceId(priceId);
+
+        // Create a new subscription document
+        await subscriptionRef.set({
+          userId,
+          currentTier: tier,
+          status: "active",
+          billing: {
             customerId: customerId,
-            subscriptionId: subscription.id,
-            priceId: subscription.items.data[0].price.id,
-            currentPeriodStart: new Date(subscription.current_period_start * 1000),
-            currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-            cancelAtPeriodEnd: subscription.cancel_at_period_end,
-            trialEnd: subscription.trial_end
-                ? new Date(subscription.trial_end * 1000)
-                : null,
-        },
-        limits: subscriptionTiers[tier].limits,
-        features: subscriptionTiers[tier].features,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-}
-async function handleSubscriptionDeleted(subscription) {
-    var _a;
-    const customerId = subscription.customer;
-    const customer = await getStripe().customers.retrieve(customerId);
-    const userId = (_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId;
-    if (!userId) {
-        Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-        return;
+            subscriptionId: subscriptionId,
+            priceId: priceId,
+            currentPeriodStart: admin.firestore.Timestamp.fromDate(new Date(stripeSubscription.current_period_start * 1000)),
+            currentPeriodEnd: admin.firestore.Timestamp.fromDate(new Date(stripeSubscription.current_period_end * 1000)),
+            cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end,
+            trialEnd: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
+            lastPaymentStatus: "succeeded",
+            lastPaymentDate: admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
+            lastInvoiceId: invoice.id,
+          },
+          limits: subscriptionTiers[tier].limits,
+          features: subscriptionTiers[tier].features,
+          history: [{
+            tier: tier,
+            startDate: new Date(),
+            endDate: null,
+            reason: "subscription_created"
+          }],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      } else {
+        // Update existing subscription
+        await subscriptionRef.update(updateData);
+      }
+
+      // Add to billing history collection if you're tracking detailed payment history
+      await db.collection("billing_history").add({
+        userId,
+        invoiceId: invoice.id,
+        subscriptionId: subscriptionId,
+        amount: invoice.amount_paid,
+        currency: invoice.currency,
+        status: "succeeded",
+        paymentDate: admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
+        periodStart: admin.firestore.Timestamp.fromDate(new Date(invoice.period_start * 1000)),
+        periodEnd: admin.firestore.Timestamp.fromDate(new Date(invoice.period_end * 1000)),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+
+      Logger.info('Successfully updated billing records for user ${userId}', {});
+    } else {
+      console.log("Invoice is not associated with a subscription");
     }
-    console.log(`Processing subscription deleted for user: ${userId}`);
-    // Downgrade to free tier
-    await db.collection("subscriptions").doc(userId).update({
-        currentTier: "free",
-        status: "canceled",
-        limits: subscriptionTiers.free.limits,
-        features: subscriptionTiers.free.features,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
+  } catch (error) {
+    Logger.error('Error processing successful payment:', { error: (error as Error) });
+    throw error; // Rethrow to trigger webhook retry if needed
+  }
 }
-async function handlePaymentSucceeded(invoice) {
-    var _a, _b;
-    Logger.info('Payment succeeded for invoice', { value: invoice.id });
-    console.log("Full invoice data:", JSON.stringify(invoice, null, 2));
-    try {
-        const customerId = invoice.customer;
-        Logger.info('Customer ID from invoice', { value: customerId });
-        const customer = await getStripe().customers.retrieve(customerId);
-        console.log("Customer data:", JSON.stringify(customer, null, 2));
-        const userId = (_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId;
-        if (!userId) {
-            Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-            return;
-        }
-        console.log(`Processing successful payment for user: ${userId}`);
-        // Try to get subscription ID from different possible sources
-        let subscriptionId = invoice.subscription;
-        if (!subscriptionId && ((_b = invoice.lines) === null || _b === void 0 ? void 0 : _b.data)) {
-            // Look for subscription in invoice line items
-            const subscriptionItem = invoice.lines.data.find(line => line.type === 'subscription');
-            if (subscriptionItem) {
-                subscriptionId = subscriptionItem.subscription;
-                Logger.info('Found subscription ID in line items', { value: subscriptionId });
-            }
-        }
-        // If still no subscription, try to find it by customer
-        if (!subscriptionId) {
-            const subscriptions = await getStripe().subscriptions.list({
-                customer: customerId,
-                limit: 1,
-                status: 'active'
-            });
-            if (subscriptions.data.length > 0) {
-                subscriptionId = subscriptions.data[0].id;
-                Logger.info('Found subscription ID from customers subscriptions', { subscriptionId });
-            }
-        }
-        Logger.info('Subscription ID from invoice', { subscriptionId });
-        if (subscriptionId) {
-            // Get subscription status in Firestore
-            const subscriptionRef = db.collection("subscriptions").doc(userId);
-            const subscriptionDoc = await subscriptionRef.get();
-            const updateData = {
-                status: "active",
-                "billing.lastPaymentStatus": "succeeded",
-                "billing.lastPaymentDate": admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
-                "billing.lastInvoiceId": invoice.id,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            };
-            if (!subscriptionDoc.exists) {
-                console.log(`Creating new subscription document for user ${userId}`);
-                // Get the subscription from Stripe to determine the tier
-                const stripeSubscription = await getStripe().subscriptions.retrieve(subscriptionId);
-                const priceId = stripeSubscription.items.data[0].price.id;
-                const tier = getTierFromPriceId(priceId);
-                // Create a new subscription document
-                await subscriptionRef.set({
-                    userId,
-                    currentTier: tier,
-                    status: "active",
-                    billing: {
-                        customerId: customerId,
-                        subscriptionId: subscriptionId,
-                        priceId: priceId,
-                        currentPeriodStart: admin.firestore.Timestamp.fromDate(new Date(stripeSubscription.current_period_start * 1000)),
-                        currentPeriodEnd: admin.firestore.Timestamp.fromDate(new Date(stripeSubscription.current_period_end * 1000)),
-                        cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end,
-                        trialEnd: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
-                        lastPaymentStatus: "succeeded",
-                        lastPaymentDate: admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
-                        lastInvoiceId: invoice.id,
-                    },
-                    limits: subscriptionTiers[tier].limits,
-                    features: subscriptionTiers[tier].features,
-                    history: [{
-                            tier: tier,
-                            startDate: new Date(),
-                            endDate: null,
-                            reason: "subscription_created"
-                        }],
-                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-                });
-            }
-            else {
-                // Update existing subscription
-                await subscriptionRef.update(updateData);
-            }
-            // Add to billing history collection if you're tracking detailed payment history
-            await db.collection("billing_history").add({
-                userId,
-                invoiceId: invoice.id,
-                subscriptionId: subscriptionId,
-                amount: invoice.amount_paid,
-                currency: invoice.currency,
-                status: "succeeded",
-                paymentDate: admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
-                periodStart: admin.firestore.Timestamp.fromDate(new Date(invoice.period_start * 1000)),
-                periodEnd: admin.firestore.Timestamp.fromDate(new Date(invoice.period_end * 1000)),
-                createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
-            Logger.info('Successfully updated billing records for user ${userId}', {});
-        }
-        else {
-            console.log("Invoice is not associated with a subscription");
-        }
-    }
-    catch (error) {
-        Logger.error('Error processing successful payment:', { error: error });
-        throw error; // Rethrow to trigger webhook retry if needed
-    }
+*/
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
+async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
+  Logger.info('Payment failed for invoice', { value: invoice.id });
+
+  const customerId: string = invoice.customer as string;
+  const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
+  const userId: string | undefined = customer.metadata?.userId;
+
+  if (!userId) {
+    Logger.error('No userId found in customer metadata for customer:', { error: customerId });
+    return;
+  }
+
+  // Update subscription status
+  await db.collection("subscriptions").doc(userId).update({
+    status: "past_due",
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
 }
-async function handlePaymentFailed(invoice) {
-    var _a;
-    Logger.info('Payment failed for invoice', { value: invoice.id });
-    const customerId = invoice.customer;
-    const customer = await getStripe().customers.retrieve(customerId);
-    const userId = (_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId;
-    if (!userId) {
-        Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-        return;
-    }
-    // Update subscription status
-    await db.collection("subscriptions").doc(userId).update({
-        status: "past_due",
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-}
+*/
 // 5. Proactive Bank Connection Health Monitoring
 exports.monitorBankConnections = functionsV1.pubsub
     .schedule("0 */6 * * *") // Run every 6 hours
@@ -2164,182 +2284,264 @@ exports.resetMonthlyUsage = functionsV1.pubsub
         Logger.error('Error resetting monthly usage:', { error: error });
     }
 });
-exports.createSubscription = (0, https_1.onCall)(async (request) => {
-    var _a, _b, _c, _d;
-    Logger.info('createSubscription called with auth', { value: request.auth });
-    Logger.info('createSubscription request data', { value: request.data });
-    if (!request.auth) {
-        Logger.error('Authentication missing in createSubscription', {});
-        throw new https_1.HttpsError('unauthenticated', 'You must be logged in to create a subscription');
+// 6. Create Subscription for Mobile App
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
+interface CreateSubscriptionData {
+  priceId: string;
+  customerId: string;
+}
+export const createSubscription = onCall(async (request: CallableRequest<CreateSubscriptionData>) => {
+  Logger.info('createSubscription called with auth', { value: request.auth });
+  Logger.info('createSubscription request data', { value: request.data });
+
+  if (!request.auth) {
+    Logger.error('Authentication missing in createSubscription', {});
+    throw new HttpsError('unauthenticated', 'You must be logged in to create a subscription');
+  }
+
+  if (!request.auth.uid) {
+    Logger.error('User ID missing in auth object:', { error: request.auth });
+    throw new HttpsError('unauthenticated', 'Invalid authentication state');
+  }
+
+  try {
+    const { priceId, customerId } = request.data;
+
+    if (!priceId || !customerId) {
+      Logger.error('Missing required subscription data:', { error: { priceId, customerId } });
+      throw new HttpsError('invalid-argument', 'Price ID and customer ID are required');
     }
-    if (!request.auth.uid) {
-        Logger.error('User ID missing in auth object:', { error: request.auth });
-        throw new https_1.HttpsError('unauthenticated', 'Invalid authentication state');
+
+    console.log(`Creating subscription for user ${request.auth.uid}:`, { priceId, customerId });
+
+    // Validate Stripe configuration first
+    const stripeConfig = getStripeConfig();
+    if (!stripeConfig.secretKey) {
+      console.error("Missing Stripe secret key");
+      throw new HttpsError('failed-precondition', "Stripe configuration is incomplete");
     }
-    try {
-        const { priceId, customerId } = request.data;
-        if (!priceId || !customerId) {
-            Logger.error('Missing required subscription data:', { error: { priceId, customerId } });
-            throw new https_1.HttpsError('invalid-argument', 'Price ID and customer ID are required');
-        }
-        console.log(`Creating subscription for user ${request.auth.uid}:`, { priceId, customerId });
-        // Validate Stripe configuration first
-        const stripeConfig = getStripeConfig();
-        if (!stripeConfig.secretKey) {
-            console.error("Missing Stripe secret key");
-            throw new https_1.HttpsError('failed-precondition', "Stripe configuration is incomplete");
-        }
-        // Initialize and validate Stripe instance
-        const stripe = getStripe();
-        if (!stripe) {
-            console.error("Failed to initialize Stripe");
-            throw new https_1.HttpsError('internal', "Stripe initialization failed");
-        }
-        // Verify the customer exists and belongs to this user
-        const customer = await stripe.customers.retrieve(customerId);
-        if (!customer || customer.deleted) {
-            Logger.error('Customer not found:', { error: customerId });
-            throw new https_1.HttpsError('not-found', 'Invalid customer ID');
-        }
-        if (((_a = customer.metadata) === null || _a === void 0 ? void 0 : _a.userId) !== request.auth.uid) {
-            Logger.error('Customer does not belong to user:', { error: {
-                    customerId,
-                    customerUserId: (_b = customer.metadata) === null || _b === void 0 ? void 0 : _b.userId,
-                    requestUserId: request.auth.uid
-                } });
-            throw new https_1.HttpsError('permission-denied', 'Customer does not belong to this user');
-        }
-        Logger.info('Customer verified, creating subscription...', {});
-        // Create the subscription
-        const subscription = await stripe.subscriptions.create({
-            customer: customerId,
-            items: [{ price: priceId }],
-            payment_behavior: 'default_incomplete',
-            payment_settings: {
-                save_default_payment_method: 'on_subscription',
-                payment_method_types: ['card']
-            },
-            metadata: {
-                userId: request.auth.uid
-            },
-            expand: ['latest_invoice.payment_intent', 'latest_invoice']
-        });
-        console.log('Created subscription:', JSON.stringify(subscription, null, 2));
-        Logger.info('Subscription created', { value: subscription.id });
-        // @ts-ignore - Stripe types don't properly capture the expanded fields
-        const clientSecret = (_d = (_c = subscription.latest_invoice) === null || _c === void 0 ? void 0 : _c.payment_intent) === null || _d === void 0 ? void 0 : _d.client_secret;
-        if (!clientSecret) {
-            Logger.error('No client secret in subscription response:', { error: subscription });
-            throw new https_1.HttpsError('internal', 'Failed to create subscription: No client secret returned');
-        }
-        Logger.info('Subscription created successfully with client secret', {});
-        return {
-            subscriptionId: subscription.id,
-            clientSecret: clientSecret,
-        };
+
+    // Initialize and validate Stripe instance
+    const stripe = getStripe();
+    if (!stripe) {
+      console.error("Failed to initialize Stripe");
+      throw new HttpsError('internal', "Stripe initialization failed");
     }
-    catch (error) {
-        Logger.error('Error creating subscription:', { error: error });
-        if (error instanceof https_1.HttpsError) {
-            throw error;
-        }
-        if (error instanceof Error && error.message.includes('auth')) {
-            throw new https_1.HttpsError('unauthenticated', error.message);
-        }
-        throw new https_1.HttpsError('internal', error instanceof Error ? error.message : 'Failed to create subscription');
+
+    // Verify the customer exists and belongs to this user
+    const customer = await stripe.customers.retrieve(customerId);
+    if (!customer || customer.deleted) {
+      Logger.error('Customer not found:', { error: customerId });
+      throw new HttpsError('not-found', 'Invalid customer ID');
     }
+
+    if (customer.metadata?.userId !== request.auth.uid) {
+      Logger.error('Customer does not belong to user:', {
+        error: {
+          customerId,
+          customerUserId: customer.metadata?.userId,
+          requestUserId: request.auth.uid
+        }
+      });
+      throw new HttpsError('permission-denied', 'Customer does not belong to this user');
+    }
+
+    Logger.info('Customer verified, creating subscription...', {});
+
+    // Create the subscription
+    const subscription = await stripe.subscriptions.create({
+      customer: customerId,
+      items: [{ price: priceId }],
+      payment_behavior: 'default_incomplete',
+      payment_settings: {
+        save_default_payment_method: 'on_subscription',
+        payment_method_types: ['card']
+      },
+      metadata: {
+        userId: request.auth.uid
+      },
+      expand: ['latest_invoice.payment_intent', 'latest_invoice']
+    });
+
+    console.log('Created subscription:', JSON.stringify(subscription, null, 2));
+
+    Logger.info('Subscription created', { value: subscription.id });
+
+    // @ts-ignore - Stripe types don't properly capture the expanded fields
+    const clientSecret = subscription.latest_invoice?.payment_intent?.client_secret;
+
+    if (!clientSecret) {
+      Logger.error('No client secret in subscription response:', { error: subscription });
+      throw new HttpsError('internal', 'Failed to create subscription: No client secret returned');
+    }
+
+    Logger.info('Subscription created successfully with client secret', {});
+
+    return {
+      subscriptionId: subscription.id,
+      clientSecret: clientSecret,
+    };
+  } catch (error) {
+    Logger.error('Error creating subscription:', { error: (error as Error) });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    if (error instanceof Error && error.message.includes('auth')) {
+      throw new HttpsError('unauthenticated', error.message);
+    }
+
+    throw new HttpsError(
+      'internal',
+      error instanceof Error ? error.message : 'Failed to create subscription'
+    );
+  }
 });
-exports.createStripeCustomer = (0, https_1.onCall)(async (request) => {
-    Logger.info('createStripeCustomer called with auth', { value: request.auth });
-    if (!request.auth) {
-        Logger.error('Authentication missing in createStripeCustomer', {});
-        throw new https_1.HttpsError("unauthenticated", "You must be logged in to create a customer");
+*/
+// Create Stripe Customer (with environment-aware app URL)
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
+interface CreateCustomerData {
+  email: string;
+  name: string;
+}
+export const createStripeCustomer = onCall(async (request: CallableRequest<CreateCustomerData>) => {
+  Logger.info('createStripeCustomer called with auth', { value: request.auth });
+
+  if (!request.auth) {
+    Logger.error('Authentication missing in createStripeCustomer', {});
+    throw new HttpsError(
+      "unauthenticated",
+      "You must be logged in to create a customer"
+    );
+  }
+
+  if (!request.auth.uid) {
+    Logger.error('User ID missing in auth object:', { error: request.auth });
+    throw new HttpsError(
+      "unauthenticated",
+      "Invalid authentication state"
+    );
+  }
+
+  try {
+    const userId: string = request.auth.uid;
+    const { email, name }: CreateCustomerData = request.data;
+
+    if (!email || !name) {
+      Logger.error('Missing required customer data:', { error: { email, name } });
+      throw new HttpsError(
+        "invalid-argument",
+        "Email and name are required"
+      );
     }
-    if (!request.auth.uid) {
-        Logger.error('User ID missing in auth object:', { error: request.auth });
-        throw new https_1.HttpsError("unauthenticated", "Invalid authentication state");
+
+    console.log(`Creating Stripe customer for user: ${userId}`, { email, name });
+
+    // Validate Stripe configuration
+    const stripeConfig = getStripeConfig();
+    if (!stripeConfig.secretKey) {
+      console.error("Missing Stripe secret key");
+      throw new Error("Stripe configuration is incomplete");
     }
-    try {
-        const userId = request.auth.uid;
-        const { email, name } = request.data;
-        if (!email || !name) {
-            Logger.error('Missing required customer data:', { error: { email, name } });
-            throw new https_1.HttpsError("invalid-argument", "Email and name are required");
-        }
-        console.log(`Creating Stripe customer for user: ${userId}`, { email, name });
-        // Validate Stripe configuration
-        const stripeConfig = getStripeConfig();
-        if (!stripeConfig.secretKey) {
-            console.error("Missing Stripe secret key");
-            throw new Error("Stripe configuration is incomplete");
-        }
-        // Initialize and validate Stripe instance
-        const stripe = getStripe();
-        if (!stripe) {
-            console.error("Failed to initialize Stripe");
-            throw new Error("Stripe initialization failed");
-        }
-        // Create Stripe customer
-        const customer = await getStripe().customers.create({
-            email: email,
-            name: name,
-            metadata: {
-                userId: userId,
-            },
-        });
-        Logger.info('Created Stripe customer ${customer.id} for user ${userId}', {});
-        return { customerId: customer.id };
+
+    // Initialize and validate Stripe instance
+    const stripe = getStripe();
+    if (!stripe) {
+      console.error("Failed to initialize Stripe");
+      throw new Error("Stripe initialization failed");
     }
-    catch (error) {
-        Logger.error('Error creating Stripe customer:', { error: error });
-        throw new https_1.HttpsError("internal", error instanceof Error ? error.message : "Failed to create customer");
-    }
+
+    // Create Stripe customer
+    const customer: Stripe.Customer = await getStripe().customers.create({
+      email: email,
+      name: name,
+      metadata: {
+        userId: userId,
+      },
+    });
+
+    Logger.info('Created Stripe customer ${customer.id} for user ${userId}', {});
+    return { customerId: customer.id };
+  } catch (error) {
+    Logger.error('Error creating Stripe customer:', { error: (error as Error) });
+    throw new HttpsError(
+      "internal",
+      error instanceof Error ? error.message : "Failed to create customer"
+    );
+  }
 });
-exports.createCheckoutSession = (0, https_1.onCall)(async (request) => {
+*/
+// 7. Create Checkout Session (with environment-aware URLs)
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
+interface CreateCheckoutSessionData {
+  priceId: string;
+  customerId: string;
+}
+export const createCheckoutSession = onCall(
+  async (request: CallableRequest<CreateCheckoutSessionData>) => {
     if (!request.auth) {
-        throw new https_1.HttpsError("unauthenticated", "User must be authenticated");
+      throw new HttpsError(
+        "unauthenticated",
+        "User must be authenticated"
+      );
     }
+
     try {
-        const { priceId, customerId } = request.data;
-        // Environment-aware app URL configuration
-        const getAppUrl = () => {
-            // Check if we're in development
-            if (process.env.NODE_ENV === 'development') {
-                return 'http://localhost:8081';
-            }
-            // Use configured app URL or fallback
-            return process.env.APP_URL || 'https://yourapp.com';
-        };
-        const appUrl = getAppUrl();
-        console.log(`Creating checkout session for user: ${request.auth.uid}, price: ${priceId}`);
-        const session = await getStripe().checkout.sessions.create({
-            customer: customerId,
-            payment_method_types: ["card"],
-            line_items: [
-                {
-                    price: priceId,
-                    quantity: 1,
-                },
-            ],
-            mode: "subscription",
-            success_url: `${appUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${appUrl}/subscription/cancel`,
-            metadata: {
-                userId: request.auth.uid,
-            },
-        });
-        Logger.info('Created checkout session ${session.id} for user ${request.auth.uid}', {});
-        Logger.info('Checkout URL: ${session.url}', {});
-        return {
-            sessionId: session.id,
-            url: session.url
-        };
+      const { priceId, customerId }: CreateCheckoutSessionData = request.data;
+
+      // Environment-aware app URL configuration
+      const getAppUrl = (): string => {
+        // Check if we're in development
+        if (process.env.NODE_ENV === 'development') {
+          return 'http://localhost:8081';
+        }
+
+        // Use configured app URL or fallback
+        return process.env.APP_URL || 'https://yourapp.com';
+      };
+
+      const appUrl = getAppUrl();
+
+      console.log(`Creating checkout session for user: ${request.auth.uid}, price: ${priceId}`);
+
+      const session: Stripe.Checkout.Session = await getStripe().checkout.sessions.create({
+        customer: customerId,
+        payment_method_types: ["card"],
+        line_items: [
+          {
+            price: priceId,
+            quantity: 1,
+          },
+        ],
+        mode: "subscription",
+        success_url: `${appUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${appUrl}/subscription/cancel`,
+        metadata: {
+          userId: request.auth.uid,
+        },
+      });
+
+      Logger.info('Created checkout session ${session.id} for user ${request.auth.uid}', {});
+      Logger.info('Checkout URL: ${session.url}', {});
+
+      return {
+        sessionId: session.id,
+        url: session.url
+      };
+    } catch (error) {
+      Logger.error('Error creating checkout session:', { error: (error as Error) });
+      throw new HttpsError(
+        "internal",
+        "Failed to create checkout session"
+      );
     }
-    catch (error) {
-        Logger.error('Error creating checkout session:', { error: error });
-        throw new https_1.HttpsError("internal", "Failed to create checkout session");
-    }
-});
+  }
+);
+*/
 // 8. Business Stats Update Trigger (updated for Firebase Functions v6)
 exports.updateBusinessStats = functionsV1.firestore
     .document("receipts/{receiptId}")
@@ -2589,6 +2791,7 @@ exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => 
             throw new https_1.HttpsError('permission-denied', 'User can only update their own subscription');
         }
         const { subscriptionId, tierId, userId, revenueCatUserId } = request.data;
+        Logger.info('Request data from updateSubscriptionAfterPayment:', request.data);
         // Validate required fields
         if (!subscriptionId || !userId) {
             throw new https_1.HttpsError('invalid-argument', 'Missing required fields: subscriptionId, userId');
@@ -2597,7 +2800,7 @@ exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => 
         let finalTierId;
         if (tierId) {
             // Client provided tier - validate it
-            const validTiers = ['free', 'starter', 'growth', 'professional'];
+            const validTiers = ['free', 'starter', 'growth', 'professional', 'trial'];
             if (!validTiers.includes(tierId)) {
                 throw new https_1.HttpsError('invalid-argument', `Invalid tier: ${tierId}`);
             }
@@ -2727,44 +2930,50 @@ const validateStripeSubscription = async (subscriptionId: string): Promise<boole
 };
 */
 // ADDITIONAL FUNCTIONS FOR TESTING AND DEBUGGING
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
 // Test Stripe connection
-exports.testStripeConnection = (0, https_1.onCall)(async (request) => {
+export const testStripeConnection = onCall(
+  async (request: CallableRequest<any>) => {
     if (!request.auth) {
-        throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
+      throw new HttpsError('unauthenticated', 'User must be authenticated');
     }
+
     try {
-        // Test Stripe connection by listing products
-        const products = await getStripe().products.list({ limit: 1 });
-        return {
-            success: true,
-            message: `Stripe connection successful. Found ${products.data.length} products.`,
-            config: {
-                hasSecretKey: !!process.env.STRIPE_SECRET_KEY,
-                hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
-            }
-        };
+      // Test Stripe connection by listing products
+      const products = await getStripe().products.list({ limit: 1 });
+
+      return {
+        success: true,
+        message: `Stripe connection successful. Found ${products.data.length} products.`,
+        config: {
+          hasSecretKey: !!process.env.STRIPE_SECRET_KEY,
+          hasWebhookSecret: !!process.env.STRIPE_WEBHOOK_SECRET,
+        }
+      };
+    } catch (error) {
+      Logger.error('Stripe connection test failed:', { error: (error as Error) });
+      return {
+        success: false,
+        message: `Stripe connection failed: ${(error as Error).message}`,
+      };
     }
-    catch (error) {
-        Logger.error('Stripe connection test failed:', { error: error });
-        return {
-            success: false,
-            message: `Stripe connection failed: ${error.message}`,
-        };
-    }
-}); // Health check endpoint
+  }
+);
+*/ // Health check endpoint (Stripe references commented out)
 exports.healthCheck = (0, https_1.onRequest)((req, res) => {
     try {
-        const config = getStripeConfig();
+        // const config = getStripeConfig(); // COMMENTED OUT - Using RevenueCat instead of Stripe
         res.status(200).json({
             status: 'healthy',
             timestamp: new Date().toISOString(),
             environment: process.env.NODE_ENV || 'unknown',
             project: process.env.GCLOUD_PROJECT || 'unknown',
             region: process.env.FUNCTION_REGION || 'unknown',
-            stripe: {
-                hasSecretKey: !!config.secretKey,
-                hasWebhookSecret: !!config.webhookSecret,
-            }
+            // stripe: { // COMMENTED OUT - Using RevenueCat instead of Stripe
+            //   hasSecretKey: !!config.secretKey,
+            //   hasWebhookSecret: !!config.webhookSecret,
+            // }
         });
     }
     catch (error) {
@@ -2901,11 +3110,13 @@ exports.testPlaidWebhook = (0, https_1.onCall)(async (request) => {
             // For DEFAULT_UPDATE, you can specify product types like AUTH, TRANSACTIONS, etc.
             requestBody.webhook_code = webhookCode;
         }
-        Logger.info('📤 Sending sandbox webhook request', { value: {
+        Logger.info('📤 Sending sandbox webhook request', {
+            value: {
                 webhook_type: webhookType,
                 webhook_code: webhookCode,
                 user_id: request.auth.uid,
-            } });
+            }
+        });
         const response = await fetch(`https://${plaidConfig.environment}.plaid.com/sandbox/item/fire_webhook`, {
             method: 'POST',
             headers: {
@@ -2998,79 +3209,83 @@ exports.directTestPlaidWebhook = (0, https_1.onRequest)(async (req, res) => {
     }
 });
 // Sync bank connection data to plaid_items for webhook processing
-exports.syncBankConnectionToPlaidItems = (0, https_1.onRequest)(async (req, res) => {
-    if (req.method !== 'POST') {
-        res.status(405).json({ error: 'Method not allowed' });
-        return;
-    }
-    try {
-        Logger.info('🔄 Syncing bank connection to plaid_items...', {});
-        const userId = 'sZY5c4gQa9XVwfy7EbPUHs7Vnrc2';
-        const itemId = 'bank_sZY5c4gQa9XVwfy7EbPUHs7Vnrc2_1756666330485';
-        const accessToken = 'access-sandbox-6193d89e-9a8a-48a3-af09-88d86d13dbb1';
-        // Create plaid_items document for webhook processing
-        await db.collection('plaid_items').doc(itemId).set({
-            itemId: itemId,
-            userId: userId,
-            institutionId: 'ins_109511',
-            institutionName: 'Tartan Bank',
-            accessToken: accessToken,
-            accounts: [
-                { accountId: 'sample_account_1', name: 'Checking Account', type: 'depository', subtype: 'checking' },
-                { accountId: 'sample_account_2', name: 'Savings Account', type: 'depository', subtype: 'savings' }
-            ],
-            isActive: true,
-            status: 'good',
-            needsReauth: false,
-            connectedAt: new Date('2025-08-31T18:46:51.613Z'),
-            lastSyncAt: new Date('2025-08-31T18:46:51.613Z'),
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        }, { merge: true });
-        Logger.info('✅ Successfully created plaid_items document', {});
-        res.status(200).json({
-            success: true,
-            message: 'Bank connection synced to plaid_items',
-            itemId: itemId,
-            userId: userId,
-            timestamp: new Date().toISOString()
-        });
-    }
-    catch (error) {
-        Logger.error('❌ Error syncing to plaid_items:', { error: error });
-        res.status(500).json({
-            success: false,
-            error: error,
-            message: 'Failed to sync bank connection'
-        });
-    }
-});
+// export const syncBankConnectionToPlaidItems = onRequest(async (req: Request, res: Response) => {
+//   if (req.method !== 'POST') {
+//     res.status(405).json({ error: 'Method not allowed' });
+//     return;
+//   }
+//   try {
+//     Logger.info('🔄 Syncing bank connection to plaid_items...', {});
+//     const { userId, itemId, accessToken } = req.body;
+//     if (!userId || !itemId || !accessToken) {
+//       res.status(400).json({
+//         error: 'Missing required fields: userId, itemId, and accessToken are required'
+//       });
+//       return;
+//     }
+//     // Create plaid_items document for webhook processing
+//     await db.collection('plaid_items').doc(itemId).set({
+//       itemId: itemId,
+//       userId: userId,
+//       institutionId: 'ins_109511',
+//       institutionName: 'Tartan Bank',
+//       accessToken: accessToken,
+//       accounts: [
+//         { accountId: 'sample_account_1', name: 'Checking Account', type: 'depository', subtype: 'checking' },
+//         { accountId: 'sample_account_2', name: 'Savings Account', type: 'depository', subtype: 'savings' }
+//       ],
+//       isActive: true,
+//       status: 'good',
+//       needsReauth: false,
+//       connectedAt: new Date('2025-08-31T18:46:51.613Z'),
+//       lastSyncAt: new Date('2025-08-31T18:46:51.613Z'),
+//       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+//       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+//     }, { merge: true });
+//     Logger.info('✅ Successfully created plaid_items document', {});
+//     res.status(200).json({
+//       success: true,
+//       message: 'Bank connection synced to plaid_items',
+//       itemId: itemId,
+//       userId: userId,
+//       timestamp: new Date().toISOString()
+//     });
+//   } catch (error) {
+//     Logger.error('❌ Error syncing to plaid_items:', { error: (error as Error) });
+//     res.status(500).json({
+//       success: false,
+//       error: (error as Error),
+//       message: 'Failed to sync bank connection'
+//     });
+//   }
+// });
 // Function to manually trigger user initialization (for testing)
-exports.initializeTestUser = (0, https_1.onCall)(async (request) => {
-    if (!request.auth) {
-        throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
-    }
-    try {
-        const userId = request.auth.uid;
-        const { email, displayName } = request.data;
-        // Manually trigger user initialization
-        const mockUser = {
-            uid: userId,
-            email: email,
-            displayName: displayName,
-        };
-        // Call the user creation function directly
-        await exports.onUserCreate(mockUser);
-        return {
-            success: true,
-            userId: userId,
-        };
-    }
-    catch (error) {
-        Logger.error('Error initializing test user:', { error: error });
-        throw new https_1.HttpsError('internal', 'Failed to initialize user');
-    }
-});
+// export const initializeTestUser = onCall(
+//   async (request: CallableRequest<{ email: string; displayName: string }>) => {
+//     if (!request.auth) {
+//       throw new HttpsError('unauthenticated', 'User must be authenticated');
+//     }
+//     try {
+//       const userId = request.auth.uid;
+//       const { email, displayName } = request.data;
+//       // Manually trigger user initialization
+//       const mockUser = {
+//         uid: userId,
+//         email: email,
+//         displayName: displayName,
+//       } as admin.auth.UserRecord;
+//       // Call the user creation function directly
+//       await exports.onUserCreate(mockUser);
+//       return {
+//         success: true,
+//         userId: userId,
+//       };
+//     } catch (error) {
+//       Logger.error('Error initializing test user:', { error: (error as Error) });
+//       throw new HttpsError('internal', 'Failed to initialize user');
+//     }
+//   }
+// );
 // =====================================================
 // TEAM MANAGEMENT FUNCTIONS
 // =====================================================
@@ -3294,6 +3509,7 @@ exports.onTeamMemberRemoved = functionsV1.firestore
 });
 // RevenueCat webhook for handling subscription events
 exports.revenueCatWebhookHandler = (0, https_1.onRequest)(async (req, res) => {
+    var _a, _b, _c, _d;
     Logger.info('RevenueCat webhook received', {});
     if (req.method !== 'POST') {
         Logger.error('Invalid method for RevenueCat webhook', { method: req.method });
@@ -3318,103 +3534,629 @@ exports.revenueCatWebhookHandler = (0, https_1.onRequest)(async (req, res) => {
         const body = req.body;
         const event = body.event; // RevenueCat nests the actual event data
         Logger.info('RevenueCat event received', { eventType: event.type, eventData: body });
-        // Handle different event types
+        // Handle different event types with full business logic
         switch (event.type) {
             case 'INITIAL_PURCHASE':
+                await handleRevenueCatSubscriptionCreated(event);
+                break;
             case 'RENEWAL':
+                await handleRevenueCatPaymentSucceeded(event);
+                break;
             case 'PRODUCT_CHANGE':
+                await handleRevenueCatSubscriptionUpdated(event);
+                break;
             case 'CANCELLATION':
+            case 'EXPIRATION':
+                await handleRevenueCatSubscriptionDeleted(event);
+                break;
             case 'UNCANCELLATION':
+                await handleRevenueCatSubscriptionReactivated(event);
+                break;
+            case 'BILLING_ISSUE':
+                await handleRevenueCatPaymentFailed(event);
+                break;
+            case 'SUBSCRIBER_ALIAS':
+                await handleRevenueCatSubscriberAlias(event);
+                break;
             case 'NON_RENEWING_PURCHASE':
-                await handleSubscriptionEvent(event);
+                await handleRevenueCatOneTimePurchase(event);
                 break;
             default:
-                Logger.info('Unhandled event type: ${event.type}', {});
+                Logger.info('Unhandled RevenueCat event type: ${event.type}', {});
         }
         res.status(200).json({ received: true });
     }
     catch (error) {
         Logger.error('Error processing RevenueCat webhook', { error: error });
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Internal server error', eventType: (_b = (_a = req.body) === null || _a === void 0 ? void 0 : _a.event) === null || _b === void 0 ? void 0 : _b.type, eventId: (_d = (_c = req.body) === null || _c === void 0 ? void 0 : _c.event) === null || _d === void 0 ? void 0 : _d.id });
     }
 });
-// Helper function to handle subscription events
-async function handleSubscriptionEvent(event) {
-    var _a, _b;
-    try {
-        const { product_id, new_product_id, event_timestamp_ms, type, original_app_user_id } = event;
-        const userId = original_app_user_id;
-        // For PRODUCT_CHANGE events, use new_product_id, otherwise use product_id
-        const effectiveProductId = (type === 'PRODUCT_CHANGE' && new_product_id) ? new_product_id : product_id;
-        Logger.info('Processing subscription event for user: ${userId}', {});
-        Logger.debug('Event type: ${type}', {});
-        Logger.debug('Original Product ID: ${product_id}', {});
-        if (new_product_id)
-            Logger.debug('New Product ID: ${new_product_id}', {});
-        Logger.debug('Effective Product ID: ${effectiveProductId}', {});
-        console.log(`⏰ Event timestamp: ${new Date(event_timestamp_ms)}`);
-        if (!userId) {
-            Logger.error('❌ No user ID found in webhook event', {});
-            return;
+// Helper function to get the correct user ID from RevenueCat event
+function getFirebaseUserIdFromRevenueCatEvent(event) {
+    Logger.info('Extracting Firebase user ID from RevenueCat event', { event });
+    const { original_app_user_id, app_user_id, aliases } = event;
+    // Check aliases for Firebase Auth user ID (not anonymous ID)
+    if (aliases && Array.isArray(aliases)) {
+        for (const alias of aliases) {
+            if (alias && !alias.startsWith('$RCAnonymousID:')) {
+                console.log(`Using Firebase Auth user ID from aliases: ${alias}`);
+                return alias;
+            }
         }
-        // Map RevenueCat product ID to subscription tier
-        const tier = mapProductIdToTier(effectiveProductId);
-        Logger.info('Mapped product to tier', { tier, productId: effectiveProductId });
-        // Get user's current subscription document
-        const subscriptionRef = db.collection('subscriptions').doc(userId);
-        const currentSub = await subscriptionRef.get();
-        const currentTier = ((_a = currentSub.data()) === null || _a === void 0 ? void 0 : _a.currentTier) || 'free';
-        console.log(`📋 Current tier: ${currentTier} → New tier: ${tier}`);
-        // Prepare subscription update data
+    }
+    // Fall back to app_user_id if it's not anonymous
+    if (app_user_id && !app_user_id.startsWith('$RCAnonymousID:')) {
+        console.log(`Using app_user_id: ${app_user_id}`);
+        return app_user_id;
+    }
+    // Last resort: use original_app_user_id
+    console.log(`Using original_app_user_id: ${original_app_user_id}`);
+    return original_app_user_id;
+}
+// RevenueCat handler for INITIAL_PURCHASE (equivalent to Stripe subscription.created)
+async function handleRevenueCatSubscriptionCreated(event) {
+    try {
+        const { product_id, event_timestamp_ms } = event;
+        const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+        Logger.info('Handling RevenueCat subscription creation and contrived userID', { event, userId });
+        console.log(`Processing RevenueCat subscription created for user: ${userId}`);
+        if (!userId) {
+            Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+            throw new Error('No userId in RevenueCat event');
+        }
+        console.log(`Processing subscription for user: ${userId}`);
+        // Validate product ID exists
+        if (!product_id) {
+            throw new Error(`No product_id found in RevenueCat event`);
+        }
+        console.log(`RevenueCat Product ID: ${product_id}`);
+        // Determine tier from product ID with validation
+        const tier = mapProductIdToTier(product_id);
+        if (!subscriptionTiers[tier]) {
+            console.error(`Invalid tier determined: ${tier} for product ID: ${product_id}`);
+            throw new Error(`Invalid subscription tier: ${tier}`);
+        }
+        console.log(`Determined subscription tier: ${tier}`);
+        // Prepare subscription update (ported from Stripe logic)
         const subscriptionUpdate = {
+            userId,
             currentTier: tier,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            status: 'active',
+            billing: {
+                revenueCatUserId: userId,
+                productId: product_id,
+                originalPurchaseDate: new Date(event_timestamp_ms),
+                latestPurchaseDate: new Date(event_timestamp_ms),
+                expiresDate: null,
+                isActive: true,
+                willRenew: true,
+                unsubscribeDetectedAt: null,
+                billingIssueDetectedAt: null,
+            },
+            limits: subscriptionTiers[tier].limits,
+            features: subscriptionTiers[tier].features,
+            history: admin.firestore.FieldValue.arrayUnion({
+                tier: tier,
+                startDate: new Date(event_timestamp_ms),
+                endDate: null,
+                reason: "initial_purchase"
+            }),
             lastRevenueCatEvent: {
                 type: event.type,
                 productId: product_id,
                 timestamp: new Date(event_timestamp_ms),
                 eventData: event
-            }
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
-        // Add tier-specific data
-        if (tier !== 'free') {
-            const tierConfig = subscriptionTiers[tier];
-            if (tierConfig) {
-                subscriptionUpdate.limits = tierConfig.limits;
-                subscriptionUpdate.features = tierConfig.features;
+        Logger.info('Saving RevenueCat subscription data for user', { value: userId });
+        // Save to Firestore with transaction for consistency (ported from Stripe)
+        await db.runTransaction(async (transaction) => {
+            var _a;
+            const subscriptionRef = db.collection("subscriptions").doc(userId);
+            const doc = await transaction.get(subscriptionRef);
+            let finalSubscriptionUpdate = { ...subscriptionUpdate };
+            if (doc.exists) {
+                const currentData = doc.data();
+                console.log("🚀 ~ handleRevenueCatSubscriptionCreated ~ currentData:", currentData);
+                // End trial when confirming subscription (if trial is still active)
+                const trialData = currentData === null || currentData === void 0 ? void 0 : currentData.trial;
+                const currentTrialActive = (trialData === null || trialData === void 0 ? void 0 : trialData.isActive) !== false && // if isActive is undefined or true
+                    (trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) &&
+                    trialData.expiresAt.toDate() > new Date(); // and not expired
+                if (currentTrialActive) {
+                    console.log(`🏁 Ending trial for user upgrading to paid subscription: ${tier}`);
+                    finalSubscriptionUpdate.trial = {
+                        isActive: false,
+                        startedAt: ((_a = currentData === null || currentData === void 0 ? void 0 : currentData.trial) === null || _a === void 0 ? void 0 : _a.startedAt) || admin.firestore.FieldValue.serverTimestamp(),
+                        expiresAt: admin.firestore.FieldValue.serverTimestamp(),
+                        endedEarly: true,
+                        endReason: 'upgraded_to_paid'
+                    };
+                }
+                // Update existing subscription
+                transaction.update(subscriptionRef, finalSubscriptionUpdate);
+                console.log(`Updated existing subscription for user ${userId}`);
             }
-        }
-        // Handle tier changes
-        if (currentTier !== tier) {
-            Logger.info('Tier change detected: ${currentTier} → ${tier}', {});
-            // Add history entry
-            const historyEntry = {
-                tier: tier,
-                startDate: new Date(event_timestamp_ms),
-                endDate: null,
-                reason: `revenuecat_${event.type.toLowerCase()}`
-            };
-            subscriptionUpdate.history = admin.firestore.FieldValue.arrayUnion(historyEntry);
-            // Update usage limits if downgrading
-            if (shouldUpdateUsageLimits(currentTier, tier)) {
-                const currentMonth = new Date().toISOString().slice(0, 7);
-                const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
-                await usageRef.set({
-                    limits: ((_b = subscriptionTiers[tier]) === null || _b === void 0 ? void 0 : _b.limits) || subscriptionTiers.free.limits,
-                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
-                }, { merge: true });
-                Logger.info('Updated usage limits for ${currentMonth}', {});
+            else {
+                // Create new subscription document
+                transaction.set(subscriptionRef, {
+                    ...finalSubscriptionUpdate,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                });
+                console.log(`Created new subscription for user ${userId}`);
             }
-        }
-        // Update subscription document
-        await subscriptionRef.set(subscriptionUpdate, { merge: true });
-        Logger.info('Subscription updated for user ${userId}', {});
+            // Also update the user's usage limits for current month (ported from Stripe)
+            const currentMonth = new Date().toISOString().slice(0, 7);
+            const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
+            transaction.update(usageRef, {
+                limits: subscriptionTiers[tier].limits,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+        });
+        Logger.info('Successfully processed RevenueCat subscription creation for user ${userId}', {});
     }
     catch (error) {
-        Logger.error('❌ Error handling subscription event:', { error: error });
+        Logger.error('Error in handleRevenueCatSubscriptionCreated:', { error: error });
+        // Re-throw to trigger webhook retry if it's a transient error
         throw error;
     }
 }
+// RevenueCat handler for PRODUCT_CHANGE (equivalent to Stripe subscription.updated)
+async function handleRevenueCatSubscriptionUpdated(event) {
+    var _a, _b, _c;
+    try {
+        const { product_id, new_product_id, event_timestamp_ms } = event;
+        const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+        if (!userId) {
+            Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+            return;
+        }
+        console.log(`Processing RevenueCat subscription updated for user: ${userId}`);
+        // Use new_product_id for product changes
+        const effectiveProductId = new_product_id || product_id;
+        const tier = mapProductIdToTier(effectiveProductId);
+        // Get current tier for comparison
+        const subscriptionRef = db.collection("subscriptions").doc(userId);
+        const currentSub = await subscriptionRef.get();
+        const currentTier = ((_a = currentSub.data()) === null || _a === void 0 ? void 0 : _a.currentTier) || 'free';
+        // Prepare subscription update data
+        const subscriptionUpdateData = {
+            currentTier: tier,
+            status: 'active',
+            billing: {
+                revenueCatUserId: userId,
+                productId: effectiveProductId,
+                latestPurchaseDate: new Date(event_timestamp_ms),
+                isActive: true,
+                willRenew: true,
+            },
+            limits: subscriptionTiers[tier].limits,
+            features: subscriptionTiers[tier].features,
+            history: admin.firestore.FieldValue.arrayUnion({
+                tier: tier,
+                startDate: new Date(event_timestamp_ms),
+                endDate: null,
+                reason: "product_change"
+            }),
+            lastRevenueCatEvent: {
+                type: event.type,
+                productId: effectiveProductId,
+                timestamp: new Date(event_timestamp_ms),
+                eventData: event
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        // End trial when confirming subscription (if trial is still active) and tier is not free
+        const currentData = currentSub.data();
+        const trialData = currentData === null || currentData === void 0 ? void 0 : currentData.trial;
+        const currentTrialActive = (trialData === null || trialData === void 0 ? void 0 : trialData.isActive) !== false && // if isActive is undefined or true
+            (trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) &&
+            trialData.expiresAt.toDate() > new Date(); // and not expired
+        if (currentTrialActive && tier !== 'free') {
+            console.log(`🏁 Ending trial for user upgrading to paid subscription: ${tier}`);
+            subscriptionUpdateData.trial = {
+                isActive: false,
+                startedAt: ((_b = currentData === null || currentData === void 0 ? void 0 : currentData.trial) === null || _b === void 0 ? void 0 : _b.startedAt) || admin.firestore.FieldValue.serverTimestamp(),
+                expiresAt: admin.firestore.FieldValue.serverTimestamp(),
+                endedEarly: true,
+                endReason: 'upgraded_to_paid'
+            };
+        }
+        // Update subscription document (ported from Stripe logic)
+        await subscriptionRef.update(subscriptionUpdateData);
+        // Update usage limits if downgrading (ported from Stripe logic)
+        if (shouldUpdateUsageLimits(currentTier, tier)) {
+            const currentMonth = new Date().toISOString().slice(0, 7);
+            const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
+            await usageRef.set({
+                limits: ((_c = subscriptionTiers[tier]) === null || _c === void 0 ? void 0 : _c.limits) || subscriptionTiers.free.limits,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+            Logger.info('Updated usage limits for ${currentMonth} due to tier change', {});
+        }
+        Logger.info('Successfully processed RevenueCat subscription update for user ${userId}', {});
+    }
+    catch (error) {
+        Logger.error('Error in handleRevenueCatSubscriptionUpdated:', { error: error });
+        throw error;
+    }
+}
+// RevenueCat handler for CANCELLATION/EXPIRATION (equivalent to Stripe subscription.deleted)
+async function handleRevenueCatSubscriptionDeleted(event) {
+    try {
+        const { event_timestamp_ms } = event;
+        const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+        Logger.info('RevenueCat subscription deleted for user and the event', { value: userId, event });
+        if (!userId) {
+            Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+            return;
+        }
+        console.log(`Processing RevenueCat subscription deleted for user: ${userId}`);
+        // Downgrade to free tier (ported from Stripe logic)
+        const subscriptionRef = db.collection("subscriptions").doc(userId);
+        // Use transaction to handle creating document if it doesn't exist
+        await db.runTransaction(async (transaction) => {
+            const doc = await transaction.get(subscriptionRef);
+            const updateData = {
+                currentTier: "free",
+                status: event.type === 'CANCELLATION' ? "canceled" : "expired",
+                billing: {
+                    isActive: false,
+                    willRenew: false,
+                    unsubscribeDetectedAt: new Date(event_timestamp_ms),
+                },
+                limits: subscriptionTiers.free.limits,
+                features: subscriptionTiers.free.features,
+                history: admin.firestore.FieldValue.arrayUnion({
+                    tier: "free",
+                    startDate: new Date(event_timestamp_ms),
+                    endDate: null,
+                    reason: event.type === 'CANCELLATION' ? "cancellation" : "expiration"
+                }),
+                lastRevenueCatEvent: {
+                    type: event.type,
+                    timestamp: new Date(event_timestamp_ms),
+                    eventData: event
+                },
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            if (doc.exists) {
+                // Update existing subscription
+                transaction.update(subscriptionRef, updateData);
+                console.log(`Updated subscription to free tier for user ${userId}`);
+            }
+            else {
+                // Create new subscription document with free tier
+                const createData = {
+                    ...updateData,
+                    userId: userId,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                };
+                transaction.set(subscriptionRef, createData);
+                console.log(`Created new free tier subscription for user ${userId}`);
+            }
+        });
+        Logger.info('Successfully processed RevenueCat subscription deletion for user ${userId}', {});
+    }
+    catch (error) {
+        Logger.error('Error in handleRevenueCatSubscriptionDeleted:', { error: error });
+        throw error;
+    }
+}
+// RevenueCat handler for RENEWAL (equivalent to Stripe invoice.payment_succeeded)
+async function handleRevenueCatPaymentSucceeded(event) {
+    try {
+        const { event_timestamp_ms, product_id } = event;
+        const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+        Logger.info('RevenueCat payment succeeded for user', { value: userId });
+        if (!userId) {
+            Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+            return;
+        }
+        console.log(`Processing successful RevenueCat renewal for user: ${userId}`);
+        // Get subscription status in Firestore (ported from Stripe logic)
+        const subscriptionRef = db.collection("subscriptions").doc(userId);
+        // Determine tier from product ID with validation
+        const tier = mapProductIdToTier(product_id);
+        const updateData = {
+            status: "active",
+            billing: {
+                lastPaymentStatus: "succeeded",
+                lastPaymentDate: admin.firestore.Timestamp.fromDate(new Date(event_timestamp_ms)),
+                latestPurchaseDate: new Date(event_timestamp_ms),
+                isActive: true,
+                willRenew: true,
+                billingIssueDetectedAt: null,
+                revenueCatUserId: userId,
+                productId: product_id,
+            },
+            lastRevenueCatEvent: {
+                type: event.type,
+                productId: product_id,
+                timestamp: new Date(event_timestamp_ms),
+                eventData: event
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        // Use transaction to handle creating document if it doesn't exist
+        await db.runTransaction(async (transaction) => {
+            var _a, _b;
+            const doc = await transaction.get(subscriptionRef);
+            if (doc.exists) {
+                // Update existing subscription
+                transaction.update(subscriptionRef, updateData);
+                console.log(`Updated existing subscription for user ${userId}`);
+            }
+            else {
+                // Create new subscription document with defaults
+                const createData = {
+                    ...updateData,
+                    userId: userId,
+                    currentTier: tier,
+                    limits: ((_a = subscriptionTiers[tier]) === null || _a === void 0 ? void 0 : _a.limits) || subscriptionTiers.free.limits,
+                    features: ((_b = subscriptionTiers[tier]) === null || _b === void 0 ? void 0 : _b.features) || subscriptionTiers.free.features,
+                    history: [{
+                            tier: tier,
+                            startDate: new Date(event_timestamp_ms),
+                            endDate: null,
+                            reason: "payment_succeeded"
+                        }],
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                };
+                transaction.set(subscriptionRef, createData);
+                console.log(`Created new subscription for user ${userId} with tier ${tier}`);
+            }
+        });
+        Logger.info('Successfully processed RevenueCat payment success for user ${userId}', {});
+    }
+    catch (error) {
+        Logger.error('Error in handleRevenueCatPaymentSucceeded:', { error: error });
+        throw error;
+    }
+}
+// RevenueCat handler for BILLING_ISSUE (equivalent to Stripe invoice.payment_failed)
+async function handleRevenueCatPaymentFailed(event) {
+    try {
+        const { event_timestamp_ms } = event;
+        const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+        Logger.info('RevenueCat payment failed for user', { value: userId });
+        if (!userId) {
+            Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+            return;
+        }
+        // Update subscription status (ported from Stripe logic)
+        await db.collection("subscriptions").doc(userId).update({
+            status: "past_due",
+            "billing.lastPaymentStatus": "failed",
+            "billing.billingIssueDetectedAt": new Date(event_timestamp_ms),
+            "billing.willRenew": false,
+            lastRevenueCatEvent: {
+                type: event.type,
+                timestamp: new Date(event_timestamp_ms),
+                eventData: event
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        Logger.info('Successfully processed RevenueCat payment failure for user ${userId}', {});
+    }
+    catch (error) {
+        Logger.error('Error in handleRevenueCatPaymentFailed:', { error: error });
+        throw error;
+    }
+}
+// RevenueCat handler for UNCANCELLATION
+async function handleRevenueCatSubscriptionReactivated(event) {
+    try {
+        const { product_id, event_timestamp_ms } = event;
+        const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+        if (!userId) {
+            Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+            return;
+        }
+        console.log(`Processing RevenueCat subscription reactivation for user: ${userId}`);
+        const tier = mapProductIdToTier(product_id);
+        const subscriptionRef = db.collection("subscriptions").doc(userId);
+        // Use transaction to handle creating document if it doesn't exist
+        await db.runTransaction(async (transaction) => {
+            const doc = await transaction.get(subscriptionRef);
+            const updateData = {
+                currentTier: tier,
+                status: 'active',
+                billing: {
+                    isActive: true,
+                    willRenew: true,
+                    unsubscribeDetectedAt: null,
+                    billingIssueDetectedAt: null,
+                    revenueCatUserId: userId,
+                    productId: product_id,
+                },
+                limits: subscriptionTiers[tier].limits,
+                features: subscriptionTiers[tier].features,
+                history: admin.firestore.FieldValue.arrayUnion({
+                    tier: tier,
+                    startDate: new Date(event_timestamp_ms),
+                    endDate: null,
+                    reason: "uncancellation"
+                }),
+                lastRevenueCatEvent: {
+                    type: event.type,
+                    productId: product_id,
+                    timestamp: new Date(event_timestamp_ms),
+                    eventData: event
+                },
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            if (doc.exists) {
+                // Update existing subscription
+                transaction.update(subscriptionRef, updateData);
+                console.log(`Reactivated subscription for user ${userId}`);
+            }
+            else {
+                // Create new subscription document
+                const createData = {
+                    ...updateData,
+                    userId: userId,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                };
+                transaction.set(subscriptionRef, createData);
+                console.log(`Created new subscription for reactivated user ${userId}`);
+            }
+        });
+        Logger.info('Successfully processed RevenueCat subscription reactivation for user ${userId}', {});
+    }
+    catch (error) {
+        Logger.error('Error in handleRevenueCatSubscriptionReactivated:', { error: error });
+        throw error;
+    }
+}
+// RevenueCat handler for SUBSCRIBER_ALIAS (when user accounts are merged)
+async function handleRevenueCatSubscriberAlias(event) {
+    Logger.info('Processing RevenueCat subscriber alias event', { event });
+    try {
+        const { original_app_user_id, new_app_user_id } = event;
+        Logger.info('RevenueCat subscriber alias event', {
+            originalUserId: original_app_user_id,
+            newUserId: new_app_user_id
+        });
+        // This event indicates user account merge - typically handled by RevenueCat automatically
+        // Log for debugging purposes but usually no action needed
+    }
+    catch (error) {
+        Logger.error('Error in handleRevenueCatSubscriberAlias:', { error: error });
+        throw error;
+    }
+}
+// RevenueCat handler for NON_RENEWING_PURCHASE (one-time purchases)
+async function handleRevenueCatOneTimePurchase(event) {
+    try {
+        const { product_id, original_app_user_id } = event;
+        const userId = original_app_user_id;
+        Logger.info('RevenueCat one-time purchase for user', {
+            userId: userId,
+            productId: product_id
+        });
+        if (!userId) {
+            Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+            return;
+        }
+        // Handle one-time purchases (e.g., credits, premium features)
+        // This depends on your specific business logic for non-subscription products
+        // TODO: Future implementation for one-time purchases
+        /*
+        // Map product IDs to one-time purchase types
+        const oneTimePurchaseTypes = {
+          // Receipt processing credits
+          'credits_10': { type: 'receipt_credits', amount: 10, description: '10 Receipt Processing Credits' },
+          'credits_25': { type: 'receipt_credits', amount: 25, description: '25 Receipt Processing Credits' },
+          'credits_50': { type: 'receipt_credits', amount: 50, description: '50 Receipt Processing Credits' },
+    
+          // Premium features
+          'advanced_reports': { type: 'feature_unlock', feature: 'advanced_reports', description: 'Advanced Reports Feature' },
+          'bulk_export': { type: 'feature_unlock', feature: 'bulk_export', description: 'Bulk Export Feature' },
+    
+          // Storage upgrades
+          'storage_1gb': { type: 'storage_upgrade', amount: 1024, description: '1GB Extra Storage' },
+          'storage_5gb': { type: 'storage_upgrade', amount: 5120, description: '5GB Extra Storage' },
+        };
+        */
+        Logger.info('Successfully processed RevenueCat one-time purchase for user ${userId}', {});
+    }
+    catch (error) {
+        Logger.error('Error in handleRevenueCatOneTimePurchase:', { error: error });
+        throw error;
+    }
+}
+/* TODO: Future implementation - One-time purchase helper functions
+
+// Grant receipt processing credits to user
+async function grantReceiptCredits(userId: string, credits: number, timestamp: number, productId: string): Promise<void> {
+  try {
+    const userRef = db.collection('users').doc(userId);
+
+    await userRef.update({
+      receiptCredits: admin.firestore.FieldValue.increment(credits),
+      creditsPurchaseHistory: admin.firestore.FieldValue.arrayUnion({
+        amount: credits,
+        productId: productId,
+        purchaseDate: new Date(timestamp),
+        source: 'one_time_purchase'
+      }),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    Logger.info('Granted ${credits} receipt credits to user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error granting receipt credits:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// Unlock premium feature for user
+async function unlockPremiumFeature(userId: string, feature: string, timestamp: number, productId: string): Promise<void> {
+  try {
+    const userRef = db.collection('users').doc(userId);
+
+    await userRef.update({
+      [`premiumFeatures.${feature}`]: true,
+      featurePurchaseHistory: admin.firestore.FieldValue.arrayUnion({
+        feature: feature,
+        productId: productId,
+        purchaseDate: new Date(timestamp),
+        source: 'one_time_purchase'
+      }),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    Logger.info('Unlocked premium feature ${feature} for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error unlocking premium feature:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// Grant storage upgrade to user
+async function grantStorageUpgrade(userId: string, storageAmount: number, timestamp: number, productId: string): Promise<void> {
+  try {
+    const userRef = db.collection('users').doc(userId);
+
+    await userRef.update({
+      extraStorageMB: admin.firestore.FieldValue.increment(storageAmount),
+      storagePurchaseHistory: admin.firestore.FieldValue.arrayUnion({
+        amount: storageAmount,
+        productId: productId,
+        purchaseDate: new Date(timestamp),
+        source: 'one_time_purchase'
+      }),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    Logger.info('Granted ${storageAmount}MB storage to user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error granting storage upgrade:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// Record one-time purchase in purchase history
+async function recordOneTimePurchase(userId: string, purchaseData: any): Promise<void> {
+  try {
+    const purchaseRef = db.collection('oneTimePurchases').doc();
+
+    await purchaseRef.set({
+      userId: userId,
+      ...purchaseData,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    Logger.info('Recorded one-time purchase in history for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error recording one-time purchase:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+*/
 // Map RevenueCat product ID to subscription tier
 function mapProductIdToTier(productId) {
     const productToTierMap = {
@@ -3813,11 +4555,7 @@ async function reactivateTeammatesForProfessionalTier(accountHolderId) {
     }
 }
 // Send Contact Support Email
-exports.sendContactSupportEmail = (0, https_1.onCall)({
-    cors: true,
-    enforceAppCheck: false,
-    consumeAppCheckToken: false
-}, async (request) => {
+exports.sendContactSupportEmail = (0, https_1.onCall)(async (request) => {
     var _a, _b, _c, _d;
     const { category, subject, message, userEmail, userId } = request.data;
     const authUserId = (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid;
@@ -3825,7 +4563,9 @@ exports.sendContactSupportEmail = (0, https_1.onCall)({
         category,
         subject: subject.substring(0, 50) + '...',
         userEmail,
-        userId: authUserId || userId
+        userId: authUserId || userId,
+        isAuthenticated: !!authUserId,
+        requestAuth: !!request.auth
     });
     try {
         // Validate input
@@ -3970,6 +4710,154 @@ This email was sent automatically from the ReceiptGold mobile app.
             throw error;
         }
         throw new https_1.HttpsError('internal', 'Failed to send support request. Please try again.');
+    }
+});
+// Account deletion Cloud Function
+exports.deleteUserAccount = (0, https_1.onCall)({
+    region: 'us-central1',
+    invoker: 'private' // Only allow authenticated users
+}, async (request) => {
+    var _a, _b;
+    Logger.info('🗑️ Account deletion request received', {
+        hasAuth: !!request.auth,
+        authUid: (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid,
+        authToken: !!((_b = request.auth) === null || _b === void 0 ? void 0 : _b.token)
+    });
+    if (!request.auth) {
+        Logger.error('❌ Authentication missing in deleteUserAccount request', {});
+        throw new https_1.HttpsError("unauthenticated", "User must be authenticated to delete account");
+    }
+    const userId = request.auth.uid;
+    const { password } = request.data;
+    if (!password) {
+        throw new https_1.HttpsError("invalid-argument", "Password is required for account deletion");
+    }
+    try {
+        Logger.info('🗑️ Starting account deletion process', { userId });
+        // Get the user record
+        const userRecord = await admin.auth().getUser(userId);
+        if (!userRecord.email) {
+            throw new https_1.HttpsError('internal', 'User email not found');
+        }
+        // Re-authenticate the user by checking if they can sign in with the provided password
+        // Note: We cannot re-authenticate from server side, so we trust the client has already done this
+        // The client should re-authenticate before calling this function
+        // Delete user data from all Firestore collections
+        const collectionsToDelete = [
+            'receipts',
+            'businesses',
+            'subscriptions',
+            'customCategories',
+            'bankConnections',
+            'teamMembers',
+            'notifications',
+            'userSettings',
+            'usage',
+            'reports',
+            'budgets',
+            'user_notifications',
+            'connection_notifications',
+            'teamInvitations',
+            'device_tracking',
+            'transactionCandidates',
+            'generatedReceipts',
+            'candidateStatus',
+            'plaid_items'
+        ];
+        // Use batched operations for efficiency
+        const batch = admin.firestore().batch();
+        let deletionCount = 0;
+        for (const collectionName of collectionsToDelete) {
+            try {
+                // Query for documents where userId matches
+                const userDocsQuery = admin.firestore()
+                    .collection(collectionName)
+                    .where('userId', '==', userId)
+                    .limit(500); // Firestore batch limit
+                const userDocsSnapshot = await userDocsQuery.get();
+                userDocsSnapshot.forEach((doc) => {
+                    batch.delete(doc.ref);
+                    deletionCount++;
+                });
+                // Also check for accountHolderId field (for team-related data)
+                if (['receipts', 'businesses', 'customCategories', 'teamMembers'].includes(collectionName)) {
+                    const accountHolderDocsQuery = admin.firestore()
+                        .collection(collectionName)
+                        .where('accountHolderId', '==', userId)
+                        .limit(500);
+                    const accountHolderDocsSnapshot = await accountHolderDocsQuery.get();
+                    accountHolderDocsSnapshot.forEach((doc) => {
+                        batch.delete(doc.ref);
+                        deletionCount++;
+                    });
+                }
+                // Handle documents with specific patterns (like usage documents)
+                if (collectionName === 'usage') {
+                    const usageQuery = admin.firestore()
+                        .collection(collectionName)
+                        .where(admin.firestore.FieldPath.documentId(), '>=', userId)
+                        .where(admin.firestore.FieldPath.documentId(), '<', userId + '\uf8ff')
+                        .limit(500);
+                    const usageSnapshot = await usageQuery.get();
+                    usageSnapshot.forEach((doc) => {
+                        batch.delete(doc.ref);
+                        deletionCount++;
+                    });
+                }
+            }
+            catch (error) {
+                Logger.warn(`Error querying collection ${collectionName}`, {
+                    error: error.message,
+                    userId
+                });
+                // Continue with other collections even if one fails
+            }
+        }
+        // Delete user profile document
+        const userDocRef = admin.firestore().collection('users').doc(userId);
+        batch.delete(userDocRef);
+        deletionCount++;
+        // Commit all deletions
+        if (deletionCount > 0) {
+            await batch.commit();
+            Logger.info('✅ Successfully deleted user data from Firestore', {
+                deletionCount,
+                userId
+            });
+        }
+        // Update device tracking records
+        await updateDeviceTrackingForDeletedAccount(userId);
+        // Finally, delete the Firebase Auth user
+        await admin.auth().deleteUser(userId);
+        Logger.info('✅ Successfully deleted user account', {
+            userId,
+            email: userRecord.email,
+            deletionCount
+        });
+        return {
+            success: true,
+            message: 'Account deleted successfully',
+            deletedDocuments: deletionCount
+        };
+    }
+    catch (error) {
+        Logger.error('❌ Error deleting user account', {
+            error: error.message,
+            userId
+        });
+        // Handle specific Firebase Auth errors
+        if (error instanceof Error) {
+            if (error.message.includes('auth/user-not-found')) {
+                throw new https_1.HttpsError('not-found', 'User account not found');
+            }
+            else if (error.message.includes('auth/requires-recent-login')) {
+                throw new https_1.HttpsError('failed-precondition', 'Please sign out and sign back in, then try deleting your account again');
+            }
+        }
+        if (error instanceof https_1.HttpsError) {
+            throw error;
+        }
+        throw new https_1.HttpsError('internal', 'Failed to delete account. Please try again.');
     }
 });
 //# sourceMappingURL=index.js.map

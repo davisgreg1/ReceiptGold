@@ -1,12 +1,22 @@
-import React from "react";
+import React, { useState } from "react";
 import { NavigationContainer, LinkingOptions } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createStackNavigator } from "@react-navigation/stack";
-import { Text, View } from "react-native";
+import {
+  Text,
+  View,
+  TextInput,
+  StyleSheet,
+  Modal,
+  TouchableOpacity,
+  ActivityIndicator,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../theme/ThemeProvider";
 import { useSubscription } from "../context/SubscriptionContext";
 import { useTeam } from "../context/TeamContext";
 import { useTeammateLogoutDetection } from "../hooks/useTeammateLogoutDetection";
+import { useAuth } from "../context/AuthContext";
 import { PremiumGate } from "../components/PremiumGate";
 import { HomeScreen } from "../screens/HomeScreen";
 import { ReceiptsListScreen } from "../screens/ReceiptsListScreen";
@@ -27,7 +37,10 @@ import CreateBusinessScreen from "../screens/CreateBusinessScreen";
 import { TeamManagementScreen } from "../screens/TeamManagementScreen";
 import { InviteTeammateScreen } from "../screens/InviteTeammateScreen";
 import { CreateCustomCategoryScreen } from "../screens/CreateCustomCategoryScreen";
+import { TrialEndedScreen } from "../screens/TrialEndedScreen";
 import { Receipt } from "../types/receipt";
+import { AccountService } from "../services/AccountService";
+import { useCustomAlert } from "../components/CustomAlert";
 
 // Tab Navigator Types
 export type BottomTabParamList = {
@@ -49,7 +62,9 @@ export type ReceiptsStackParamList = {
   ReceiptDetail: { receiptId: string; imageUrl?: string };
   ScanReceipt: undefined;
   EditReceipt: { receipt: Receipt };
-  CreateCustomCategory: { onCategoryCreated?: (categoryName: string) => void } | undefined;
+  CreateCustomCategory:
+    | { onCategoryCreated?: (categoryName: string) => void }
+    | undefined;
 };
 
 export type ReportsStackParamList = {
@@ -70,7 +85,9 @@ export type SettingsStackParamList = {
   TermsOfService: undefined;
   BusinessManagement: undefined;
   CreateBusiness: undefined;
-  CreateCustomCategory: { onCategoryCreated?: (categoryName: string) => void } | undefined;
+  CreateCustomCategory:
+    | { onCategoryCreated?: (categoryName: string) => void }
+    | undefined;
   TeamManagement: undefined;
   InviteTeammate: undefined;
   Subscription: undefined;
@@ -135,7 +152,7 @@ const TaxReportScreen = () => (
 // Stack Navigators for each tab
 const HomeStackNavigator = () => {
   const { theme } = useTheme();
-  
+
   return (
     <HomeStack.Navigator
       screenOptions={{
@@ -172,7 +189,7 @@ const HomeStackNavigator = () => {
 
 const ReceiptsStackNavigator = () => {
   const { theme } = useTheme();
-  
+
   return (
     <ReceiptsStack.Navigator
       screenOptions={{
@@ -188,37 +205,37 @@ const ReceiptsStackNavigator = () => {
         },
       }}
     >
-      <ReceiptsStack.Screen 
-        name="ReceiptsList" 
-        component={ReceiptsListScreen} 
-        options={{ 
+      <ReceiptsStack.Screen
+        name="ReceiptsList"
+        component={ReceiptsListScreen}
+        options={{
           headerShown: false,
-          title: 'Receipts'
-        }} 
+          title: "Receipts",
+        }}
       />
-      <ReceiptsStack.Screen 
-        name="ScanReceipt" 
-        component={ScanReceiptScreen} 
-        options={{ 
-          headerShown: false 
-        }} 
+      <ReceiptsStack.Screen
+        name="ScanReceipt"
+        component={ScanReceiptScreen}
+        options={{
+          headerShown: false,
+        }}
       />
-      <ReceiptsStack.Screen 
-        name="ReceiptDetail" 
-        component={ReceiptDetailScreen} 
-        options={{ 
+      <ReceiptsStack.Screen
+        name="ReceiptDetail"
+        component={ReceiptDetailScreen}
+        options={{
           headerShown: true,
-          title: 'Receipt Details'
-        }} 
+          title: "Receipt Details",
+        }}
       />
-      <ReceiptsStack.Screen 
-        name="EditReceipt" 
-        component={EditReceiptScreen} 
-        options={{ 
+      <ReceiptsStack.Screen
+        name="EditReceipt"
+        component={EditReceiptScreen}
+        options={{
           headerShown: true,
-          title: 'Edit Receipt',
-          presentation: 'modal'
-        }} 
+          title: "Edit Receipt",
+          presentation: "modal",
+        }}
       />
       <ReceiptsStack.Screen
         name="CreateCustomCategory"
@@ -231,7 +248,7 @@ const ReceiptsStackNavigator = () => {
 
 const ReportsStackNavigator = () => {
   const { theme } = useTheme();
-  
+
   return (
     <ReportsStack.Navigator
       screenOptions={{
@@ -271,10 +288,9 @@ const ReportsStackNavigator = () => {
   );
 };
 
-
 const SettingsStackNavigator = () => {
   const { theme } = useTheme();
-  
+
   return (
     <SettingsStack.Navigator
       screenOptions={{
@@ -298,10 +314,7 @@ const SettingsStackNavigator = () => {
           headerShown: false,
         }}
       />
-      <SettingsStack.Screen
-        name="Profile"
-        options={{ title: "Profile" }}
-      >
+      <SettingsStack.Screen name="Profile" options={{ title: "Profile" }}>
         {() => <PlaceholderScreen title="Profile" />}
       </SettingsStack.Screen>
       <SettingsStack.Screen
@@ -373,22 +386,22 @@ const SettingsStackNavigator = () => {
 const linking: LinkingOptions<BottomTabParamList> = {
   prefixes: [
     // Production URLs
-    'receiptgold://',
-    'https://receiptgold.app',
+    "receiptgold://",
+    "https://receiptgold.app",
     // Development URLs (Expo)
-    ...__DEV__ ? ['exp+receiptgold://'] : [],
+    ...(__DEV__ ? ["exp+receiptgold://"] : []),
   ],
   config: {
     screens: {
       HomeTab: {
         screens: {
-          Home: '',
-          BankTransactions: 'oauth', // Handle OAuth redirects
+          Home: "",
+          BankTransactions: "oauth", // Handle OAuth redirects
         },
       },
-      ReceiptsTab: 'receipts',
-      ReportsTab: 'reports',
-      SettingsTab: 'settings',
+      ReceiptsTab: "receipts",
+      ReportsTab: "reports",
+      SettingsTab: "settings",
     },
   },
 };
@@ -396,20 +409,104 @@ const linking: LinkingOptions<BottomTabParamList> = {
 const BaseAppNavigator: React.FC = () => {
   const { theme } = useTheme();
   const { isTeamMember } = useTeam();
-  
+  const { logout, user } = useAuth();
+  const { isTrialExpiredAndNoPaidPlan, subscription } = useSubscription();
+  const { showError, showSuccess } = useCustomAlert();
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   // Monitor for automatic teammate logouts
   useTeammateLogoutDetection();
 
+  // Create reactive trial expiration check
+  const isTrialExpired =
+    !subscription.trial.isActive &&
+    (subscription.currentTier === "free" ||
+      subscription.currentTier === "trial") &&
+    !isTeamMember;
+
+  // Debug logging for trial state
+  console.log("🚀 AppNavigator trial state:", {
+    trialIsActive: subscription.trial.isActive,
+    currentTier: subscription.currentTier,
+    isTeamMember,
+    isTrialExpired,
+    trialExpiresAt: subscription.trial.expiresAt?.toISOString(),
+  });
+
+  // Handle account deletion with password confirmation
+  const handleDeleteAccount = () => {
+    if (!user) {
+      showError("Error", "No user found. Please try logging in again.");
+      return;
+    }
+    setShowDeleteDialog(true);
+  };
+
+  // Process the actual account deletion
+  const processAccountDeletion = async () => {
+    if (!deletePassword.trim()) {
+      showError("Error", "Password is required to delete your account.");
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await AccountService.deleteAccount(user!, deletePassword);
+
+      // Close dialog and clear form
+      setShowDeleteDialog(false);
+      setDeletePassword("");
+      setShowPassword(false);
+
+      // Immediately sign out the user since their account no longer exists
+      await logout();
+
+      showSuccess(
+        "Account Deleted",
+        "Your account and all associated data have been permanently deleted."
+      );
+    } catch (error: any) {
+      showError(
+        "Error",
+        error.message || "Failed to delete account. Please try again."
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Cancel account deletion
+  const cancelAccountDeletion = () => {
+    setShowDeleteDialog(false);
+    setDeletePassword("");
+    setShowPassword(false);
+  };
+
+  // Show TrialEndedScreen if trial has expired and user has no paid plan
+  if (isTrialExpired) {
+    return (
+      <TrialEndedScreen
+        onSignOut={logout}
+        onDeleteAccount={handleDeleteAccount}
+      />
+    );
+  }
+
   return (
-    <NavigationContainer 
+    <NavigationContainer
       linking={linking}
       onUnhandledAction={(action) => {
         // Handle unhandled navigation actions
         if (__DEV__) {
-          console.warn('Unhandled navigation action:', action);
+          console.warn("Unhandled navigation action:", action);
         }
       }}
-      fallback={<View style={{ flex: 1, backgroundColor: theme.background.primary }} />}
+      fallback={
+        <View style={{ flex: 1, backgroundColor: theme.background.primary }} />
+      }
     >
       <Tab.Navigator
         screenOptions={{
@@ -476,9 +573,210 @@ const BaseAppNavigator: React.FC = () => {
         />
       </Tab.Navigator>
       <TrialBanner />
+
+      {/* Custom Delete Account Dialog */}
+      {showDeleteDialog && (
+        <Modal
+          transparent
+          visible={showDeleteDialog}
+          animationType="fade"
+          onRequestClose={cancelAccountDeletion}
+        >
+          <View style={deleteDialogStyles.overlay}>
+            <View
+              style={[
+                deleteDialogStyles.dialog,
+                { backgroundColor: theme.background.secondary },
+              ]}
+            >
+              <Text
+                style={[
+                  deleteDialogStyles.title,
+                  { color: theme.text.primary },
+                ]}
+              >
+                Delete Account
+              </Text>
+              <Text
+                style={[
+                  deleteDialogStyles.message,
+                  { color: theme.text.secondary },
+                ]}
+              >
+                This action cannot be undone. All your receipts, data, and
+                account information will be permanently deleted.
+              </Text>
+              <Text
+                style={[
+                  deleteDialogStyles.passwordLabel,
+                  { color: theme.text.secondary },
+                ]}
+              >
+                Please enter your password to confirm:
+              </Text>
+
+              <View style={deleteDialogStyles.passwordContainer}>
+                <TextInput
+                  style={[
+                    deleteDialogStyles.passwordInput,
+                    {
+                      color: theme.text.primary,
+                      backgroundColor: theme.background.tertiary,
+                      borderColor: theme.border.primary,
+                    },
+                  ]}
+                  placeholder="Current password"
+                  placeholderTextColor={theme.text.tertiary}
+                  value={deletePassword}
+                  onChangeText={setDeletePassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+                <TouchableOpacity
+                  style={deleteDialogStyles.passwordToggle}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Ionicons
+                    name={showPassword ? "eye-off" : "eye"}
+                    size={20}
+                    color={theme.text.tertiary}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <View style={deleteDialogStyles.buttons}>
+                <TouchableOpacity
+                  style={[
+                    deleteDialogStyles.button,
+                    { borderColor: theme.border.primary },
+                  ]}
+                  onPress={cancelAccountDeletion}
+                  disabled={isDeleting}
+                >
+                  <Text
+                    style={[
+                      deleteDialogStyles.cancelButtonText,
+                      { color: theme.text.primary },
+                    ]}
+                  >
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    deleteDialogStyles.button,
+                    deleteDialogStyles.deleteButton,
+                  ]}
+                  onPress={processAccountDeletion}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? (
+                    <ActivityIndicator color="white" size="small" />
+                  ) : (
+                    <Text style={deleteDialogStyles.deleteButtonText}>
+                      Delete Account
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </NavigationContainer>
   );
 };
+
+// Styles for the delete account dialog
+const deleteDialogStyles = StyleSheet.create({
+  overlay: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  dialog: {
+    width: "85%",
+    maxWidth: 350,
+    borderRadius: 16,
+    padding: 24,
+    elevation: 10,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 10,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  message: {
+    fontSize: 16,
+    textAlign: "center",
+    lineHeight: 24,
+    marginBottom: 16,
+  },
+  passwordLabel: {
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  passwordContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 24,
+    position: "relative",
+  },
+  passwordInput: {
+    flex: 1,
+    height: 48,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingRight: 48,
+    fontSize: 16,
+  },
+  passwordToggle: {
+    position: "absolute",
+    right: 12,
+    height: 48,
+    justifyContent: "center",
+    alignItems: "center",
+    width: 24,
+  },
+  buttons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  button: {
+    flex: 1,
+    height: 48,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  deleteButton: {
+    backgroundColor: "#FF6B6B",
+    borderColor: "#FF6B6B",
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "white",
+  },
+});
 
 // Export the main navigator
 export { BaseAppNavigator as AppNavigator };

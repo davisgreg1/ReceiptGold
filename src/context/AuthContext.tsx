@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from 'firebase/auth';
 import { auth } from '../config/firebase';
+import { revenueCatService } from '../services/revenuecatService';
 
 interface AuthContextType {
   user: User | null;
@@ -39,6 +40,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    try {
+      // Logout from RevenueCat first
+      await revenueCatService.logoutUser();
+    } catch (error) {
+      console.error('Error logging out from RevenueCat:', error);
+      // Continue with Firebase logout even if RevenueCat logout fails
+    }
+
+    // Logout from Firebase Auth
     await signOut(auth);
   };
 

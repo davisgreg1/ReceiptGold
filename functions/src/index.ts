@@ -4,7 +4,6 @@
 import * as functions from "firebase-functions";
 import * as functionsV1 from "firebase-functions/v1";
 import * as admin from "firebase-admin";
-import Stripe from "stripe";
 import { onCall, HttpsError, CallableRequest, onRequest } from "firebase-functions/v2/https";
 import { Request, Response } from "express";
 const sgMail = require('@sendgrid/mail');
@@ -13,7 +12,7 @@ const jwt = require('jsonwebtoken');
 // Structured logging utility for production
 class Logger {
   private static isDevelopment = process.env.NODE_ENV === 'development' || process.env.FUNCTIONS_EMULATOR === 'true';
-  
+
   static error(message: string, context?: any, userId?: string) {
     console.error(JSON.stringify({
       level: 'ERROR',
@@ -23,7 +22,7 @@ class Logger {
       ...context
     }));
   }
-  
+
   static warn(message: string, context?: any, userId?: string) {
     console.warn(JSON.stringify({
       level: 'WARN',
@@ -33,7 +32,7 @@ class Logger {
       ...context
     }));
   }
-  
+
   static info(message: string, context?: any, userId?: string) {
     console.info(JSON.stringify({
       level: 'INFO',
@@ -43,7 +42,7 @@ class Logger {
       ...context
     }));
   }
-  
+
   static debug(message: string, context?: any, userId?: string) {
     if (this.isDevelopment) {
       console.log(JSON.stringify({
@@ -75,11 +74,6 @@ interface SplitTenderInfo {
   detectedPatterns: string[];
 }
 
-// Interface to handle Firebase Functions v2 rawBody
-interface RequestWithRawBody extends Request {
-  rawBody: Buffer;
-}
-
 // Initialize Firebase Admin SDK for production
 admin.initializeApp();
 const db = admin.firestore();
@@ -94,6 +88,8 @@ const getReceiptLimits = () => {
     teammate: parseInt(process.env.TEAMMATE_TIER_MAX_RECEIPTS || "-1", 10)
   };
 };
+
+/* COMMENTED OUT - Using RevenueCat instead of Stripe
 
 // Stripe configuration from environment variables
 const getStripeConfig = (): { secretKey: string; webhookSecret: string } => {
@@ -110,6 +106,8 @@ const getStripeConfig = (): { secretKey: string; webhookSecret: string } => {
 
   return { secretKey, webhookSecret };
 };
+
+*/
 
 // Plaid configuration from environment variables  
 const getPlaidConfig = (): { clientId: string; secret: string; environment: string } => {
@@ -128,6 +126,8 @@ const getPlaidConfig = (): { clientId: string; secret: string; environment: stri
   return { clientId, secret, environment };
 };
 
+/* COMMENTED OUT - Using RevenueCat instead of Stripe
+
 // Lazy Stripe initialization - only initialize when needed
 let stripeInstance: Stripe | null = null;
 const getStripe = (): Stripe => {
@@ -139,6 +139,8 @@ const getStripe = (): Stripe => {
   }
   return stripeInstance;
 };
+
+*/
 
 // Type definitions (keeping your existing interfaces)
 interface SubscriptionTier {
@@ -163,7 +165,7 @@ interface SubscriptionTier {
 
 interface UpdateSubscriptionRequest {
   subscriptionId: string;
-  tierId?: 'free' | 'starter' | 'growth' | 'professional'; // Optional - Cloud Function can determine from RevenueCat
+  tierId?: 'free' | 'starter' | 'growth' | 'professional' | 'trial'; // Optional - Cloud Function can determine from RevenueCat
   userId: string;
   revenueCatUserId?: string; // For calling RevenueCat API directly
 }
@@ -235,7 +237,7 @@ interface UserProfile {
 
 interface SubscriptionDocument {
   userId: string;
-  currentTier: 'free' | 'starter' | 'growth' | 'professional' | 'teammate';
+  currentTier: 'free' | 'starter' | 'growth' | 'professional' | 'teammate' | 'trial';
   status: 'active' | 'canceled' | 'past_due' | 'incomplete';
   trial?: {
     startedAt: admin.firestore.Timestamp;
@@ -414,7 +416,28 @@ const subscriptionTiers: Record<string, SubscriptionTier> = {
       dedicatedManager: false,
     },
   },
+  trial: {
+    name: "Trial",
+    limits: {
+      maxReceipts: getReceiptLimits().professional, // Full access during trial
+      maxBusinesses: -1, // unlimited during trial
+      apiCallsPerMonth: 1000,
+      maxReports: -1, // unlimited during trial
+    },
+    features: {
+      advancedReporting: true,
+      taxPreparation: true,
+      accountingIntegrations: true,
+      prioritySupport: true,
+      multiBusinessManagement: true,
+      whiteLabel: false, // No white label during trial
+      apiAccess: true,
+      dedicatedManager: false, // No dedicated manager during trial
+    },
+  },
 };
+
+/* COMMENTED OUT - Using RevenueCat instead of Stripe
 
 // Helper function to determine tier from Stripe price ID
 function getTierFromPriceId(priceId: string): string {
@@ -440,36 +463,38 @@ function getTierFromPriceId(priceId: string): string {
   return tier;
 }
 
+*/
+
 // DeviceCheck configuration
 const getDeviceCheckConfig = () => {
   const keyId = process.env.APPLE_DEVICE_CHECK_KEY_ID;
   const teamId = process.env.APPLE_TEAM_ID;
   const privateKey = process.env.APPLE_DEVICE_CHECK_PRIVATE_KEY;
-  
+
   if (!keyId || !teamId || !privateKey) {
     throw new Error('DeviceCheck configuration incomplete. Set APPLE_DEVICE_CHECK_KEY_ID, APPLE_TEAM_ID, and APPLE_DEVICE_CHECK_PRIVATE_KEY');
   }
-  
+
   return { keyId, teamId, privateKey };
 };
 
 // Generate JWT for Apple DeviceCheck API
 function generateDeviceCheckJWT(): string {
   const config = getDeviceCheckConfig();
-  
+
   const now = Math.floor(Date.now() / 1000);
   const payload = {
     iss: config.teamId,
     iat: now,
     exp: now + (60 * 60) // 1 hour expiration
   };
-  
+
   const header = {
     alg: 'ES256',
     kid: config.keyId
   };
-  
-  return jwt.sign(payload, config.privateKey, { 
+
+  return jwt.sign(payload, config.privateKey, {
     algorithm: 'ES256',
     header: header
   });
@@ -491,11 +516,11 @@ function isBase64FallbackToken(token: string): boolean {
 async function queryFallbackDeviceCheck(deviceToken: string): Promise<{ bit0: boolean; bit1: boolean; last_update_time?: string }> {
   try {
     const deviceDoc = await db.collection('device_tracking').doc(deviceToken).get();
-    
+
     if (!deviceDoc.exists) {
       return { bit0: false, bit1: false };
     }
-    
+
     const data = deviceDoc.data();
     return {
       bit0: data?.hasCreatedAccount || false,
@@ -527,15 +552,15 @@ async function queryDeviceCheck(deviceToken: string): Promise<{ bit0: boolean; b
   try {
     // Check if this is a fallback token (base64 encoded JSON from our React Native service)
     const isFallbackToken = isBase64FallbackToken(deviceToken);
-    
+
     if (isFallbackToken) {
       Logger.info('Using fallback device check (Firestore-based)');
       return await queryFallbackDeviceCheck(deviceToken);
     }
-    
+
     Logger.info('Using Apple DeviceCheck API');
     const jwtToken = generateDeviceCheckJWT();
-    
+
     const response = await fetch('https://api.devicecheck.apple.com/v1/query_two_bits', {
       method: 'POST',
       headers: {
@@ -547,12 +572,12 @@ async function queryDeviceCheck(deviceToken: string): Promise<{ bit0: boolean; b
         timestamp: Date.now()
       })
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`DeviceCheck query failed: ${response.status} - ${errorText}`);
     }
-    
+
     const data = await response.json();
     return {
       bit0: data.bit0 || false,
@@ -570,16 +595,16 @@ async function updateDeviceCheck(deviceToken: string, bits: { bit0?: boolean; bi
   try {
     // Check if this is a fallback token (base64 encoded JSON from our React Native service)
     const isFallbackToken = isBase64FallbackToken(deviceToken);
-    
+
     if (isFallbackToken) {
       Logger.info('Using fallback device check update (Firestore-based)');
       await updateFallbackDeviceCheck(deviceToken, bits);
       return;
     }
-    
+
     Logger.info('Using Apple DeviceCheck API for update');
     const jwtToken = generateDeviceCheckJWT();
-    
+
     const response = await fetch('https://api.devicecheck.apple.com/v1/update_two_bits', {
       method: 'POST',
       headers: {
@@ -593,7 +618,7 @@ async function updateDeviceCheck(deviceToken: string, bits: { bit0?: boolean; bi
         bit1: bits.bit1
       })
     });
-    
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(`DeviceCheck update failed: ${response.status} - ${errorText}`);
@@ -607,40 +632,53 @@ async function updateDeviceCheck(deviceToken: string, bits: { bit0?: boolean; bi
 // Pre-flight check for user creation with DeviceCheck (HTTP function to avoid auth requirements)
 export const checkDeviceForAccountCreation = onRequest({ cors: true, invoker: 'public' }, async (req, res) => {
   try {
+    // Check if DeviceCheck feature is enabled
+    const enableDeviceCheck = process.env.ENABLE_DEVICE_CHECK === 'true';
+    if (!enableDeviceCheck) {
+      Logger.info('DeviceCheck feature disabled - allowing account creation');
+      res.status(200).json({
+        data: {
+          canCreateAccount: true,
+          message: 'Device check disabled - proceeding with account creation'
+        }
+      });
+      return;
+    }
+
     if (req.method !== 'POST') {
       res.status(405).json({ error: 'Method not allowed' });
       return;
     }
 
     const { deviceToken, email } = req.body.data || req.body;
-    
+
     if (!deviceToken || !email) {
-      res.status(400).json({ 
-        error: { 
-          code: 'invalid-argument', 
-          message: 'deviceToken and email are required' 
-        } 
+      res.status(400).json({
+        error: {
+          code: 'invalid-argument',
+          message: 'deviceToken and email are required'
+        }
       });
       return;
     }
-    
+
     Logger.info('Checking device for account creation', { email });
-    
+
     // Check if this device token already exists in our database
     try {
       const db = admin.firestore();
       const deviceDoc = await db.collection('device_tracking').doc(deviceToken).get();
-      
+
       if (deviceDoc.exists && deviceDoc.data()?.hasCreatedAccount) {
         const deviceData = deviceDoc.data();
-        
+
         // Check if there's an exception for deleted accounts with unsubscribed status
         if (await checkDeletedAccountException(deviceData, email)) {
-          Logger.info('Device blocking exception: Previous account was deleted and unsubscribed - allowing new account creation', { 
-            email, 
-            deviceToken: deviceToken.substring(0, 20) + '...' 
+          Logger.info('Device blocking exception: Previous account was deleted and unsubscribed - allowing new account creation', {
+            email,
+            deviceToken: deviceToken.substring(0, 20) + '...'
           });
-          
+
           // Update device record to reflect the new account creation attempt
           await deviceDoc.ref.update({
             previousAccountDeleted: true,
@@ -650,11 +688,11 @@ export const checkDeviceForAccountCreation = onRequest({ cors: true, invoker: 'p
           });
         } else {
           Logger.warn('Device has already created an account', { email, deviceToken: deviceToken.substring(0, 20) + '...' });
-          res.status(400).json({ 
-            error: { 
-              code: 'already-exists', 
-              message: 'This device has already been used to create an account. Please sign in with your existing account instead.' 
-            } 
+          res.status(400).json({
+            error: {
+              code: 'already-exists',
+              message: 'This device has already been used to create an account. Please sign in with your existing account instead.'
+            }
           });
           return;
         }
@@ -665,33 +703,33 @@ export const checkDeviceForAccountCreation = onRequest({ cors: true, invoker: 'p
       Logger.error('Error checking device token in database', { error: (error as Error).message });
       // Don't block account creation if database check fails - allow as fallback
     }
-    
+
     // Check if email already exists
     try {
       await admin.auth().getUserByEmail(email);
-      res.status(400).json({ 
-        error: { 
-          code: 'already-exists', 
-          message: 'An account with this email already exists' 
-        } 
+      res.status(400).json({
+        error: {
+          code: 'already-exists',
+          message: 'An account with this email already exists'
+        }
       });
       return;
     } catch (error) {
       // User doesn't exist, which is what we want
       if ((error as any).code !== 'auth/user-not-found') {
         Logger.error('Error checking email existence', { error: (error as Error).message });
-        res.status(500).json({ 
-          error: { 
-            code: 'internal', 
-            message: 'Failed to verify email availability' 
-          } 
+        res.status(500).json({
+          error: {
+            code: 'internal',
+            message: 'Failed to verify email availability'
+          }
         });
         return;
       }
     }
-    
+
     Logger.info('Device and email are eligible for account creation', { email });
-    
+
     res.status(200).json({
       data: {
         success: true,
@@ -699,14 +737,14 @@ export const checkDeviceForAccountCreation = onRequest({ cors: true, invoker: 'p
         message: 'Device is eligible for account creation'
       }
     });
-    
+
   } catch (error) {
     Logger.error('Error checking device for account creation', { error: (error as Error).message });
-    res.status(500).json({ 
-      error: { 
-        code: 'internal', 
-        message: `Failed to check device eligibility: ${(error as Error).message}` 
-      } 
+    res.status(500).json({
+      error: {
+        code: 'internal',
+        message: `Failed to check device eligibility: ${(error as Error).message}`
+      }
     });
   }
 });
@@ -714,29 +752,42 @@ export const checkDeviceForAccountCreation = onRequest({ cors: true, invoker: 'p
 // Complete account creation after Firebase Auth user is created
 export const completeAccountCreation = onRequest({ cors: true, invoker: 'public' }, async (req: Request, res: Response) => {
   try {
-    Logger.info('Complete account creation request received', { 
+    // Check if DeviceCheck feature is enabled
+    const enableDeviceCheck = process.env.ENABLE_DEVICE_CHECK === 'true';
+    if (!enableDeviceCheck) {
+      Logger.info('DeviceCheck feature disabled - skipping device marking');
+      res.status(200).json({
+        data: {
+          success: true,
+          message: 'Device check disabled - account creation completed without device marking'
+        }
+      });
+      return;
+    }
+
+    Logger.info('Complete account creation request received', {
       body: req.body,
       bodyData: req.body.data,
       method: req.method,
       headers: req.headers['content-type']
     });
-    
+
     const requestBody = req.body.data || req.body;
     const { deviceToken } = requestBody;
-    
+
     Logger.info('Extracting deviceToken', { requestBody, deviceToken });
-    
+
     if (!deviceToken) {
       Logger.error('deviceToken is missing from request body', { body: req.body });
       res.status(400).json({ error: { message: 'deviceToken is required', status: 'INVALID_ARGUMENT' } });
       return;
     }
-    
+
     Logger.info('Completing account creation with DeviceCheck');
-    
+
     // Check if this is a fallback token (base64 encoded device info)
     const isFallbackToken = isBase64FallbackToken(deviceToken);
-    
+
     if (isFallbackToken) {
       // For fallback tokens, mark device as used in Firestore
       try {
@@ -761,18 +812,18 @@ export const completeAccountCreation = onRequest({ cors: true, invoker: 'public'
         // Don't fail account creation if DeviceCheck update fails
       }
     }
-    
+
     res.json({
       data: {
         success: true,
         message: 'Account creation completed successfully'
       }
     });
-    
+
   } catch (error) {
     Logger.error('Error completing account creation', { error: (error as Error).message });
-    res.status(500).json({ 
-      error: { 
+    res.status(500).json({
+      error: {
         message: `Failed to complete account creation: ${(error as Error).message}`,
         status: 'INTERNAL'
       }
@@ -826,7 +877,7 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
 
     // Check if this user has a team invitation (pending OR recently accepted)
     Logger.debug('Checking for team invitations for email', { email, emailLowercase: email.toLowerCase() }, userId);
-    
+
     const teamInvitationsQuery = await db.collection("teamInvitations")
       .where("inviteEmail", "==", email.toLowerCase())
       .where("status", "in", ["pending", "accepted"])
@@ -834,15 +885,15 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
       .get();
 
     const isTeamMember = !teamInvitationsQuery.empty;
-    
+
     Logger.debug('Team invitation query result', { foundInvitations: teamInvitationsQuery.size }, userId);
-    
+
     // Debug: Let's also check ALL invitations for this email (regardless of status)
     const allInvitationsQuery = await db.collection("teamInvitations")
       .where("inviteEmail", "==", email.toLowerCase())
       .limit(10)
       .get();
-    
+
     Logger.debug('Found total invitations for email', { totalInvitations: allInvitationsQuery.size, email: email.toLowerCase() }, userId);
     allInvitationsQuery.docs.forEach((doc, index) => {
       const invitation = doc.data();
@@ -857,7 +908,7 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
         createdAt: invitation.createdAt
       }, userId);
     });
-    
+
     if (!teamInvitationsQuery.empty) {
       const invitation = teamInvitationsQuery.docs[0].data();
       Logger.info('Found matching team invitation', {
@@ -874,7 +925,7 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
       // Team members do NOT get their own subscription documents
       // They inherit subscription from their account holder via SubscriptionContext
       Logger.info('Skipping subscription creation for team member - will inherit from account holder', { email }, userId);
-      
+
       // Create usage document for tracking purposes
       const usageDoc: UsageDocument = {
         userId,
@@ -888,48 +939,48 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
         updatedAt: now,
       };
       await db.collection("usage").doc(`${userId}_${usageDoc.month}`).set(usageDoc);
-      
+
       Logger.info('User account created successfully for team member', { email }, userId);
       return; // Early return for team members - no subscription document needed
     }
 
     // Only create subscription documents for account holders (non-team members)
-    // Create regular user subscription with 3-day trial
+    // Create regular user subscription with 1 minute trial for testing
     Logger.info('Creating trial subscription for new account holder', { email }, userId);
     const trialExpires = admin.firestore.Timestamp.fromDate(
-      new Date(Date.now() + (3 * 24 * 60 * 60 * 1000)) // 3 days from now
+      new Date(Date.now() + (1 * 60 * 1000)) // 1 minute from now (FOR TESTING)
     );
-    
+
     const subscriptionDoc: SubscriptionDocument = {
       userId,
-      currentTier: "free",
-        status: "active",
-        trial: {
-          startedAt: now,
-          expiresAt: trialExpires,
+      currentTier: "trial",
+      status: "active",
+      trial: {
+        startedAt: now,
+        expiresAt: trialExpires,
+      },
+      billing: {
+        customerId: null,
+        subscriptionId: null,
+        priceId: null,
+        currentPeriodStart: now,
+        currentPeriodEnd: null,
+        cancelAtPeriodEnd: false,
+        trialEnd: null,
+      },
+      limits: subscriptionTiers.trial.limits,
+      features: subscriptionTiers.trial.features,
+      history: [
+        {
+          tier: "trial",
+          startDate: now,
+          endDate: trialExpires,
+          reason: "initial_signup",
         },
-        billing: {
-          customerId: null,
-          subscriptionId: null,
-          priceId: null,
-          currentPeriodStart: now,
-          currentPeriodEnd: null,
-          cancelAtPeriodEnd: false,
-          trialEnd: null,
-        },
-        limits: subscriptionTiers.free.limits,
-        features: subscriptionTiers.free.features,
-        history: [
-          {
-            tier: "free",
-            startDate: now,
-            endDate: null,
-            reason: "initial_signup",
-          },
-        ],
-        createdAt: now,
-        updatedAt: now,
-      };
+      ],
+      createdAt: now,
+      updatedAt: now,
+    };
 
     await db.collection("subscriptions").doc(userId).set(subscriptionDoc);
 
@@ -1102,6 +1153,8 @@ async function processReceiptOCR(
 // OPTIMIZATION: onSubscriptionChange trigger removed - logic merged into updateSubscriptionAfterPayment
 // This eliminates the redundant Cloud Function trigger and improves performance by ~100ms
 
+/* COMMENTED OUT - Using RevenueCat instead of Stripe
+
 // Interface to handle Firebase Functions v2 rawBody
 interface RequestWithRawBody extends Request {
   rawBody: Buffer;
@@ -1220,7 +1273,7 @@ export const stripeWebhook = onRequest(
           break;
 
         case "payment_intent.succeeded":
-          
+
           Logger.info('Payment succeeded for PaymentIntent: ${paymentIntent.id}', {});
           // Handle one-time payments here if needed
           break;
@@ -1247,7 +1300,7 @@ export const stripeWebhook = onRequest(
 
         case "customer.subscription.trial_will_end":
           // Handle trial ending warning
-          
+
           Logger.info('Trial ending soon for subscription: ${trialSub.id}', {});
           // You can add email notifications here
           break;
@@ -1269,10 +1322,10 @@ export const stripeWebhook = onRequest(
 
       // Log the full error for debugging
       if (error instanceof Error) {
-        Logger.error('Error details', { 
-          name: error.name, 
-          message: error.message, 
-          stack: error.stack 
+        Logger.error('Error details', {
+          name: error.name,
+          message: error.message,
+          stack: error.stack
         });
       }
 
@@ -1403,11 +1456,13 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
   }
 }
 
+*/
+
 // PLAID WEBHOOK HANDLER
 export const plaidWebhook = onRequest(
   {
     cors: false,
-    memory: "1GiB", 
+    memory: "1GiB",
     timeoutSeconds: 540,
   },
   async (req: Request, res: Response) => {
@@ -1432,7 +1487,7 @@ export const plaidWebhook = onRequest(
 
     // Validate Plaid configuration
     try {
-      
+
       Logger.info('Plaid config loaded for ${config.environment} environment', {});
     } catch (error) {
       Logger.error('❌ Plaid configuration error:', { error: (error as Error) });
@@ -1508,14 +1563,14 @@ export const plaidWebhook = onRequest(
 export const initializeNotificationSettings = onRequest(async (req: Request, res: Response) => {
   try {
     const userId = req.query.userId as string;
-    
+
     if (!userId) {
       res.status(400).json({ error: 'userId parameter required' });
       return;
     }
 
     const userRef = db.collection('users').doc(userId);
-    
+
     // Set default notification settings
     await userRef.update({
       notificationSettings: {
@@ -1534,7 +1589,7 @@ export const initializeNotificationSettings = onRequest(async (req: Request, res
     });
 
     Logger.info('Initialized notification settings for user ${userId}', {});
-    
+
     res.status(200).json({
       success: true,
       message: 'Notification settings initialized',
@@ -1549,9 +1604,9 @@ export const initializeNotificationSettings = onRequest(async (req: Request, res
 // Test endpoint to verify webhook configuration
 export const testWebhookConfig = onRequest(async (req: Request, res: Response) => {
   try {
-    const stripeConfig = getStripeConfig();
+    // const stripeConfig = getStripeConfig(); // COMMENTED OUT - Using RevenueCat instead of Stripe
     let plaidConfigStatus = { configured: false, error: '' };
-    
+
     try {
       const plaidConfig = getPlaidConfig();
       plaidConfigStatus = {
@@ -1566,11 +1621,11 @@ export const testWebhookConfig = onRequest(async (req: Request, res: Response) =
     }
 
     res.status(200).json({
-      stripe: {
-        webhookConfigured: true,
-        hasSecretKey: !!stripeConfig.secretKey,
-        hasWebhookSecret: !!stripeConfig.webhookSecret,
-      },
+      // stripe: { // COMMENTED OUT - Using RevenueCat instead of Stripe
+      //   webhookConfigured: true,
+      //   hasSecretKey: !!stripeConfig.secretKey,
+      //   hasWebhookSecret: !!stripeConfig.webhookSecret,
+      // },
       plaid: plaidConfigStatus,
       environment: process.env.NODE_ENV || 'unknown',
       timestamp: new Date().toISOString(),
@@ -1625,9 +1680,9 @@ export const onConnectionNotificationCreate = functionsV1.firestore
 
       // Simple approach: Create a local notification trigger document that the app monitors
       // This avoids all FCM complexity and uses the same approach as your working test notifications
-      
+
       Logger.debug('Creating local notification trigger for user ${userId}', {});
-      
+
       // Create a document in user_notifications collection that the app monitors
       await db.collection("user_notifications").add({
         userId: userId,
@@ -1639,9 +1694,9 @@ export const onConnectionNotificationCreate = functionsV1.firestore
         source: 'webhook',
         sourceId: context.params.notificationId
       });
-      
+
       Logger.info('Local notification trigger created for user ${userId}', {});
-      
+
       // Update the original notification document to mark as processed
       await db.collection("connection_notifications").doc(context.params.notificationId).update({
         pushSent: true,
@@ -1657,26 +1712,26 @@ export const onConnectionNotificationCreate = functionsV1.firestore
 // PLAID WEBHOOK HANDLERS
 async function handlePlaidTransactions(webhookData: any): Promise<void> {
   Logger.info('Processing Plaid transactions webhook', {});
-  
+
   const { item_id, new_transactions, removed_transactions } = webhookData;
-  
+
   try {
     // Find user by item_id (note: field name is itemId in our database)
     const plaidItemQuery = db.collection("plaid_items").where("itemId", "==", item_id);
     const plaidItemSnapshot = await plaidItemQuery.get();
-    
+
     if (plaidItemSnapshot.empty) {
       Logger.error('No plaid_items entry found for item_id: ${item_id}', {});
       Logger.info(' This item may not have been synced to Firestore yet. Use syncBankConnectionToPlaidItems to sync existing connections.', {});
       return;
     }
-    
+
     const plaidItemDoc = plaidItemSnapshot.docs[0];
     const userId = plaidItemDoc.data().userId;
-    
+
     console.log(`Processing transactions for user: ${userId}`);
     await processTransactionsForUser(userId, item_id, new_transactions, removed_transactions);
-    
+
   } catch (error) {
     Logger.error('Error processing Plaid transactions webhook:', { error: (error as Error) });
     throw error;
@@ -1689,7 +1744,7 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
     // Process new transactions
     if (new_transactions && new_transactions > 0) {
       Logger.info('${new_transactions} new transactions available for user ${userId}', {});
-      
+
       // Store transaction update notification in transaction_updates collection
       await db.collection("transaction_updates").add({
         userId,
@@ -1699,7 +1754,7 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
         processed: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       // Create a user notification about new transactions
       await db.collection("connection_notifications").add({
         userId,
@@ -1713,17 +1768,17 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
         dismissed: false,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
-      
+
       Logger.info('Created transaction update and notification for user ${userId}', {});
-      
+
       // TODO: Trigger transaction sync process
       // This would fetch the actual transactions and analyze them for potential receipts
     }
-    
+
     // Process removed transactions  
     if (removed_transactions && removed_transactions.length > 0) {
       Logger.info('${removed_transactions.length} transactions removed for user ${userId}', {});
-      
+
       for (const transactionId of removed_transactions) {
         // Mark any generated receipts from these transactions as invalid
         await db.collection("receipts")
@@ -1741,7 +1796,7 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
             return batch.commit();
           });
       }
-      
+
       Logger.info('Processed ${removed_transactions.length} removed transactions for user ${userId}', {});
     }
   } catch (error) {
@@ -1752,54 +1807,54 @@ async function processTransactionsForUser(userId: string, itemId: string, new_tr
 
 async function handlePlaidItem(webhookData: any): Promise<void> {
   Logger.info('Processing Plaid item webhook', {});
-  
+
   const { item_id, webhook_code, error } = webhookData;
-  
+
   try {
     // Find the Plaid item in our database
     const plaidItemQuery = db.collection("plaid_items").where("itemId", "==", item_id);
     const plaidItemSnapshot = await plaidItemQuery.get();
-    
+
     if (plaidItemSnapshot.empty) {
       Logger.error('No plaid_items entry found for item_id: ${item_id}', {});
       Logger.info(' This item may not have been synced to Firestore yet. Use syncBankConnectionToPlaidItems to sync existing connections.', {});
       return;
     }
-    
+
     const plaidItemDoc = plaidItemSnapshot.docs[0];
     const plaidItemData = plaidItemDoc.data();
     const userId = plaidItemData.userId;
     const institutionName = plaidItemData.institutionName || 'Your Bank';
-    
+
     console.log(`Processing item update for user: ${userId}, code: ${webhook_code}`);
-    
+
     const updateData: any = {
       lastWebhookCode: webhook_code,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
-    
+
     let notificationType: string | null = null;
-    
+
     switch (webhook_code) {
       case "PENDING_EXPIRATION":
         updateData.status = "pending_expiration";
         updateData.needsReauth = true;
         notificationType = "pending_expiration";
         break;
-        
+
       case "PENDING_DISCONNECT":
         updateData.status = "pending_disconnect";
         updateData.needsReauth = true;
         notificationType = "pending_expiration";
         break;
-        
+
       case "USER_PERMISSION_REVOKED":
         updateData.status = "permission_revoked";
         updateData.active = false;
         updateData.needsReauth = true;
         notificationType = "permission_revoked";
         break;
-        
+
       case "ERROR":
         updateData.status = "error";
         updateData.error = {
@@ -1812,12 +1867,12 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
         updateData.needsReauth = true;
         notificationType = "reauth_required";
         break;
-        
+
       case "NEW_ACCOUNTS_AVAILABLE":
         updateData.hasNewAccounts = true;
         notificationType = "new_accounts_available";
         break;
-        
+
       case "LOGIN_REPAIRED":
         // Self-healing notification - item was fixed automatically
         updateData.status = "connected";
@@ -1826,15 +1881,15 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
         updateData.error = null;
         notificationType = "login_repaired";
         break;
-        
+
       default:
         console.log(`Unhandled item webhook code: ${webhook_code}`);
     }
-    
+
     // Update the item
     await plaidItemDoc.ref.update(updateData);
     Logger.info('Updated item ${item_id} with status: ${updateData.status}', {});
-    
+
     // Create connection notification
     if (notificationType) {
       await createConnectionNotification(
@@ -1846,7 +1901,7 @@ async function handlePlaidItem(webhookData: any): Promise<void> {
       );
       Logger.info('Created ${notificationType} notification for user ${userId}', {});
     }
-    
+
     // For self-healing, dismiss any existing reauth notifications
     if (webhook_code === "LOGIN_REPAIRED") {
       await dismissOldNotifications(userId, item_id, ["reauth_required", "pending_expiration"]);
@@ -1866,7 +1921,7 @@ async function createConnectionNotification(
   webhookCode: string
 ): Promise<void> {
   const notificationContent = getNotificationContent(type, institutionName, webhookCode);
-  
+
   // Save notification to Firestore
   await db.collection("connection_notifications").add({
     userId,
@@ -1876,8 +1931,8 @@ async function createConnectionNotification(
     ...notificationContent,
     dismissed: false,
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    expiresAt: type === "login_repaired" ? 
-      admin.firestore.Timestamp.fromDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)) : 
+    expiresAt: type === "login_repaired" ?
+      admin.firestore.Timestamp.fromDate(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)) :
       null,
   });
 
@@ -1900,7 +1955,7 @@ async function createConnectionNotification(
       isRead: false,
       priority: notificationContent.priority || "normal"
     });
-    
+
     Logger.info('Created user notification for ${type} - ${institutionName}', {});
   }
 }
@@ -1915,11 +1970,11 @@ async function dismissOldNotifications(
     .where("userId", "==", userId)
     .where("itemId", "==", itemId)
     .where("dismissed", "==", false);
-    
+
   const snapshot = await notificationsQuery.get();
   const batch = db.batch();
   let batchOperations = 0;
-  
+
   snapshot.docs.forEach(doc => {
     if (typesToDismiss.includes(doc.data().type)) {
       batch.update(doc.ref, {
@@ -1929,7 +1984,7 @@ async function dismissOldNotifications(
       batchOperations++;
     }
   });
-  
+
   if (batchOperations > 0) {
     await batch.commit();
     Logger.info('Dismissed ${batchOperations} old notifications', {});
@@ -1956,7 +2011,7 @@ function getNotificationContent(
         actionRequired: true,
         priority: "high"
       };
-      
+
     case "pending_expiration":
       return {
         title: "⚠️ Connection Expiring Soon",
@@ -1964,7 +2019,7 @@ function getNotificationContent(
         actionRequired: true,
         priority: "medium"
       };
-      
+
     case "permission_revoked":
       return {
         title: "🚫 Bank Permissions Revoked",
@@ -1972,7 +2027,7 @@ function getNotificationContent(
         actionRequired: true,
         priority: "high"
       };
-      
+
     case "login_repaired":
       return {
         title: "✅ Connection Restored",
@@ -1980,7 +2035,7 @@ function getNotificationContent(
         actionRequired: false,
         priority: "low"
       };
-      
+
     case "new_accounts_available":
       return {
         title: "🆕 New Accounts Found",
@@ -1988,7 +2043,7 @@ function getNotificationContent(
         actionRequired: false,
         priority: "medium"
       };
-      
+
     default:
       return {
         title: "🏦 Bank Connection Update",
@@ -2012,10 +2067,10 @@ async function handlePlaidAccounts(webhookData: any): Promise<void> {
 
 async function handlePlaidLiabilities(webhookData: any): Promise<void> {
   Logger.info('Processing Plaid liabilities webhook', {});
-  
+
   try {
     const { item_id, webhook_code } = webhookData;
-    
+
     if (!item_id) {
       Logger.error('No item_id in liabilities webhook data', {});
       return;
@@ -2026,7 +2081,7 @@ async function handlePlaidLiabilities(webhookData: any): Promise<void> {
     // Find the user's Plaid item
     const itemsRef = db.collection('plaidItems');
     const itemQuery = await itemsRef.where('itemId', '==', item_id).get();
-    
+
     if (itemQuery.empty) {
       Logger.error('No Plaid item found for item_id: ${item_id}', {});
       return;
@@ -2054,18 +2109,18 @@ async function handlePlaidLiabilities(webhookData: any): Promise<void> {
         // This indicates that liability data has been updated and should be refetched
         // You might want to trigger a refresh of liability data here
         break;
-        
+
       case 'LIABILITY_UPDATE':
         Logger.info('Liability data updated for item: ${item_id}', {});
         // Handle specific liability updates
         break;
-        
+
       default:
         Logger.info('Unhandled liabilities webhook code: ${webhook_code}', {});
     }
 
     Logger.info('Successfully processed liabilities webhook for item: ${item_id}', {});
-    
+
   } catch (error) {
     Logger.error('❌ Error processing Plaid liabilities webhook:', { error: (error as Error) });
     throw error;
@@ -2091,9 +2146,9 @@ export const createPlaidUpdateToken = onCall(
       const itemQuery = db.collection('plaid_items')
         .where('itemId', '==', itemId)
         .where('userId', '==', userId);
-      
+
       const itemSnapshot = await itemQuery.get();
-      
+
       if (itemSnapshot.empty) {
         throw new HttpsError('not-found', 'Item not found or access denied');
       }
@@ -2107,7 +2162,7 @@ export const createPlaidUpdateToken = onCall(
 
       // Get Plaid configuration
       const config = getPlaidConfig();
-      
+
       // Create update mode link token
       const linkTokenResponse = await fetch('https://production.plaid.com/link/token/create', {
         method: 'POST',
@@ -2138,7 +2193,7 @@ export const createPlaidUpdateToken = onCall(
       }
 
       const linkTokenData = await linkTokenResponse.json();
-      
+
       Logger.info('Created update mode link token for user ${userId}, item ${itemId}', {});
 
       return {
@@ -2148,11 +2203,11 @@ export const createPlaidUpdateToken = onCall(
 
     } catch (error) {
       Logger.error('Error creating Plaid update link token:', { error: (error as Error) });
-      
+
       if (error instanceof HttpsError) {
         throw error;
       }
-      
+
       throw new HttpsError('internal', `Failed to create update link token: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
@@ -2161,8 +2216,8 @@ export const createPlaidUpdateToken = onCall(
 // Create Plaid Link Token with proper redirect URI/Android package name handling
 export const createPlaidLinkToken = onCall(
   { region: 'us-central1' },
-  async (request: CallableRequest<{ 
-    user_id: string; 
+  async (request: CallableRequest<{
+    user_id: string;
     platform?: 'ios' | 'android';
     auth_token?: string;
   }>) => {
@@ -2171,9 +2226,9 @@ export const createPlaidLinkToken = onCall(
     Logger.info('Request data', { value: request.data });
     Logger.info('Request rawRequest auth header', { value: request.rawRequest?.headers?.authorization ? 'Has auth header' : 'No auth header' });
     Logger.info('Manual auth token provided', { value: request.data.auth_token ? 'yes' : 'no' });
-    
+
     let userId: string;
-    
+
     if (request.auth) {
       // Standard Firebase auth context is available
       Logger.info('✅ Using standard Firebase auth context', {});
@@ -2193,7 +2248,7 @@ export const createPlaidLinkToken = onCall(
       Logger.error('❌ No authentication method available', {});
       throw new HttpsError('unauthenticated', 'User must be authenticated');
     }
-    
+
     Logger.info('✅ Authentication verified for user', { value: userId });
 
     try {
@@ -2210,7 +2265,7 @@ export const createPlaidLinkToken = onCall(
 
       // Get Plaid configuration
       const config = getPlaidConfig();
-      
+
       // Prepare the request body
       const requestBody: any = {
         client_id: config.clientId,
@@ -2238,12 +2293,12 @@ export const createPlaidLinkToken = onCall(
       console.log(`🔗 Creating link token for user ${userId} on ${platform || 'iOS'} platform`);
 
       // Create link token via Plaid API - use environment-specific endpoint
-      const plaidEndpoint = config.environment === 'production' 
+      const plaidEndpoint = config.environment === 'production'
         ? 'https://production.plaid.com/link/token/create'
         : 'https://sandbox.plaid.com/link/token/create';
-      
+
       console.log(`🌍 Using Plaid environment: ${config.environment} (${plaidEndpoint})`);
-      
+
       const linkTokenResponse = await fetch(plaidEndpoint, {
         method: 'POST',
         headers: {
@@ -2259,7 +2314,7 @@ export const createPlaidLinkToken = onCall(
       }
 
       const linkTokenData = await linkTokenResponse.json();
-      
+
       Logger.info('Created link token for user ${userId}', {});
 
       return {
@@ -2269,16 +2324,18 @@ export const createPlaidLinkToken = onCall(
 
     } catch (error) {
       Logger.error('Error creating Plaid link token:', { error: (error as Error) });
-      
+
       if (error instanceof HttpsError) {
         throw error;
       }
-      
+
       throw new HttpsError('internal', `Failed to create link token: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 );
 
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
 async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Promise<void> {
   const customerId: string = subscription.customer as string;
   const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
@@ -2315,7 +2372,10 @@ async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Pro
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 }
+*/
 
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Promise<void> {
   const customerId: string = subscription.customer as string;
   const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
@@ -2337,7 +2397,10 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Pro
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 }
+*/
 
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
 async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
   Logger.info('Payment succeeded for invoice', { value: invoice.id });
   console.log("Full invoice data:", JSON.stringify(invoice, null, 2));
@@ -2462,7 +2525,10 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
     throw error; // Rethrow to trigger webhook retry if needed
   }
 }
+*/
 
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
 async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
   Logger.info('Payment failed for invoice', { value: invoice.id });
 
@@ -2481,13 +2547,14 @@ async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   });
 }
+*/
 
 // 5. Proactive Bank Connection Health Monitoring
 export const monitorBankConnections = functionsV1.pubsub
   .schedule("0 */6 * * *") // Run every 6 hours
   .onRun(async (context: any) => {
     Logger.debug('Starting proactive bank connection health check...', {});
-    
+
     try {
       // Get all active Plaid items that haven't been checked recently
       const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000);
@@ -2511,7 +2578,7 @@ export const monitorBankConnections = functionsV1.pubsub
           // Simulate a health check by attempting to get accounts
           // In production, this would use Plaid API
           Logger.debug('Checking health for ${institutionName} (${itemId})', {});
-          
+
           // Update last health check timestamp
           await itemDoc.ref.update({
             lastHealthCheck: admin.firestore.FieldValue.serverTimestamp()
@@ -2519,10 +2586,10 @@ export const monitorBankConnections = functionsV1.pubsub
 
           // If connection is stale or showing signs of issues, create notification
           const needsAttention = await checkConnectionNeedsRepair(itemData);
-          
+
           if (needsAttention) {
             Logger.warn('Connection needs repair: ${institutionName}', {});
-            
+
             // Update item status to indicate it needs repair
             await itemDoc.ref.update({
               status: "error",
@@ -2543,10 +2610,10 @@ export const monitorBankConnections = functionsV1.pubsub
               "reauth_required",
               "HEALTH_CHECK"
             );
-            
+
             console.log(`📢 Created repair notification for ${institutionName}`);
           }
-          
+
         } catch (error) {
           console.error(`❌ Error checking health for ${institutionName}:`, error);
         }
@@ -2561,12 +2628,12 @@ export const monitorBankConnections = functionsV1.pubsub
 // Helper function to determine if a connection needs repair
 async function checkConnectionNeedsRepair(itemData: any): Promise<boolean> {
   const { status, lastSyncAt, accessToken, error } = itemData;
-  
+
   // Connection already marked as needing repair
   if (status === "error" || !accessToken) {
     return true;
   }
-  
+
   // Connection hasn't synced in over 48 hours
   if (lastSyncAt) {
     const twoDaysAgo = new Date(Date.now() - 48 * 60 * 60 * 1000);
@@ -2575,12 +2642,12 @@ async function checkConnectionNeedsRepair(itemData: any): Promise<boolean> {
       return true;
     }
   }
-  
+
   // Has existing error
   if (error && error.errorType) {
     return true;
   }
-  
+
   return false;
 }
 
@@ -2670,11 +2737,12 @@ export const resetMonthlyUsage = functionsV1.pubsub
   });
 
 // 6. Create Subscription for Mobile App
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
 interface CreateSubscriptionData {
   priceId: string;
   customerId: string;
 }
-
 export const createSubscription = onCall(async (request: CallableRequest<CreateSubscriptionData>) => {
   Logger.info('createSubscription called with auth', { value: request.auth });
   Logger.info('createSubscription request data', { value: request.data });
@@ -2721,11 +2789,13 @@ export const createSubscription = onCall(async (request: CallableRequest<CreateS
     }
 
     if (customer.metadata?.userId !== request.auth.uid) {
-      Logger.error('Customer does not belong to user:', { error: {
-        customerId,
-        customerUserId: customer.metadata?.userId,
-        requestUserId: request.auth.uid
-      } });
+      Logger.error('Customer does not belong to user:', {
+        error: {
+          customerId,
+          customerUserId: customer.metadata?.userId,
+          requestUserId: request.auth.uid
+        }
+      });
       throw new HttpsError('permission-denied', 'Customer does not belong to this user');
     }
 
@@ -2781,13 +2851,15 @@ export const createSubscription = onCall(async (request: CallableRequest<CreateS
     );
   }
 });
+*/
 
 // Create Stripe Customer (with environment-aware app URL)
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
 interface CreateCustomerData {
   email: string;
   name: string;
 }
-
 export const createStripeCustomer = onCall(async (request: CallableRequest<CreateCustomerData>) => {
   Logger.info('createStripeCustomer called with auth', { value: request.auth });
 
@@ -2854,13 +2926,15 @@ export const createStripeCustomer = onCall(async (request: CallableRequest<Creat
     );
   }
 });
+*/
 
 // 7. Create Checkout Session (with environment-aware URLs)
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
 interface CreateCheckoutSessionData {
   priceId: string;
   customerId: string;
 }
-
 export const createCheckoutSession = onCall(
   async (request: CallableRequest<CreateCheckoutSessionData>) => {
     if (!request.auth) {
@@ -2921,6 +2995,7 @@ export const createCheckoutSession = onCall(
     }
   }
 );
+*/
 
 // 8. Business Stats Update Trigger (updated for Firebase Functions v6)
 export const updateBusinessStats = functionsV1.firestore
@@ -3165,7 +3240,7 @@ export const onUserDelete = functionsV1.auth.user().onDelete(async (user: admin.
 
 interface UpdateSubscriptionRequest {
   subscriptionId: string;
-  tierId?: 'free' | 'starter' | 'growth' | 'professional'; // Optional - Cloud Function can determine from RevenueCat
+  tierId?: 'free' | 'starter' | 'growth' | 'professional' | 'trial'; // Optional - Cloud Function can determine from RevenueCat
   userId: string;
   revenueCatUserId?: string; // For calling RevenueCat API directly
 }
@@ -3182,10 +3257,10 @@ type FirestoreUpdateData = admin.firestore.UpdateData<admin.firestore.DocumentDa
 type FirestoreDocumentData = admin.firestore.DocumentData;
 
 // OPTIMIZATION: Helper function to determine subscription tier from RevenueCat API
-async function getRevenueCatSubscriptionTier(revenueCatUserId: string): Promise<'free' | 'starter' | 'growth' | 'professional'> {
+async function getRevenueCatSubscriptionTier(revenueCatUserId: string): Promise<'free' | 'starter' | 'growth' | 'professional' | 'trial'> {
   try {
     functions.logger.info('🔍 Calling RevenueCat API to determine tier', { revenueCatUserId });
-    
+
     const revenueCatApiKey = process.env.REVENUECAT_API_KEY;
     if (!revenueCatApiKey) {
       functions.logger.warn('⚠️ RevenueCat API key not configured, falling back to client-provided tier');
@@ -3214,7 +3289,7 @@ async function getRevenueCatSubscriptionTier(revenueCatUserId: string): Promise<
 
     // Determine tier from active entitlements and products
     const entitlements = subscriberData.subscriber?.entitlements || {};
-    const activeEntitlements = Object.values(entitlements).filter((ent: any) => 
+    const activeEntitlements = Object.values(entitlements).filter((ent: any) =>
       ent.expires_date === null || new Date(ent.expires_date) > new Date()
     );
 
@@ -3224,7 +3299,7 @@ async function getRevenueCatSubscriptionTier(revenueCatUserId: string): Promise<
 
     // Check product IDs to determine tier (same logic as client-side)
     const productIds = activeEntitlements.map((ent: any) => ent.product_identifier);
-    
+
     if (productIds.some(id => id === 'rc_professional_monthly' || id === 'rc_professional_annual')) {
       return 'professional';
     } else if (productIds.some(id => id === 'rc_growth_monthly' || id === 'rc_growth_annual')) {
@@ -3260,17 +3335,18 @@ export const updateSubscriptionAfterPayment = onCall(
 
       const { subscriptionId, tierId, userId, revenueCatUserId }: UpdateSubscriptionRequest = request.data;
 
+      Logger.info('Request data from updateSubscriptionAfterPayment:', request.data);
       // Validate required fields
       if (!subscriptionId || !userId) {
         throw new HttpsError('invalid-argument', 'Missing required fields: subscriptionId, userId');
       }
 
       // OPTIMIZATION: Determine tier from RevenueCat API if not provided by client
-      let finalTierId: 'free' | 'starter' | 'growth' | 'professional';
-      
+      let finalTierId: 'free' | 'starter' | 'growth' | 'professional' | 'trial';
+
       if (tierId) {
         // Client provided tier - validate it
-        const validTiers: Array<'free' | 'starter' | 'growth' | 'professional'> = ['free', 'starter', 'growth', 'professional'];
+        const validTiers: Array<'free' | 'starter' | 'growth' | 'professional' | 'trial'> = ['free', 'starter', 'growth', 'professional', 'trial'];
         if (!validTiers.includes(tierId)) {
           throw new HttpsError('invalid-argument', `Invalid tier: ${tierId}`);
         }
@@ -3318,19 +3394,19 @@ export const updateSubscriptionAfterPayment = onCall(
       // End trial when confirming ANY subscription (if trial is still active)
       const trialData = currentSub.data()?.trial;
       const currentTrialActive = trialData?.isActive !== false && // if isActive is undefined or true
-                                 trialData?.expiresAt && 
-                                 trialData.expiresAt.toDate() > new Date(); // and not expired
-      
-      functions.logger.info('🔍 Trial check', { 
-        currentTrialActive, 
-        finalTierId, 
+        trialData?.expiresAt &&
+        trialData.expiresAt.toDate() > new Date(); // and not expired
+
+      functions.logger.info('🔍 Trial check', {
+        currentTrialActive,
+        finalTierId,
         shouldEndTrial: currentTrialActive && finalTierId !== 'free',
         trialData,
         isActiveField: trialData?.isActive,
         expiresAt: trialData?.expiresAt?.toDate(),
         now: new Date()
       });
-      
+
       if (currentTrialActive && finalTierId !== 'free') {
         functions.logger.info('🏁 Ending trial for user upgrading to paid subscription');
         subscriptionUpdateData.trial = {
@@ -3418,6 +3494,8 @@ const validateStripeSubscription = async (subscriptionId: string): Promise<boole
 
 // ADDITIONAL FUNCTIONS FOR TESTING AND DEBUGGING
 
+// COMMENTED OUT - Using RevenueCat instead of Stripe
+/*
 // Test Stripe connection
 export const testStripeConnection = onCall(
   async (request: CallableRequest<any>) => {
@@ -3445,10 +3523,11 @@ export const testStripeConnection = onCall(
       };
     }
   }
-);// Health check endpoint
+);
+*/// Health check endpoint (Stripe references commented out)
 export const healthCheck = onRequest((req, res) => {
   try {
-    const config = getStripeConfig();
+    // const config = getStripeConfig(); // COMMENTED OUT - Using RevenueCat instead of Stripe
 
     res.status(200).json({
       status: 'healthy',
@@ -3456,10 +3535,10 @@ export const healthCheck = onRequest((req, res) => {
       environment: process.env.NODE_ENV || 'unknown',
       project: process.env.GCLOUD_PROJECT || 'unknown',
       region: process.env.FUNCTION_REGION || 'unknown',
-      stripe: {
-        hasSecretKey: !!config.secretKey,
-        hasWebhookSecret: !!config.webhookSecret,
-      }
+      // stripe: { // COMMENTED OUT - Using RevenueCat instead of Stripe
+      //   hasSecretKey: !!config.secretKey,
+      //   hasWebhookSecret: !!config.webhookSecret,
+      // }
     });
   } catch (error) {
     res.status(500).json({
@@ -3494,12 +3573,12 @@ export const debugWebhook = onRequest((req, res) => {
 export const markDeviceUsed = onRequest({ cors: true }, async (req: Request, res: Response) => {
   try {
     const { deviceToken } = req.body.data || req.body;
-    
+
     if (!deviceToken) {
       res.status(400).json({ error: 'deviceToken is required' });
       return;
     }
-    
+
     const db = admin.firestore();
     await db.collection('device_tracking').doc(deviceToken).set({
       hasCreatedAccount: true,
@@ -3507,7 +3586,7 @@ export const markDeviceUsed = onRequest({ cors: true }, async (req: Request, res
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
       testDevice: true
     });
-    
+
     res.json({ success: true, message: 'Device marked as used', deviceToken });
   } catch (error) {
     Logger.error('Error marking device as used', { error: (error as Error).message });
@@ -3519,12 +3598,12 @@ export const markDeviceUsed = onRequest({ cors: true }, async (req: Request, res
 export const saveDeviceToken = onRequest({ cors: true }, async (req: Request, res: Response) => {
   try {
     const deviceToken = req.query.token as string;
-    
+
     if (!deviceToken) {
       res.status(400).json({ error: 'token parameter is required' });
       return;
     }
-    
+
     const db = admin.firestore();
     await db.collection('device_tracking').doc(deviceToken).set({
       hasCreatedAccount: true,
@@ -3532,11 +3611,11 @@ export const saveDeviceToken = onRequest({ cors: true }, async (req: Request, re
       lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
       testDevice: true
     });
-    
-    res.json({ 
-      success: true, 
-      message: 'Device token saved', 
-      deviceToken: deviceToken.substring(0, 20) + '...' 
+
+    res.json({
+      success: true,
+      message: 'Device token saved',
+      deviceToken: deviceToken.substring(0, 20) + '...'
     });
   } catch (error) {
     Logger.error('Error saving device token', { error: (error as Error).message });
@@ -3547,12 +3626,12 @@ export const saveDeviceToken = onRequest({ cors: true }, async (req: Request, re
 export const testDeviceCheck = onRequest(async (req: Request, res: Response) => {
   try {
     const { deviceToken, action } = req.body;
-    
+
     if (!deviceToken) {
       res.status(400).json({ error: 'deviceToken is required' });
       return;
     }
-    
+
     if (action === 'query') {
       const result = await queryDeviceCheck(deviceToken);
       res.status(200).json({
@@ -3571,18 +3650,18 @@ export const testDeviceCheck = onRequest(async (req: Request, res: Response) => 
     } else {
       res.status(400).json({ error: 'action must be "query" or "update"' });
     }
-    
+
   } catch (error) {
     Logger.error('DeviceCheck test failed', { error: (error as Error).message });
-    res.status(500).json({ 
-      error: `DeviceCheck test failed: ${(error as Error).message}` 
+    res.status(500).json({
+      error: `DeviceCheck test failed: ${(error as Error).message}`
     });
   }
 });
 
 // Function to test Plaid webhooks using sandbox fire_webhook endpoint
 export const testPlaidWebhook = onCall(
-  async (request: CallableRequest<{ 
+  async (request: CallableRequest<{
     webhookType: 'DEFAULT_UPDATE' | 'NEW_ACCOUNTS_AVAILABLE' | 'SMS_MICRODEPOSITS_VERIFICATION' | 'LOGIN_REPAIRED';
     webhookCode?: string;
     accessToken: string;
@@ -3615,11 +3694,13 @@ export const testPlaidWebhook = onCall(
         requestBody.webhook_code = webhookCode;
       }
 
-      Logger.info('📤 Sending sandbox webhook request', { value: {
-        webhook_type: webhookType,
-        webhook_code: webhookCode,
-        user_id: request.auth.uid,
-      } });
+      Logger.info('📤 Sending sandbox webhook request', {
+        value: {
+          webhook_type: webhookType,
+          webhook_code: webhookCode,
+          user_id: request.auth.uid,
+        }
+      });
 
       const response = await fetch(`https://${plaidConfig.environment}.plaid.com/sandbox/item/fire_webhook`, {
         method: 'POST',
@@ -3649,11 +3730,11 @@ export const testPlaidWebhook = onCall(
 
     } catch (error) {
       Logger.error('❌ Error testing Plaid webhook:', { error: (error as Error) });
-      
+
       if (error instanceof HttpsError) {
         throw error;
       }
-      
+
       throw new HttpsError('internal', `Failed to test webhook: ${(error as Error).message}`);
     }
   }
@@ -3668,7 +3749,7 @@ export const directTestPlaidWebhook = onRequest(async (req: Request, res: Respon
 
   try {
     Logger.info('🧪 Direct Plaid webhook test starting...', {});
-    
+
     const accessToken = 'access-sandbox-6193d89e-9a8a-48a3-af09-88d86d13dbb1';
     const webhookType = 'DEFAULT_UPDATE';
     const webhookCode = 'TRANSACTIONS';
@@ -3698,8 +3779,8 @@ export const directTestPlaidWebhook = onRequest(async (req: Request, res: Respon
     if (!response.ok) {
       const errorData = await response.json();
       Logger.error('❌ Plaid webhook failed:', { error: errorData });
-      res.status(500).json({ 
-        success: false, 
+      res.status(500).json({
+        success: false,
         error: errorData,
         message: 'Plaid webhook failed'
       });
@@ -3730,90 +3811,95 @@ export const directTestPlaidWebhook = onRequest(async (req: Request, res: Respon
 });
 
 // Sync bank connection data to plaid_items for webhook processing
-export const syncBankConnectionToPlaidItems = onRequest(async (req: Request, res: Response) => {
-  if (req.method !== 'POST') {
-    res.status(405).json({ error: 'Method not allowed' });
-    return;
-  }
+// export const syncBankConnectionToPlaidItems = onRequest(async (req: Request, res: Response) => {
+//   if (req.method !== 'POST') {
+//     res.status(405).json({ error: 'Method not allowed' });
+//     return;
+//   }
 
-  try {
-    Logger.info('🔄 Syncing bank connection to plaid_items...', {});
-    
-    const userId = 'sZY5c4gQa9XVwfy7EbPUHs7Vnrc2';
-    const itemId = 'bank_sZY5c4gQa9XVwfy7EbPUHs7Vnrc2_1756666330485';
-    const accessToken = 'access-sandbox-6193d89e-9a8a-48a3-af09-88d86d13dbb1';
+//   try {
+//     Logger.info('🔄 Syncing bank connection to plaid_items...', {});
 
-    // Create plaid_items document for webhook processing
-    await db.collection('plaid_items').doc(itemId).set({
-      itemId: itemId,
-      userId: userId,
-      institutionId: 'ins_109511',
-      institutionName: 'Tartan Bank',
-      accessToken: accessToken,
-      accounts: [
-        { accountId: 'sample_account_1', name: 'Checking Account', type: 'depository', subtype: 'checking' },
-        { accountId: 'sample_account_2', name: 'Savings Account', type: 'depository', subtype: 'savings' }
-      ],
-      isActive: true,
-      status: 'good',
-      needsReauth: false,
-      connectedAt: new Date('2025-08-31T18:46:51.613Z'),
-      lastSyncAt: new Date('2025-08-31T18:46:51.613Z'),
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    }, { merge: true });
+//     const { userId, itemId, accessToken } = req.body;
 
-    Logger.info('✅ Successfully created plaid_items document', {});
+//     if (!userId || !itemId || !accessToken) {
+//       res.status(400).json({
+//         error: 'Missing required fields: userId, itemId, and accessToken are required'
+//       });
+//       return;
+//     }
 
-    res.status(200).json({
-      success: true,
-      message: 'Bank connection synced to plaid_items',
-      itemId: itemId,
-      userId: userId,
-      timestamp: new Date().toISOString()
-    });
+//     // Create plaid_items document for webhook processing
+//     await db.collection('plaid_items').doc(itemId).set({
+//       itemId: itemId,
+//       userId: userId,
+//       institutionId: 'ins_109511',
+//       institutionName: 'Tartan Bank',
+//       accessToken: accessToken,
+//       accounts: [
+//         { accountId: 'sample_account_1', name: 'Checking Account', type: 'depository', subtype: 'checking' },
+//         { accountId: 'sample_account_2', name: 'Savings Account', type: 'depository', subtype: 'savings' }
+//       ],
+//       isActive: true,
+//       status: 'good',
+//       needsReauth: false,
+//       connectedAt: new Date('2025-08-31T18:46:51.613Z'),
+//       lastSyncAt: new Date('2025-08-31T18:46:51.613Z'),
+//       createdAt: admin.firestore.FieldValue.serverTimestamp(),
+//       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+//     }, { merge: true });
 
-  } catch (error) {
-    Logger.error('❌ Error syncing to plaid_items:', { error: (error as Error) });
-    res.status(500).json({
-      success: false,
-      error: (error as Error),
-      message: 'Failed to sync bank connection'
-    });
-  }
-});
+//     Logger.info('✅ Successfully created plaid_items document', {});
+
+//     res.status(200).json({
+//       success: true,
+//       message: 'Bank connection synced to plaid_items',
+//       itemId: itemId,
+//       userId: userId,
+//       timestamp: new Date().toISOString()
+//     });
+
+//   } catch (error) {
+//     Logger.error('❌ Error syncing to plaid_items:', { error: (error as Error) });
+//     res.status(500).json({
+//       success: false,
+//       error: (error as Error),
+//       message: 'Failed to sync bank connection'
+//     });
+//   }
+// });
 
 // Function to manually trigger user initialization (for testing)
-export const initializeTestUser = onCall(
-  async (request: CallableRequest<{ email: string; displayName: string }>) => {
-    if (!request.auth) {
-      throw new HttpsError('unauthenticated', 'User must be authenticated');
-    }
+// export const initializeTestUser = onCall(
+//   async (request: CallableRequest<{ email: string; displayName: string }>) => {
+//     if (!request.auth) {
+//       throw new HttpsError('unauthenticated', 'User must be authenticated');
+//     }
 
-    try {
-      const userId = request.auth.uid;
-      const { email, displayName } = request.data;
+//     try {
+//       const userId = request.auth.uid;
+//       const { email, displayName } = request.data;
 
-      // Manually trigger user initialization
-      const mockUser = {
-        uid: userId,
-        email: email,
-        displayName: displayName,
-      } as admin.auth.UserRecord;
+//       // Manually trigger user initialization
+//       const mockUser = {
+//         uid: userId,
+//         email: email,
+//         displayName: displayName,
+//       } as admin.auth.UserRecord;
 
-      // Call the user creation function directly
-      await exports.onUserCreate(mockUser);
+//       // Call the user creation function directly
+//       await exports.onUserCreate(mockUser);
 
-      return {
-        success: true,
-        userId: userId,
-      };
-    } catch (error) {
-      Logger.error('Error initializing test user:', { error: (error as Error) });
-      throw new HttpsError('internal', 'Failed to initialize user');
-    }
-  }
-);
+//       return {
+//         success: true,
+//         userId: userId,
+//       };
+//     } catch (error) {
+//       Logger.error('Error initializing test user:', { error: (error as Error) });
+//       throw new HttpsError('internal', 'Failed to initialize user');
+//     }
+//   }
+// );
 
 // =====================================================
 // TEAM MANAGEMENT FUNCTIONS
@@ -3851,7 +3937,7 @@ export const sendTeamInvitationEmail = functionsV1.firestore
 
       // Email content
       const subject = `${accountHolderName} invited you to join their ReceiptGold team`;
-      
+
       const htmlContent = `
         <!DOCTYPE html>
         <html>
@@ -3933,7 +4019,7 @@ export const sendTeamInvitationEmail = functionsV1.firestore
       const response = await sgMail.send(msg);
       Logger.info('✅ Team invitation email sent successfully to', { value: invitation.inviteEmail });
       Logger.info('📧 SendGrid response status', { value: response[0].statusCode });
-      
+
       // Mark invitation as email sent (optional status tracking)
       await snapshot.ref.update({
         emailSent: true,
@@ -3944,7 +4030,7 @@ export const sendTeamInvitationEmail = functionsV1.firestore
 
     } catch (error) {
       Logger.error('❌ Error sending team invitation email:', { error: (error as Error) });
-      
+
       // Update invitation with error status
       await snapshot.ref.update({
         emailError: (error as Error).message,
@@ -3968,7 +4054,7 @@ export const cleanupExpiredInvitations = functionsV1.pubsub
         .where('status', '==', 'pending');
 
       const expiredInvitations = await expiredInvitationsQuery.get();
-      
+
       if (expiredInvitations.empty) {
         Logger.info('No expired invitations to clean up', {});
         return;
@@ -4025,11 +4111,11 @@ export const onTeamMemberRemoved = functionsV1.firestore
           const receiptsQuery = db.collection('receipts').where('userId', '==', userId);
           const receiptsSnapshot = await receiptsQuery.get();
           const receiptBatch = db.batch();
-          
+
           receiptsSnapshot.docs.forEach(doc => {
             receiptBatch.delete(doc.ref);
           });
-          
+
           if (!receiptsSnapshot.empty) {
             await receiptBatch.commit();
             console.log(`🧾 Deleted ${receiptsSnapshot.size} receipts for user ${userId}`);
@@ -4039,11 +4125,11 @@ export const onTeamMemberRemoved = functionsV1.firestore
           const budgetsQuery = db.collection('budgets').where('userId', '==', userId);
           const budgetsSnapshot = await budgetsQuery.get();
           const budgetBatch = db.batch();
-          
+
           budgetsSnapshot.docs.forEach(doc => {
             budgetBatch.delete(doc.ref);
           });
-          
+
           if (!budgetsSnapshot.empty) {
             await budgetBatch.commit();
             console.log(`💰 Deleted ${budgetsSnapshot.size} budgets for user ${userId}`);
@@ -4054,16 +4140,16 @@ export const onTeamMemberRemoved = functionsV1.firestore
           console.log(`👥 Deleted team member document ${memberId}`);
 
           Logger.info('COMPLETE ACCOUNT DELETION: User ${userId} (${memberEmail}) has been permanently removed', {});
-          
+
         } catch (deleteError) {
           console.error(`❌ Error during complete account deletion for user ${userId}:`, deleteError);
-          
+
           // Still update the removal timestamp even if deletion fails
           await change.after.ref.update({
             removedAt: admin.firestore.FieldValue.serverTimestamp(),
             deletionError: deleteError instanceof Error ? deleteError.message : String(deleteError),
           });
-          
+
           throw deleteError; // Re-throw to trigger function retry
         }
       }
@@ -4076,7 +4162,7 @@ export const onTeamMemberRemoved = functionsV1.firestore
 // RevenueCat webhook for handling subscription events
 export const revenueCatWebhookHandler = onRequest(async (req: Request, res: Response) => {
   Logger.info('RevenueCat webhook received', {});
-  
+
   if (req.method !== 'POST') {
     Logger.error('Invalid method for RevenueCat webhook', { method: req.method });
     res.status(405).json({ error: 'Method not allowed' });
@@ -4087,13 +4173,13 @@ export const revenueCatWebhookHandler = onRequest(async (req: Request, res: Resp
     // Verify authorization header for security
     const authHeader = req.headers['authorization'] as string;
     const expectedAuth = process.env.REVENUECAT_WEBHOOK_SECRET;
-    
+
     if (expectedAuth && authHeader !== `Bearer ${expectedAuth}`) {
       Logger.info('❌ Invalid authorization header', {});
       res.status(401).json({ error: 'Unauthorized' });
       return;
     }
-    
+
     if (expectedAuth) {
       Logger.info('🔒 Webhook authorization verified', {});
     } else {
@@ -4104,118 +4190,705 @@ export const revenueCatWebhookHandler = onRequest(async (req: Request, res: Resp
     const event = body.event; // RevenueCat nests the actual event data
     Logger.info('RevenueCat event received', { eventType: event.type, eventData: body });
 
-    // Handle different event types
+    // Handle different event types with full business logic
     switch (event.type) {
       case 'INITIAL_PURCHASE':
-      case 'RENEWAL':
-      case 'PRODUCT_CHANGE':
-      case 'CANCELLATION':
-      case 'UNCANCELLATION':
-      case 'NON_RENEWING_PURCHASE':
-        await handleSubscriptionEvent(event);
+        await handleRevenueCatSubscriptionCreated(event);
         break;
-      
+
+      case 'RENEWAL':
+        await handleRevenueCatPaymentSucceeded(event);
+        break;
+
+      case 'PRODUCT_CHANGE':
+        await handleRevenueCatSubscriptionUpdated(event);
+        break;
+
+      case 'CANCELLATION':
+      case 'EXPIRATION':
+        await handleRevenueCatSubscriptionDeleted(event);
+        break;
+
+      case 'UNCANCELLATION':
+        await handleRevenueCatSubscriptionReactivated(event);
+        break;
+
+      case 'BILLING_ISSUE':
+        await handleRevenueCatPaymentFailed(event);
+        break;
+
+      case 'SUBSCRIBER_ALIAS':
+        await handleRevenueCatSubscriberAlias(event);
+        break;
+
+      case 'NON_RENEWING_PURCHASE':
+        await handleRevenueCatOneTimePurchase(event);
+        break;
+
       default:
-        Logger.info('Unhandled event type: ${event.type}', {});
+        Logger.info('Unhandled RevenueCat event type: ${event.type}', {});
     }
 
     res.status(200).json({ received: true });
   } catch (error) {
     Logger.error('Error processing RevenueCat webhook', { error: (error as Error) });
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', eventType: req.body?.event?.type, eventId: req.body?.event?.id });
   }
 });
 
-// Helper function to handle subscription events
-async function handleSubscriptionEvent(event: any) {
+// Helper function to get the correct user ID from RevenueCat event
+function getFirebaseUserIdFromRevenueCatEvent(event: any): string | null {
+  Logger.info('Extracting Firebase user ID from RevenueCat event', { event });
+
+  const { original_app_user_id, app_user_id, aliases } = event;
+
+  // Check aliases for Firebase Auth user ID (not anonymous ID)
+  if (aliases && Array.isArray(aliases)) {
+    for (const alias of aliases) {
+      if (alias && !alias.startsWith('$RCAnonymousID:')) {
+        console.log(`Using Firebase Auth user ID from aliases: ${alias}`);
+        return alias;
+      }
+    }
+  }
+
+  // Fall back to app_user_id if it's not anonymous
+  if (app_user_id && !app_user_id.startsWith('$RCAnonymousID:')) {
+    console.log(`Using app_user_id: ${app_user_id}`);
+    return app_user_id;
+  }
+
+  // Last resort: use original_app_user_id
+  console.log(`Using original_app_user_id: ${original_app_user_id}`);
+  return original_app_user_id;
+}
+
+// RevenueCat handler for INITIAL_PURCHASE (equivalent to Stripe subscription.created)
+async function handleRevenueCatSubscriptionCreated(event: any): Promise<void> {
   try {
-    const { product_id, new_product_id, event_timestamp_ms, type, original_app_user_id } = event;
-    const userId = original_app_user_id;
-    
-    // For PRODUCT_CHANGE events, use new_product_id, otherwise use product_id
-    const effectiveProductId = (type === 'PRODUCT_CHANGE' && new_product_id) ? new_product_id : product_id;
-    
-    Logger.info('Processing subscription event for user: ${userId}', {});
-    Logger.debug('Event type: ${type}', {});
-    Logger.debug('Original Product ID: ${product_id}', {});
-    if (new_product_id) Logger.debug('New Product ID: ${new_product_id}', {});
-    Logger.debug('Effective Product ID: ${effectiveProductId}', {});
-    console.log(`⏰ Event timestamp: ${new Date(event_timestamp_ms)}`);
+    const { product_id, event_timestamp_ms } = event;
+    const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+    Logger.info('Handling RevenueCat subscription creation and contrived userID', { event, userId });
+
+    console.log(`Processing RevenueCat subscription created for user: ${userId}`);
 
     if (!userId) {
-      Logger.error('❌ No user ID found in webhook event', {});
-      return;
+      Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+      throw new Error('No userId in RevenueCat event');
     }
 
-    // Map RevenueCat product ID to subscription tier
-    const tier = mapProductIdToTier(effectiveProductId);
-    Logger.info('Mapped product to tier', { tier, productId: effectiveProductId });
+    console.log(`Processing subscription for user: ${userId}`);
 
-    // Get user's current subscription document
-    const subscriptionRef = db.collection('subscriptions').doc(userId);
-    const currentSub = await subscriptionRef.get();
-    const currentTier = currentSub.data()?.currentTier || 'free';
+    // Validate product ID exists
+    if (!product_id) {
+      throw new Error(`No product_id found in RevenueCat event`);
+    }
 
-    console.log(`📋 Current tier: ${currentTier} → New tier: ${tier}`);
+    console.log(`RevenueCat Product ID: ${product_id}`);
 
-    // Prepare subscription update data
+    // Determine tier from product ID with validation
+    const tier: string = mapProductIdToTier(product_id);
+
+    if (!subscriptionTiers[tier]) {
+      console.error(`Invalid tier determined: ${tier} for product ID: ${product_id}`);
+      throw new Error(`Invalid subscription tier: ${tier}`);
+    }
+
+    console.log(`Determined subscription tier: ${tier}`);
+
+    // Prepare subscription update (ported from Stripe logic)
     const subscriptionUpdate: any = {
+      userId,
       currentTier: tier,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      status: 'active', // RevenueCat subscriptions are active when purchased
+      billing: {
+        revenueCatUserId: userId,
+        productId: product_id,
+        originalPurchaseDate: new Date(event_timestamp_ms),
+        latestPurchaseDate: new Date(event_timestamp_ms),
+        expiresDate: null, // RevenueCat doesn't provide this in webhook
+        isActive: true,
+        willRenew: true,
+        unsubscribeDetectedAt: null,
+        billingIssueDetectedAt: null,
+      },
+      limits: subscriptionTiers[tier].limits,
+      features: subscriptionTiers[tier].features,
+      history: admin.firestore.FieldValue.arrayUnion({
+        tier: tier,
+        startDate: new Date(event_timestamp_ms),
+        endDate: null,
+        reason: "initial_purchase"
+      }),
       lastRevenueCatEvent: {
         type: event.type,
         productId: product_id,
         timestamp: new Date(event_timestamp_ms),
         eventData: event
-      }
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    // Add tier-specific data
-    if (tier !== 'free') {
-      const tierConfig = subscriptionTiers[tier];
-      if (tierConfig) {
-        subscriptionUpdate.limits = tierConfig.limits;
-        subscriptionUpdate.features = tierConfig.features;
+    Logger.info('Saving RevenueCat subscription data for user', { value: userId });
+
+    // Save to Firestore with transaction for consistency (ported from Stripe)
+    await db.runTransaction(async (transaction) => {
+      const subscriptionRef = db.collection("subscriptions").doc(userId);
+      const doc = await transaction.get(subscriptionRef);
+
+      let finalSubscriptionUpdate = { ...subscriptionUpdate };
+
+      if (doc.exists) {
+        const currentData = doc.data();
+        console.log("🚀 ~ handleRevenueCatSubscriptionCreated ~ currentData:", currentData)
+
+        // End trial when confirming subscription (if trial is still active)
+        const trialData = currentData?.trial;
+        const currentTrialActive = trialData?.isActive !== false && // if isActive is undefined or true
+          trialData?.expiresAt &&
+          trialData.expiresAt.toDate() > new Date(); // and not expired
+
+        if (currentTrialActive) {
+          console.log(`🏁 Ending trial for user upgrading to paid subscription: ${tier}`);
+          finalSubscriptionUpdate.trial = {
+            isActive: false,
+            startedAt: currentData?.trial?.startedAt || admin.firestore.FieldValue.serverTimestamp(),
+            expiresAt: admin.firestore.FieldValue.serverTimestamp(), // End trial immediately
+            endedEarly: true,
+            endReason: 'upgraded_to_paid'
+          };
+        }
+
+        // Update existing subscription
+        transaction.update(subscriptionRef, finalSubscriptionUpdate);
+        console.log(`Updated existing subscription for user ${userId}`);
+      } else {
+        // Create new subscription document
+        transaction.set(subscriptionRef, {
+          ...finalSubscriptionUpdate,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        console.log(`Created new subscription for user ${userId}`);
       }
-    }
 
-    // Handle tier changes
-    if (currentTier !== tier) {
-      Logger.info('Tier change detected: ${currentTier} → ${tier}', {});
-      
-      // Add history entry
-      const historyEntry = {
-        tier: tier,
-        startDate: new Date(event_timestamp_ms),
-        endDate: null,
-        reason: `revenuecat_${event.type.toLowerCase()}`
-      };
-      
-      subscriptionUpdate.history = admin.firestore.FieldValue.arrayUnion(historyEntry);
+      // Also update the user's usage limits for current month (ported from Stripe)
+      const currentMonth: string = new Date().toISOString().slice(0, 7);
+      const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
 
-      // Update usage limits if downgrading
-      if (shouldUpdateUsageLimits(currentTier, tier)) {
-        const currentMonth = new Date().toISOString().slice(0, 7);
-        const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
-        
-        await usageRef.set({
-          limits: subscriptionTiers[tier]?.limits || subscriptionTiers.free.limits,
-          updatedAt: admin.firestore.FieldValue.serverTimestamp()
-        }, { merge: true });
-        
-        Logger.info('Updated usage limits for ${currentMonth}', {});
-      }
-    }
+      transaction.update(usageRef, {
+        limits: subscriptionTiers[tier].limits,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      });
+    });
 
-    // Update subscription document
-    await subscriptionRef.set(subscriptionUpdate, { merge: true });
-    Logger.info('Subscription updated for user ${userId}', {});
+    Logger.info('Successfully processed RevenueCat subscription creation for user ${userId}', {});
 
   } catch (error) {
-    Logger.error('❌ Error handling subscription event:', { error: (error as Error) });
+    Logger.error('Error in handleRevenueCatSubscriptionCreated:', { error: (error as Error) });
+    // Re-throw to trigger webhook retry if it's a transient error
     throw error;
   }
 }
+
+// RevenueCat handler for PRODUCT_CHANGE (equivalent to Stripe subscription.updated)
+async function handleRevenueCatSubscriptionUpdated(event: any): Promise<void> {
+  try {
+    const { product_id, new_product_id, event_timestamp_ms } = event;
+    const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+
+    if (!userId) {
+      Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+      return;
+    }
+
+    console.log(`Processing RevenueCat subscription updated for user: ${userId}`);
+
+    // Use new_product_id for product changes
+    const effectiveProductId = new_product_id || product_id;
+    const tier: string = mapProductIdToTier(effectiveProductId);
+
+    // Get current tier for comparison
+    const subscriptionRef = db.collection("subscriptions").doc(userId);
+    const currentSub = await subscriptionRef.get();
+    const currentTier = currentSub.data()?.currentTier || 'free';
+
+    // Prepare subscription update data
+    const subscriptionUpdateData: any = {
+      currentTier: tier,
+      status: 'active',
+      billing: {
+        revenueCatUserId: userId,
+        productId: effectiveProductId,
+        latestPurchaseDate: new Date(event_timestamp_ms),
+        isActive: true,
+        willRenew: true,
+      },
+      limits: subscriptionTiers[tier].limits,
+      features: subscriptionTiers[tier].features,
+      history: admin.firestore.FieldValue.arrayUnion({
+        tier: tier,
+        startDate: new Date(event_timestamp_ms),
+        endDate: null,
+        reason: "product_change"
+      }),
+      lastRevenueCatEvent: {
+        type: event.type,
+        productId: effectiveProductId,
+        timestamp: new Date(event_timestamp_ms),
+        eventData: event
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    // End trial when confirming subscription (if trial is still active) and tier is not free
+    const currentData = currentSub.data();
+    const trialData = currentData?.trial;
+    const currentTrialActive = trialData?.isActive !== false && // if isActive is undefined or true
+      trialData?.expiresAt &&
+      trialData.expiresAt.toDate() > new Date(); // and not expired
+
+    if (currentTrialActive && tier !== 'free') {
+      console.log(`🏁 Ending trial for user upgrading to paid subscription: ${tier}`);
+      subscriptionUpdateData.trial = {
+        isActive: false,
+        startedAt: currentData?.trial?.startedAt || admin.firestore.FieldValue.serverTimestamp(),
+        expiresAt: admin.firestore.FieldValue.serverTimestamp(), // End trial immediately
+        endedEarly: true,
+        endReason: 'upgraded_to_paid'
+      };
+    }
+
+    // Update subscription document (ported from Stripe logic)
+    await subscriptionRef.update(subscriptionUpdateData);
+
+    // Update usage limits if downgrading (ported from Stripe logic)
+    if (shouldUpdateUsageLimits(currentTier, tier)) {
+      const currentMonth = new Date().toISOString().slice(0, 7);
+      const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
+
+      await usageRef.set({
+        limits: subscriptionTiers[tier]?.limits || subscriptionTiers.free.limits,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      Logger.info('Updated usage limits for ${currentMonth} due to tier change', {});
+    }
+
+    Logger.info('Successfully processed RevenueCat subscription update for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error in handleRevenueCatSubscriptionUpdated:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// RevenueCat handler for CANCELLATION/EXPIRATION (equivalent to Stripe subscription.deleted)
+async function handleRevenueCatSubscriptionDeleted(event: any): Promise<void> {
+  try {
+    const { event_timestamp_ms } = event;
+    const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+
+    Logger.info('RevenueCat subscription deleted for user and the event', { value: userId, event });
+
+    if (!userId) {
+      Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+      return;
+    }
+
+    console.log(`Processing RevenueCat subscription deleted for user: ${userId}`);
+
+    // Downgrade to free tier (ported from Stripe logic)
+    const subscriptionRef = db.collection("subscriptions").doc(userId);
+
+    // Use transaction to handle creating document if it doesn't exist
+    await db.runTransaction(async (transaction) => {
+      const doc = await transaction.get(subscriptionRef);
+
+      const updateData: any = {
+        currentTier: "free",
+        status: event.type === 'CANCELLATION' ? "canceled" : "expired",
+        billing: {
+          isActive: false,
+          willRenew: false,
+          unsubscribeDetectedAt: new Date(event_timestamp_ms),
+        },
+        limits: subscriptionTiers.free.limits,
+        features: subscriptionTiers.free.features,
+        history: admin.firestore.FieldValue.arrayUnion({
+          tier: "free",
+          startDate: new Date(event_timestamp_ms),
+          endDate: null,
+          reason: event.type === 'CANCELLATION' ? "cancellation" : "expiration"
+        }),
+        lastRevenueCatEvent: {
+          type: event.type,
+          timestamp: new Date(event_timestamp_ms),
+          eventData: event
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (doc.exists) {
+        // Update existing subscription
+        transaction.update(subscriptionRef, updateData);
+        console.log(`Updated subscription to free tier for user ${userId}`);
+      } else {
+        // Create new subscription document with free tier
+        const createData = {
+          ...updateData,
+          userId: userId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        transaction.set(subscriptionRef, createData);
+        console.log(`Created new free tier subscription for user ${userId}`);
+      }
+    });
+
+    Logger.info('Successfully processed RevenueCat subscription deletion for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error in handleRevenueCatSubscriptionDeleted:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// RevenueCat handler for RENEWAL (equivalent to Stripe invoice.payment_succeeded)
+async function handleRevenueCatPaymentSucceeded(event: any): Promise<void> {
+  try {
+    const { event_timestamp_ms, product_id } = event;
+    const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+
+    Logger.info('RevenueCat payment succeeded for user', { value: userId });
+
+    if (!userId) {
+      Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+      return;
+    }
+
+    console.log(`Processing successful RevenueCat renewal for user: ${userId}`);
+
+    // Get subscription status in Firestore (ported from Stripe logic)
+    const subscriptionRef = db.collection("subscriptions").doc(userId);
+
+    // Determine tier from product ID with validation
+    const tier: string = mapProductIdToTier(product_id);
+
+    const updateData: any = {
+      status: "active", // Ensure status is active since payment succeeded
+      billing: {
+        lastPaymentStatus: "succeeded",
+        lastPaymentDate: admin.firestore.Timestamp.fromDate(new Date(event_timestamp_ms)),
+        latestPurchaseDate: new Date(event_timestamp_ms),
+        isActive: true,
+        willRenew: true,
+        billingIssueDetectedAt: null, // Clear any previous billing issues
+        revenueCatUserId: userId,
+        productId: product_id,
+      },
+      lastRevenueCatEvent: {
+        type: event.type,
+        productId: product_id,
+        timestamp: new Date(event_timestamp_ms),
+        eventData: event
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    // Use transaction to handle creating document if it doesn't exist
+    await db.runTransaction(async (transaction) => {
+      const doc = await transaction.get(subscriptionRef);
+
+      if (doc.exists) {
+        // Update existing subscription
+        transaction.update(subscriptionRef, updateData);
+        console.log(`Updated existing subscription for user ${userId}`);
+      } else {
+        // Create new subscription document with defaults
+        const createData = {
+          ...updateData,
+          userId: userId,
+          currentTier: tier,
+          limits: subscriptionTiers[tier]?.limits || subscriptionTiers.free.limits,
+          features: subscriptionTiers[tier]?.features || subscriptionTiers.free.features,
+          history: [{
+            tier: tier,
+            startDate: new Date(event_timestamp_ms),
+            endDate: null,
+            reason: "payment_succeeded"
+          }],
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        transaction.set(subscriptionRef, createData);
+        console.log(`Created new subscription for user ${userId} with tier ${tier}`);
+      }
+    });
+
+    Logger.info('Successfully processed RevenueCat payment success for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error in handleRevenueCatPaymentSucceeded:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// RevenueCat handler for BILLING_ISSUE (equivalent to Stripe invoice.payment_failed)
+async function handleRevenueCatPaymentFailed(event: any): Promise<void> {
+  try {
+    const { event_timestamp_ms } = event;
+    const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+
+    Logger.info('RevenueCat payment failed for user', { value: userId });
+
+    if (!userId) {
+      Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+      return;
+    }
+
+    // Update subscription status (ported from Stripe logic)
+    await db.collection("subscriptions").doc(userId).update({
+      status: "past_due",
+      "billing.lastPaymentStatus": "failed",
+      "billing.billingIssueDetectedAt": new Date(event_timestamp_ms),
+      "billing.willRenew": false,
+      lastRevenueCatEvent: {
+        type: event.type,
+        timestamp: new Date(event_timestamp_ms),
+        eventData: event
+      },
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    Logger.info('Successfully processed RevenueCat payment failure for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error in handleRevenueCatPaymentFailed:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// RevenueCat handler for UNCANCELLATION
+async function handleRevenueCatSubscriptionReactivated(event: any): Promise<void> {
+  try {
+    const { product_id, event_timestamp_ms } = event;
+    const userId = getFirebaseUserIdFromRevenueCatEvent(event);
+
+    if (!userId) {
+      Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+      return;
+    }
+
+    console.log(`Processing RevenueCat subscription reactivation for user: ${userId}`);
+
+    const tier: string = mapProductIdToTier(product_id);
+
+    const subscriptionRef = db.collection("subscriptions").doc(userId);
+
+    // Use transaction to handle creating document if it doesn't exist
+    await db.runTransaction(async (transaction) => {
+      const doc = await transaction.get(subscriptionRef);
+
+      const updateData: any = {
+        currentTier: tier,
+        status: 'active',
+        billing: {
+          isActive: true,
+          willRenew: true,
+          unsubscribeDetectedAt: null, // Clear cancellation
+          billingIssueDetectedAt: null,
+          revenueCatUserId: userId,
+          productId: product_id,
+        },
+        limits: subscriptionTiers[tier].limits,
+        features: subscriptionTiers[tier].features,
+        history: admin.firestore.FieldValue.arrayUnion({
+          tier: tier,
+          startDate: new Date(event_timestamp_ms),
+          endDate: null,
+          reason: "uncancellation"
+        }),
+        lastRevenueCatEvent: {
+          type: event.type,
+          productId: product_id,
+          timestamp: new Date(event_timestamp_ms),
+          eventData: event
+        },
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      if (doc.exists) {
+        // Update existing subscription
+        transaction.update(subscriptionRef, updateData);
+        console.log(`Reactivated subscription for user ${userId}`);
+      } else {
+        // Create new subscription document
+        const createData = {
+          ...updateData,
+          userId: userId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        transaction.set(subscriptionRef, createData);
+        console.log(`Created new subscription for reactivated user ${userId}`);
+      }
+    });
+
+    Logger.info('Successfully processed RevenueCat subscription reactivation for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error in handleRevenueCatSubscriptionReactivated:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// RevenueCat handler for SUBSCRIBER_ALIAS (when user accounts are merged)
+async function handleRevenueCatSubscriberAlias(event: any): Promise<void> {
+  Logger.info('Processing RevenueCat subscriber alias event', { event });
+  try {
+    const { original_app_user_id, new_app_user_id } = event;
+
+    Logger.info('RevenueCat subscriber alias event', {
+      originalUserId: original_app_user_id,
+      newUserId: new_app_user_id
+    });
+
+    // This event indicates user account merge - typically handled by RevenueCat automatically
+    // Log for debugging purposes but usually no action needed
+
+  } catch (error) {
+    Logger.error('Error in handleRevenueCatSubscriberAlias:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// RevenueCat handler for NON_RENEWING_PURCHASE (one-time purchases)
+async function handleRevenueCatOneTimePurchase(event: any): Promise<void> {
+  try {
+    const { product_id, original_app_user_id } = event;
+    const userId = original_app_user_id;
+
+    Logger.info('RevenueCat one-time purchase for user', {
+      userId: userId,
+      productId: product_id
+    });
+
+    if (!userId) {
+      Logger.error('No userId found in RevenueCat event', { eventType: event.type });
+      return;
+    }
+
+    // Handle one-time purchases (e.g., credits, premium features)
+    // This depends on your specific business logic for non-subscription products
+
+    // TODO: Future implementation for one-time purchases
+    /*
+    // Map product IDs to one-time purchase types
+    const oneTimePurchaseTypes = {
+      // Receipt processing credits
+      'credits_10': { type: 'receipt_credits', amount: 10, description: '10 Receipt Processing Credits' },
+      'credits_25': { type: 'receipt_credits', amount: 25, description: '25 Receipt Processing Credits' },
+      'credits_50': { type: 'receipt_credits', amount: 50, description: '50 Receipt Processing Credits' },
+
+      // Premium features
+      'advanced_reports': { type: 'feature_unlock', feature: 'advanced_reports', description: 'Advanced Reports Feature' },
+      'bulk_export': { type: 'feature_unlock', feature: 'bulk_export', description: 'Bulk Export Feature' },
+
+      // Storage upgrades
+      'storage_1gb': { type: 'storage_upgrade', amount: 1024, description: '1GB Extra Storage' },
+      'storage_5gb': { type: 'storage_upgrade', amount: 5120, description: '5GB Extra Storage' },
+    };
+    */
+
+    Logger.info('Successfully processed RevenueCat one-time purchase for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error in handleRevenueCatOneTimePurchase:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+/* TODO: Future implementation - One-time purchase helper functions
+
+// Grant receipt processing credits to user
+async function grantReceiptCredits(userId: string, credits: number, timestamp: number, productId: string): Promise<void> {
+  try {
+    const userRef = db.collection('users').doc(userId);
+
+    await userRef.update({
+      receiptCredits: admin.firestore.FieldValue.increment(credits),
+      creditsPurchaseHistory: admin.firestore.FieldValue.arrayUnion({
+        amount: credits,
+        productId: productId,
+        purchaseDate: new Date(timestamp),
+        source: 'one_time_purchase'
+      }),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    Logger.info('Granted ${credits} receipt credits to user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error granting receipt credits:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// Unlock premium feature for user
+async function unlockPremiumFeature(userId: string, feature: string, timestamp: number, productId: string): Promise<void> {
+  try {
+    const userRef = db.collection('users').doc(userId);
+
+    await userRef.update({
+      [`premiumFeatures.${feature}`]: true,
+      featurePurchaseHistory: admin.firestore.FieldValue.arrayUnion({
+        feature: feature,
+        productId: productId,
+        purchaseDate: new Date(timestamp),
+        source: 'one_time_purchase'
+      }),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    Logger.info('Unlocked premium feature ${feature} for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error unlocking premium feature:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// Grant storage upgrade to user
+async function grantStorageUpgrade(userId: string, storageAmount: number, timestamp: number, productId: string): Promise<void> {
+  try {
+    const userRef = db.collection('users').doc(userId);
+
+    await userRef.update({
+      extraStorageMB: admin.firestore.FieldValue.increment(storageAmount),
+      storagePurchaseHistory: admin.firestore.FieldValue.arrayUnion({
+        amount: storageAmount,
+        productId: productId,
+        purchaseDate: new Date(timestamp),
+        source: 'one_time_purchase'
+      }),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    Logger.info('Granted ${storageAmount}MB storage to user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error granting storage upgrade:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+// Record one-time purchase in purchase history
+async function recordOneTimePurchase(userId: string, purchaseData: any): Promise<void> {
+  try {
+    const purchaseRef = db.collection('oneTimePurchases').doc();
+
+    await purchaseRef.set({
+      userId: userId,
+      ...purchaseData,
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    Logger.info('Recorded one-time purchase in history for user ${userId}', {});
+  } catch (error) {
+    Logger.error('Error recording one-time purchase:', { error: (error as Error) });
+    throw error;
+  }
+}
+
+*/
 
 // Map RevenueCat product ID to subscription tier
 function mapProductIdToTier(productId: string): string {
@@ -4233,15 +4906,15 @@ function mapProductIdToTier(productId: string): string {
 // Check if usage limits should be updated (when downgrading)
 function shouldUpdateUsageLimits(currentTier: string, newTier: string): boolean {
   const tierPriority = { free: 0, starter: 1, growth: 2, professional: 3 };
-  return (tierPriority[newTier as keyof typeof tierPriority] || 0) < 
-         (tierPriority[currentTier as keyof typeof tierPriority] || 0);
+  return (tierPriority[newTier as keyof typeof tierPriority] || 0) <
+    (tierPriority[currentTier as keyof typeof tierPriority] || 0);
 }
 
 // Check account holder subscription status for teammate sign-in
 export const checkAccountHolderSubscription = onCall(async (request) => {
   try {
     const { accountHolderId } = request.data;
-    
+
     if (!accountHolderId) {
       throw new Error('accountHolderId is required');
     }
@@ -4251,7 +4924,7 @@ export const checkAccountHolderSubscription = onCall(async (request) => {
     // Get account holder's user document to find their subscription
     const db = admin.firestore();
     const userDoc = await db.collection('users').doc(accountHolderId).get();
-    
+
     if (!userDoc.exists) {
       Logger.warn('Account holder not found', { accountHolderId });
       return { hasActiveSubscription: false };
@@ -4266,23 +4939,23 @@ export const checkAccountHolderSubscription = onCall(async (request) => {
     }
 
     // Check if subscription is active AND includes team management features
-    const isActive = subscription.status === 'active' && 
-                     subscription.tier !== 'free' && 
-                     new Date(subscription.expiresAt?.toDate?.() || subscription.expiresAt) > new Date();
-    
+    const isActive = subscription.status === 'active' &&
+      subscription.tier !== 'free' &&
+      new Date(subscription.expiresAt?.toDate?.() || subscription.expiresAt) > new Date();
+
     // Check if the tier includes team management features
     // Only growth, professional, and teammate tiers support team management
     const hasTeamManagement = ['growth', 'professional', 'teammate'].includes(subscription.tier);
-    
+
     const canAccessTeamFeatures = isActive && hasTeamManagement;
 
-    Logger.info('Account holder subscription check result', { 
-      accountHolderId, 
+    Logger.info('Account holder subscription check result', {
+      accountHolderId,
       hasActiveSubscription: isActive,
       hasTeamManagement,
       canAccessTeamFeatures,
       tier: subscription.tier,
-      status: subscription.status 
+      status: subscription.status
     });
 
     return { hasActiveSubscription: canAccessTeamFeatures };
@@ -4305,12 +4978,12 @@ export const onSubscriptionStatusChange = functionsV1.firestore
 
       const beforeSubscription = beforeData;
       const afterSubscription = afterData;
-      
+
       // Check if subscription status changed from active to inactive
       const wasActive = beforeSubscription?.status === 'active' &&
-                       beforeSubscription?.currentTier !== 'free';
+        beforeSubscription?.currentTier !== 'free';
       const isNowInactive = afterSubscription?.status !== 'active' ||
-                           afterSubscription?.currentTier === 'free';
+        afterSubscription?.currentTier === 'free';
 
       if (wasActive && isNowInactive) {
         Logger.info('Account holder subscription became inactive, revoking teammate access', {
@@ -4353,9 +5026,9 @@ export const onSubscriptionStatusChange = functionsV1.firestore
         await reactivateTeammatesForProfessionalTier(userId);
       }
     } catch (error) {
-      Logger.error('Error handling subscription status change', { 
-        userId: context.params.userId, 
-        error: (error as Error).message 
+      Logger.error('Error handling subscription status change', {
+        userId: context.params.userId,
+        error: (error as Error).message
       });
     }
   });
@@ -4364,38 +5037,38 @@ export const onSubscriptionStatusChange = functionsV1.firestore
 async function updateDeviceTrackingForDeletedAccount(userId: string): Promise<void> {
   try {
     const db = admin.firestore();
-    
+
     // Get user's subscription status before deletion
     const userDoc = await db.collection('users').doc(userId).get();
     const userData = userDoc.exists ? userDoc.data() : null;
     const subscription = userData?.subscription;
-    
+
     // Determine subscription status
-    const hadActiveSubscription = subscription?.status === 'active' && 
-                                  subscription?.tier !== 'free' && 
-                                  new Date(subscription?.expiresAt?.toDate?.() || subscription?.expiresAt) > new Date();
-    
+    const hadActiveSubscription = subscription?.status === 'active' &&
+      subscription?.tier !== 'free' &&
+      new Date(subscription?.expiresAt?.toDate?.() || subscription?.expiresAt) > new Date();
+
     const subscriptionStatus = subscription?.status || 'none';
-    
+
     // Find device tracking records directly by userId (much more reliable!)
     const deviceQuery = db.collection('device_tracking')
       .where('userId', '==', userId)
       .where('hasCreatedAccount', '==', true);
-    
+
     const deviceSnapshot = await deviceQuery.get();
-    
+
     if (deviceSnapshot.empty) {
-      Logger.info('No device tracking records found for deleted user', { 
-        userId: userId.substring(0, 8) + '...' 
+      Logger.info('No device tracking records found for deleted user', {
+        userId: userId.substring(0, 8) + '...'
       });
       return;
     }
-    
-    Logger.info('Found device tracking records for deleted user', { 
+
+    Logger.info('Found device tracking records for deleted user', {
       userId: userId.substring(0, 8) + '...',
       recordCount: deviceSnapshot.size
     });
-    
+
     // Update all device records for this user
     const updatePromises = deviceSnapshot.docs.map(async (doc) => {
       try {
@@ -4406,7 +5079,7 @@ async function updateDeviceTrackingForDeletedAccount(userId: string): Promise<vo
           subscriptionStatus,
           note: `Account deleted - ${hadActiveSubscription ? 'had active subscription' : 'no active subscription'}`
         });
-        
+
         Logger.info('Updated device tracking record for deleted account', {
           deviceId: doc.id.substring(0, 20) + '...',
           hadActiveSubscription,
@@ -4419,20 +5092,20 @@ async function updateDeviceTrackingForDeletedAccount(userId: string): Promise<vo
         });
       }
     });
-    
+
     await Promise.all(updatePromises);
-    
-    Logger.info('Completed device tracking updates for deleted account', { 
+
+    Logger.info('Completed device tracking updates for deleted account', {
       userId: userId.substring(0, 8) + '...',
       recordsUpdated: deviceSnapshot.size,
       hadActiveSubscription,
-      subscriptionStatus 
+      subscriptionStatus
     });
-    
+
   } catch (error) {
-    Logger.error('Error updating device tracking for deleted account', { 
+    Logger.error('Error updating device tracking for deleted account', {
       userId: userId.substring(0, 8) + '...',
-      error: (error as Error).message 
+      error: (error as Error).message
     });
     // Don't throw error - this shouldn't block account deletion
   }
@@ -4453,9 +5126,9 @@ async function checkDeletedAccountException(deviceData: any, _newEmail: string):
 
       // Block recreation if previous account had active subscription or trial
       if (deviceData.hadActiveSubscription === true ||
-          deviceData.subscriptionStatus === 'active' ||
-          deviceData.subscriptionStatus === 'trialing' ||
-          deviceData.note?.includes('had active subscription')) {
+        deviceData.subscriptionStatus === 'active' ||
+        deviceData.subscriptionStatus === 'trialing' ||
+        deviceData.note?.includes('had active subscription')) {
         Logger.info('Previous deleted account had active subscription/trial - blocking recreation to prevent abuse');
         return false;
       }
@@ -4469,7 +5142,7 @@ async function checkDeletedAccountException(deviceData: any, _newEmail: string):
     // we can be more lenient and allow new account creation
     const accountCreatedAt = deviceData.createdAt?.toDate ? deviceData.createdAt.toDate() : new Date(deviceData.createdAt);
     const daysSinceCreation = (Date.now() - accountCreatedAt.getTime()) / (1000 * 60 * 60 * 24);
-    
+
     if (daysSinceCreation > 30) {
       Logger.info('Previous account is older than 30 days - allowing exception', { daysSinceCreation });
       return true;
@@ -4488,57 +5161,57 @@ async function checkDeletedAccountException(deviceData: any, _newEmail: string):
 async function revokeTeammateAccess(accountHolderId: string): Promise<void> {
   try {
     const db = admin.firestore();
-    
+
     // Get all active team members for this account holder
     const teamMembersQuery = db.collection('teamMembers')
       .where('accountHolderId', '==', accountHolderId)
       .where('status', '==', 'active');
-    
+
     const teamMembersSnapshot = await teamMembersQuery.get();
-    
+
     if (teamMembersSnapshot.empty) {
       Logger.info('No active team members found for account holder', { accountHolderId });
       return;
     }
-    
-    Logger.info('Found team members to revoke access for', { 
-      accountHolderId, 
-      count: teamMembersSnapshot.size 
+
+    Logger.info('Found team members to revoke access for', {
+      accountHolderId,
+      count: teamMembersSnapshot.size
     });
-    
+
     // Revoke refresh tokens for all teammates (this forces them to re-authenticate)
     const revocationPromises = teamMembersSnapshot.docs.map(async (doc) => {
       const teamMember = doc.data();
       const teammateUserId = teamMember.userId;
-      
+
       try {
         // Revoke all refresh tokens for this user (forces re-authentication)
         await admin.auth().revokeRefreshTokens(teammateUserId);
-        
+
         // Update the team member record to indicate access was revoked
         await doc.ref.update({
           accessRevokedAt: admin.firestore.FieldValue.serverTimestamp(),
           accessRevokedReason: 'Account holder subscription inactive',
           lastActiveAt: admin.firestore.FieldValue.serverTimestamp()
         });
-        
-        Logger.info('Revoked access for teammate', { 
-          accountHolderId, 
+
+        Logger.info('Revoked access for teammate', {
+          accountHolderId,
           teammateUserId,
-          teammateEmail: teamMember.email 
+          teammateEmail: teamMember.email
         });
       } catch (error) {
-        Logger.error('Failed to revoke access for teammate', { 
-          accountHolderId, 
+        Logger.error('Failed to revoke access for teammate', {
+          accountHolderId,
           teammateUserId,
-          error: (error as Error).message 
+          error: (error as Error).message
         });
       }
     });
-    
+
     await Promise.all(revocationPromises);
     Logger.info('Completed revoking access for all teammates', { accountHolderId });
-    
+
   } catch (error) {
     Logger.error('Error revoking teammate access', {
       accountHolderId,
@@ -4857,5 +5530,193 @@ This email was sent automatically from the ReceiptGold mobile app.
     throw new HttpsError('internal', 'Failed to send support request. Please try again.');
   }
 });
+
+// Account deletion interface
+interface DeleteAccountData {
+  password: string;
+}
+
+// Account deletion Cloud Function
+export const deleteUserAccount = onCall(
+  {
+    region: 'us-central1',
+    invoker: 'private'  // Only allow authenticated users
+  },
+  async (request: CallableRequest<DeleteAccountData>) => {
+  Logger.info('🗑️ Account deletion request received', {
+    hasAuth: !!request.auth,
+    authUid: request.auth?.uid,
+    authToken: !!request.auth?.token
+  });
+
+  if (!request.auth) {
+    Logger.error('❌ Authentication missing in deleteUserAccount request', {});
+    throw new HttpsError(
+      "unauthenticated",
+      "User must be authenticated to delete account"
+    );
+  }
+
+  const userId = request.auth.uid;
+  const { password } = request.data;
+
+  if (!password) {
+    throw new HttpsError(
+      "invalid-argument",
+      "Password is required for account deletion"
+    );
+  }
+
+  try {
+    Logger.info('🗑️ Starting account deletion process', { userId });
+
+    // Get the user record
+    const userRecord = await admin.auth().getUser(userId);
+
+    if (!userRecord.email) {
+      throw new HttpsError('internal', 'User email not found');
+    }
+
+    // Re-authenticate the user by checking if they can sign in with the provided password
+    // Note: We cannot re-authenticate from server side, so we trust the client has already done this
+    // The client should re-authenticate before calling this function
+
+    // Delete user data from all Firestore collections
+    const collectionsToDelete = [
+      'receipts',
+      'businesses',
+      'subscriptions',
+      'customCategories',
+      'bankConnections',
+      'teamMembers',
+      'notifications',
+      'userSettings',
+      'usage',
+      'reports',
+      'budgets',
+      'user_notifications',
+      'connection_notifications',
+      'teamInvitations',
+      'device_tracking',
+      'transactionCandidates',
+      'generatedReceipts',
+      'candidateStatus',
+      'plaid_items'
+    ];
+
+    // Use batched operations for efficiency
+    const batch = admin.firestore().batch();
+    let deletionCount = 0;
+
+    for (const collectionName of collectionsToDelete) {
+      try {
+        // Query for documents where userId matches
+        const userDocsQuery = admin.firestore()
+          .collection(collectionName)
+          .where('userId', '==', userId)
+          .limit(500); // Firestore batch limit
+
+        const userDocsSnapshot = await userDocsQuery.get();
+
+        userDocsSnapshot.forEach((doc) => {
+          batch.delete(doc.ref);
+          deletionCount++;
+        });
+
+        // Also check for accountHolderId field (for team-related data)
+        if (['receipts', 'businesses', 'customCategories', 'teamMembers'].includes(collectionName)) {
+          const accountHolderDocsQuery = admin.firestore()
+            .collection(collectionName)
+            .where('accountHolderId', '==', userId)
+            .limit(500);
+
+          const accountHolderDocsSnapshot = await accountHolderDocsQuery.get();
+
+          accountHolderDocsSnapshot.forEach((doc) => {
+            batch.delete(doc.ref);
+            deletionCount++;
+          });
+        }
+
+        // Handle documents with specific patterns (like usage documents)
+        if (collectionName === 'usage') {
+          const usageQuery = admin.firestore()
+            .collection(collectionName)
+            .where(admin.firestore.FieldPath.documentId(), '>=', userId)
+            .where(admin.firestore.FieldPath.documentId(), '<', userId + '\uf8ff')
+            .limit(500);
+
+          const usageSnapshot = await usageQuery.get();
+
+          usageSnapshot.forEach((doc) => {
+            batch.delete(doc.ref);
+            deletionCount++;
+          });
+        }
+
+      } catch (error) {
+        Logger.warn(`Error querying collection ${collectionName}`, {
+          error: (error as Error).message,
+          userId
+        });
+        // Continue with other collections even if one fails
+      }
+    }
+
+    // Delete user profile document
+    const userDocRef = admin.firestore().collection('users').doc(userId);
+    batch.delete(userDocRef);
+    deletionCount++;
+
+    // Commit all deletions
+    if (deletionCount > 0) {
+      await batch.commit();
+      Logger.info('✅ Successfully deleted user data from Firestore', {
+        deletionCount,
+        userId
+      });
+    }
+
+    // Update device tracking records
+    await updateDeviceTrackingForDeletedAccount(userId);
+
+    // Finally, delete the Firebase Auth user
+    await admin.auth().deleteUser(userId);
+
+    Logger.info('✅ Successfully deleted user account', {
+      userId,
+      email: userRecord.email,
+      deletionCount
+    });
+
+    return {
+      success: true,
+      message: 'Account deleted successfully',
+      deletedDocuments: deletionCount
+    };
+
+  } catch (error) {
+    Logger.error('❌ Error deleting user account', {
+      error: (error as Error).message,
+      userId
+    });
+
+    // Handle specific Firebase Auth errors
+    if (error instanceof Error) {
+      if (error.message.includes('auth/user-not-found')) {
+        throw new HttpsError('not-found', 'User account not found');
+      } else if (error.message.includes('auth/requires-recent-login')) {
+        throw new HttpsError('failed-precondition', 'Please sign out and sign back in, then try deleting your account again');
+      }
+    }
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError('internal', 'Failed to delete account. Please try again.');
+  }
+  }
+);
 
 
