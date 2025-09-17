@@ -140,31 +140,12 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
         await handleAutoRestore();
       }, 1000);
 
-      // Save device token to database to prevent future accounts
+      // Save device token to database to prevent future accounts (only if DeviceCheck is enabled)
       setTimeout(async () => {
         console.log('⏰ Device token save timeout triggered');
-        try {
-          // Generate device token
-          const deviceToken = await DeviceCheckService.generateDeviceToken();
-          console.log('📱 Generated device token for storage:', deviceToken.substring(0, 30) + '...');
-          
-          // Save device token to Firestore with userId for direct tracking
-          const deviceRef = doc(db, 'device_tracking', deviceToken);
-          await setDoc(deviceRef, {
-            hasCreatedAccount: true,
-            userId: auth.currentUser?.uid,
-            userEmail: auth.currentUser?.email,
-            createdAt: serverTimestamp(),
-            lastUpdated: serverTimestamp(),
-            testDevice: false,
-            note: 'Account created successfully'
-          });
-          
-          console.log('✅ Device token saved to database - future accounts on this device will be blocked');
-        } catch (error) {
-          console.error('❌ Error saving device token:', error);
-          // Don't show error to user - this is background operation
-        }
+
+        // Use the same completeAccountSetup method which respects the feature flag
+        await DeviceCheckService.completeAccountSetup();
       }, 1500);
     } catch (error: any) {
       showFirebaseError(error, 'Sign Up Error');

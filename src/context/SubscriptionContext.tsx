@@ -83,6 +83,7 @@ interface SubscriptionContextType {
   canAccessPremiumFeatures: () => boolean;
   hasProfessionalAccess: () => boolean;
   getFeaturesForTeammate: (teamMemberRole?: string) => SubscriptionFeatures;
+  isTrialExpiredAndNoPaidPlan: () => boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(
@@ -659,40 +660,13 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             console.warn('Failed to check RevenueCat:', error);
           }
 
-          const now = new Date();
-          const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
           const receiptLimits = getReceiptLimits();
-          
-          // Create subscription document with trial
-          const newSubscriptionData = {
-            currentTier: "free",
-            status: "active", 
-            trial: {
-              startedAt: now,
-              expiresAt: trialExpires,
-            },
-            billing: {
-              customerId: null,
-              subscriptionId: null,
-              priceId: null,
-              currentPeriodStart: now,
-              currentPeriodEnd: null,
-              cancelAtPeriodEnd: false,
-              trialEnd: null,
-            },
-            createdAt: now,
-            updatedAt: now,
-          };
-          
-          
-          // Save to Firestore
-          try {
-            const { setDoc } = await import('firebase/firestore');
-            await setDoc(doc(db, "subscriptions", user.uid), newSubscriptionData);
-          } catch (error) {
-            console.error('Error creating trial subscription:', error);
-            // Don't return early - still set local state even if Firestore write fails
-          }
+          const now = new Date();
+          // TODO: Change back to 3 days for production
+          const trialExpires = new Date(now.getTime() + (1 * 60 * 1000)); // 1 minute from now (FOR TESTING)
+
+          // Note: Subscription document will be created by onUserCreate Cloud Function
+          // We just set local state here temporarily until the Cloud Function completes
           
           // Override features for team members even for new users
           let newUserTier = "trial";
@@ -788,6 +762,55 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, [user, limits.free, refreshReceiptCount, cancelRefresh, isTeamMember, teamMemberRole]); // Added team member dependencies
 
+  // Add precise trial expiration monitoring
+  useEffect(() => {
+    // Only set up timer if we have an active trial
+    if (!subscription.trial.isActive || !subscription.trial.expiresAt) {
+      return;
+    }
+
+    const now = new Date();
+    const expiresAt = subscription.trial.expiresAt;
+    const timeUntilExpiration = expiresAt.getTime() - now.getTime();
+
+    console.log('🕐 Setting up trial expiration timer:', {
+      now: now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+      timeUntilExpiration: `${Math.round(timeUntilExpiration / 1000)}s`,
+      isActive: subscription.trial.isActive,
+      currentTier: subscription.currentTier
+    });
+
+    // If already expired, update immediately
+    if (timeUntilExpiration <= 0) {
+      console.log('🕐 Trial already expired! Updating subscription state...');
+      setSubscription(prev => ({
+        ...prev,
+        trial: {
+          ...prev.trial,
+          isActive: false,
+        }
+      }));
+      return;
+    }
+
+    // Set up single timeout for exact expiration time
+    const timeout = setTimeout(() => {
+      console.log('🕐 Trial expired! Updating subscription state...');
+      setSubscription(prev => ({
+        ...prev,
+        trial: {
+          ...prev.trial,
+          isActive: false,
+        }
+      }));
+    }, timeUntilExpiration);
+
+    return () => {
+      clearTimeout(timeout);
+    };
+  }, [subscription.trial.isActive, subscription.trial.expiresAt]);
+
   const canAccessFeature = useCallback(
     (feature: keyof SubscriptionFeatures): boolean => {
       return subscription.features[feature] === true;
@@ -822,10 +845,10 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
     try {
       const now = new Date();
-      const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
+      const trialExpires = new Date(now.getTime() + (1 * 60 * 1000)); // 1 minute from now (FOR TESTING)
       
       const subscriptionData = {
-        currentTier: "free",
+        currentTier: "trial",
         status: "active",
         trial: {
           startedAt: now,
@@ -860,6 +883,27 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     return getFeaturesByTier("teammate", teamMemberRole);
   }, [subscription.currentTier, subscription.features]);
 
+  // Check if trial has expired and user has no paid plan
+  const isTrialExpiredAndNoPaidPlan = useCallback((): boolean => {
+    // Team members inherit from account holder, so they don't have trial restrictions
+    if (isTeamMember) {
+      return false;
+    }
+
+    // If trial is active, user can access features
+    if (subscription.trial.isActive) {
+      return false;
+    }
+
+    // If user has a paid plan (not free), they can access features
+    if (subscription.currentTier !== "free") {
+      return false;
+    }
+
+    // If we get here, trial has expired and user is on free tier
+    return true;
+  }, [subscription.trial.isActive, subscription.currentTier, isTeamMember]);
+
   const contextValue = {
     subscription,
     canAccessFeature,
@@ -868,12 +912,58 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     loading,
     currentReceiptCount,
     refreshReceiptCount,
-    refreshSubscription: refreshReceiptCount, // Use refreshReceiptCount as refreshSubscription
+    refreshSubscription: async (): Promise<{ success: boolean; error?: string }> => {
+      try {
+        console.log('🔄 Refreshing subscription state after purchase...');
+
+        if (!user?.uid) {
+          return { success: false, error: 'No user authenticated' };
+        }
+
+        // Force refresh from RevenueCat first
+        try {
+          const { revenueCatService } = await import('../services/revenuecatService');
+          const customerInfo = await revenueCatService.getCustomerInfo(true); // force refresh
+          console.log('🔄 RefreshedRevenueCat customer info:', {
+            activeSubscriptions: customerInfo.activeSubscriptions,
+            entitlements: Object.keys(customerInfo.entitlements.active || {})
+          });
+        } catch (revenueCatError) {
+          console.warn('⚠️ Failed to refresh RevenueCat info:', revenueCatError);
+        }
+
+        // Force refresh from Firestore
+        const { doc, getDoc } = await import('firebase/firestore');
+        const subscriptionRef = doc(db, 'subscriptions', user.uid);
+        const subscriptionSnap = await getDoc(subscriptionRef);
+
+        if (subscriptionSnap.exists()) {
+          const data = subscriptionSnap.data();
+          console.log('🔄 Refreshed Firestore subscription data:', {
+            currentTier: data.currentTier,
+            status: data.status,
+            hasActiveSubscription: !!data.billing?.subscriptionId
+          });
+        } else {
+          console.log('🔄 No subscription document found in Firestore');
+        }
+
+        // Refresh receipt count as well
+        await refreshReceiptCount();
+
+        console.log('✅ Subscription refresh completed');
+        return { success: true };
+      } catch (error) {
+        console.error('❌ Error refreshing subscription:', error);
+        return { success: false, error: (error as Error).message };
+      }
+    },
     isRefreshing,
     startTrial,
     canAccessPremiumFeatures,
     hasProfessionalAccess,
     getFeaturesForTeammate,
+    isTrialExpiredAndNoPaidPlan,
   };
 
   return (

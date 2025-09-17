@@ -83,6 +83,7 @@
       "PROFESSIONAL_TIER_MAX_RECEIPTS": "-1",
       "TEAMMATE_TIER_MAX_RECEIPTS": "-1",
       "USE_DUMMY_DATA": "false",
+      "enableDeviceCheck": "${EXPO_PUBLIC_ENABLE_DEVICE_CHECK}",
       "eas": {
         "projectId": "d191a88f-30f6-4f6c-bab7-5558207938be"
       }
