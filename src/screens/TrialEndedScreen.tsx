@@ -42,6 +42,7 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
   const [loading, setLoading] = useState(false);
   const [upgrading, setUpgrading] = useState<string | null>(null);
   const [pricing, setPricing] = useState<any>({});
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'annual'>('monthly');
 
   // Password dialog state for account deletion
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -182,17 +183,41 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
     setShowPassword(false);
   };
 
-  const getPlanInfo = (tierKey: string) => {
+  const getPlanInfo = (tierKey: string, billingPeriod: 'monthly' | 'annual' = 'monthly') => {
     const getPrice = () => {
       const tierPricing = pricing[tierKey];
-      if (tierPricing?.monthly?.price) {
+      if (tierPricing && billingPeriod === 'monthly' && tierPricing.monthly?.price) {
         return tierPricing.monthly.price;
       }
+      if (tierPricing && billingPeriod === 'annual' && tierPricing.annual?.price) {
+        return tierPricing.annual.price;
+      }
+      
+      // Fallback to config
       const tierConfig = SUBSCRIPTION_TIERS[tierKey as keyof typeof SUBSCRIPTION_TIERS];
-      if (tierConfig?.monthlyPrice) {
-        return `$${tierConfig.monthlyPrice.toFixed(2)}`;
+      if (tierConfig) {
+        if (billingPeriod === 'monthly' && tierConfig.monthlyPrice) {
+          return `$${tierConfig.monthlyPrice.toFixed(2)}`;
+        }
+        if (billingPeriod === 'annual' && 'annualPrice' in tierConfig && tierConfig.annualPrice) {
+          return `$${tierConfig.annualPrice.toFixed(2)}`;
+        }
       }
       return 'Contact Support';
+    };
+
+    const getSavings = () => {
+      if (billingPeriod === 'annual') {
+        const tierPricing = pricing[tierKey];
+        if (tierPricing?.monthly?.price && tierPricing?.annual?.price) {
+          const monthlyPrice = parseFloat(tierPricing.monthly.price.replace('$', ''));
+          const annualPrice = parseFloat(tierPricing.annual.price.replace('$', ''));
+          const monthlyAnnualCost = monthlyPrice * 12;
+          const savingsPercentage = Math.round(((monthlyAnnualCost - annualPrice) / monthlyAnnualCost) * 100);
+          return savingsPercentage > 0 ? `Save ${savingsPercentage}%` : null;
+        }
+      }
+      return null;
     };
 
     const plans = {
@@ -200,22 +225,28 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
         name: 'Starter',
         price: getPrice(),
         color: '#3B82F6',
-        features: ['50 receipts per month', 'Basic expense tracking', 'Email support'],
+        features: ['50 receipts per month', 'Basic expense tracking', 'LLC-specific categories', 'Email support'],
         recommended: false,
+        productId: billingPeriod === 'monthly' ? 'rg_starter' : null,
+        savings: getSavings(),
       },
       growth: {
         name: 'Growth',
         price: getPrice(),
         color: '#8B5CF6',
-        features: ['150 receipts per month', 'Advanced reporting', 'Tax prep tools', 'Priority support'],
-        recommended: true,
+        features: ['150 receipts per month', 'Advanced reporting', 'Tax prep tools', 'Priority support', 'Quarterly tax reminders'],
+        recommended: billingPeriod === 'monthly',
+        productId: billingPeriod === 'monthly' ? 'rg_growth_monthly' : 'rg_growth_annual',
+        savings: getSavings(),
       },
       professional: {
         name: 'Professional',
         price: getPrice(),
         color: '#F59E0B',
-        features: ['Unlimited receipts', 'Multi-business management', 'Team collaboration', 'Dedicated support'],
+        features: ['Unlimited receipts', 'Multi-business management', 'Team collaboration', 'Dedicated support', 'Bank transaction integration'],
         recommended: false,
+        productId: billingPeriod === 'monthly' ? 'rg_professional_monthly' : 'rg_professional_annual',
+        savings: getSavings(),
       },
     };
 
@@ -254,7 +285,10 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
               <Text style={[styles.statNumber, { color: theme.gold.primary }]}>
                 {stats.receiptsAdded}
               </Text>
-              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
+              <Text 
+                style={[styles.statLabel, { color: theme.text.secondary }]}
+                numberOfLines={2}
+              >
                 Receipts{'\n'}Organized
               </Text>
             </View>
@@ -263,7 +297,10 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
               <Text style={[styles.statNumber, { color: theme.gold.primary }]}>
                 {formatCurrency(stats.estimatedSavings)}
               </Text>
-              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
+              <Text 
+                style={[styles.statLabel, { color: theme.text.secondary }]}
+                numberOfLines={2}
+              >
                 Value{'\n'}Organized
               </Text>
             </View>
@@ -272,7 +309,10 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
               <Text style={[styles.statNumber, { color: theme.gold.primary }]}>
                 {stats.daysUsed}
               </Text>
-              <Text style={[styles.statLabel, { color: theme.text.secondary }]}>
+              <Text 
+                style={[styles.statLabel, { color: theme.text.secondary }]}
+                numberOfLines={2}
+              >
                 Days{'\n'}Active
               </Text>
             </View>
@@ -287,15 +327,67 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
           Choose a plan that grows with your business
         </Text>
 
+        {/* Billing Period Selector */}
+        <View style={styles.billingSelector}>
+          <TouchableOpacity
+            style={[
+              styles.billingOption,
+              {
+                backgroundColor: billingPeriod === 'monthly' ? theme.gold.primary : theme.background.secondary,
+                borderColor: theme.gold.primary,
+              },
+            ]}
+            onPress={() => setBillingPeriod('monthly')}
+          >
+            <Text
+              style={[
+                styles.billingOptionText,
+                {
+                  color: billingPeriod === 'monthly' ? 'white' : theme.text.primary,
+                },
+              ]}
+            >
+              Monthly
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.billingOption,
+              {
+                backgroundColor: billingPeriod === 'annual' ? theme.gold.primary : theme.background.secondary,
+                borderColor: theme.gold.primary,
+              },
+            ]}
+            onPress={() => setBillingPeriod('annual')}
+          >
+            <Text
+              style={[
+                styles.billingOptionText,
+                {
+                  color: billingPeriod === 'annual' ? 'white' : theme.text.primary,
+                },
+              ]}
+            >
+              Annual
+            </Text>
+            {billingPeriod === 'annual' && (
+              <Text style={styles.savingsBadge}>Save up to 25%</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+
         {/* Subscription Plans */}
         <View style={styles.plansContainer}>
           {['starter', 'growth', 'professional'].map((tierKey) => {
-            const plan = getPlanInfo(tierKey);
-            const isUpgrading = upgrading === tierKey;
+            const plan = getPlanInfo(tierKey, billingPeriod);
+            const isUpgrading = upgrading === plan.productId;
+            
+            // Skip if this tier doesn't support the selected billing period
+            if (!plan.productId) return null;
 
             return (
               <View
-                key={tierKey}
+                key={`${tierKey}-${billingPeriod}`}
                 style={[
                   styles.planCard,
                   {
@@ -311,6 +403,12 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
                   </View>
                 )}
 
+                {plan.savings && (
+                  <View style={[styles.savingsBadgeContainer, { backgroundColor: theme.status.success }]}>
+                    <Text style={styles.savingsBadgeText}>{plan.savings}</Text>
+                  </View>
+                )}
+
                 <View style={styles.planHeader}>
                   <Text style={[styles.planName, { color: theme.text.primary }]}>
                     {plan.name}
@@ -318,7 +416,7 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
                   <Text style={[styles.planPrice, { color: theme.text.primary }]}>
                     {plan.price}
                     <Text style={[styles.planPeriod, { color: theme.text.secondary }]}>
-                      /month
+                      /{billingPeriod === 'monthly' ? 'month' : 'year'}
                     </Text>
                   </Text>
                 </View>
@@ -347,7 +445,7 @@ export const TrialEndedScreen: React.FC<TrialEndedScreenProps> = ({
                       borderWidth: plan.recommended ? 0 : 1,
                     },
                   ]}
-                  onPress={() => handleUpgrade(tierKey)}
+                  onPress={() => plan.productId && handleUpgrade(plan.productId)}
                   disabled={isUpgrading}
                 >
                   <Text
@@ -575,7 +673,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 1,
     width: '100%',
     flexShrink: 1,
-    numberOfLines: 2,
   },
   sectionTitle: {
     fontSize: 20,
@@ -587,6 +684,51 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 24,
+  },
+  billingSelector: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 24,
+    alignSelf: 'center',
+  },
+  billingOption: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    position: 'relative',
+  },
+  billingOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  savingsBadge: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: 'white',
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#10B981',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  savingsBadgeContainer: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  savingsBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: 'white',
   },
   plansContainer: {
     gap: 16,

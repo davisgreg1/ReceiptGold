@@ -84,7 +84,10 @@ export type SettingsStackParamList = {
   PrivacyPolicy: undefined;
   TermsOfService: undefined;
   BusinessManagement: undefined;
-  CreateBusiness: undefined;
+  CreateBusiness: {
+    businessId?: string;
+    mode?: 'create' | 'edit';
+  };
   CreateCustomCategory:
     | { onCategoryCreated?: (categoryName: string) => void }
     | undefined;
@@ -420,19 +423,18 @@ const BaseAppNavigator: React.FC = () => {
   // Monitor for automatic teammate logouts
   useTeammateLogoutDetection();
 
-  // Create reactive trial expiration check
-  const isTrialExpired =
-    !subscription.trial.isActive &&
-    (subscription.currentTier === "free" ||
-      subscription.currentTier === "trial") &&
-    !isTeamMember;
+  // Check if user needs to see paywall (no subscription document or trial expired)
+  const needsSubscription =
+    (!subscription.isActive && subscription.currentTier === "trial" && !isTeamMember) ||
+    (!subscription.trial.isActive && subscription.currentTier === "trial" && !isTeamMember);
 
-  // Debug logging for trial state
-  console.log("🚀 AppNavigator trial state:", {
+  // Debug logging for subscription state
+  console.log("🚀 AppNavigator subscription state:", {
     trialIsActive: subscription.trial.isActive,
+    subscriptionIsActive: subscription.isActive,
     currentTier: subscription.currentTier,
     isTeamMember,
-    isTrialExpired,
+    needsSubscription,
     trialExpiresAt: subscription.trial.expiresAt?.toISOString(),
   });
 
@@ -485,13 +487,14 @@ const BaseAppNavigator: React.FC = () => {
     setShowPassword(false);
   };
 
-  // Show TrialEndedScreen if trial has expired and user has no paid plan
-  if (isTrialExpired) {
+  // Show paywall if user needs subscription (new user or trial expired)
+  if (needsSubscription) {
+    const { GestureHandlerRootView } = require('react-native-gesture-handler');
+    const SubscriptionRouter = require("../screens/SubscriptionRouter").default;
     return (
-      <TrialEndedScreen
-        onSignOut={logout}
-        onDeleteAccount={handleDeleteAccount}
-      />
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <SubscriptionRouter />
+      </GestureHandlerRootView>
     );
   }
 

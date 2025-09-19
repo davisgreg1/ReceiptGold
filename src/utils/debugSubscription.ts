@@ -34,7 +34,7 @@ export async function debugSubscriptionState(userId: string) {
     startOfMonth.setHours(0, 0, 0, 0);
 
     console.log('🔍 DETAILED SUBSCRIPTION DEBUG:');
-    console.log('Current Tier:', subscriptionData?.currentTier || 'free');
+    console.log('Current Tier:', subscriptionData?.currentTier || 'trial');
     console.log('Last Monthly Count Reset At:', resetDate);
     console.log('Current Monthly Receipt Count:', currentCount);
     console.log('Start of Current Month:', startOfMonth);
@@ -96,7 +96,7 @@ export async function debugSubscriptionState(userId: string) {
     }
 
     return {
-      currentTier: subscriptionData?.currentTier || 'free',
+      currentTier: subscriptionData?.currentTier || 'trial',
       lastResetDate: resetDate,
       currentCount,
       receiptsAnalysis,

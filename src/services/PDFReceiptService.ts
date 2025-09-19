@@ -359,7 +359,7 @@ export class PDFReceiptService {
                                 <span>PAYMENT METHODS:</span>
                                 <span></span>
                             </div>
-                            ${receiptData.splitTender.payments.map(payment => `
+                            ${receiptData.splitTender.payments.map((payment: any) => `
                                 <div class="total-line" style="font-size: 10px; margin-bottom: 3px;">
                                     <span>${payment.method.replace('_', ' ').toUpperCase()}${payment.last4 ? ` ****${payment.last4}` : ''}:</span>
                                     <span>$${payment.amount.toFixed(2)}</span>
@@ -565,7 +565,7 @@ TOTAL: $${receiptData.total.toFixed(2)}
 ${receiptData.splitTender?.isSplitTender ? `
 Payment Methods:
 ----------------
-${receiptData.splitTender.payments.map(payment => 
+${receiptData.splitTender.payments.map((payment: any) => 
   `${payment.method.replace('_', ' ').toUpperCase()}${payment.last4 ? ` ****${payment.last4}` : ''}: $${payment.amount.toFixed(2)}`
 ).join('\n')}
 ` : `Payment Method: ${receiptData.paymentMethod || 'N/A'}`}

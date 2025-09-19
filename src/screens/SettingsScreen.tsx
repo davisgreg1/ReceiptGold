@@ -1730,8 +1730,8 @@ export const SettingsScreen: React.FC = () => {
                   : `Your plan renews on ${
                       subscription.expiresAt?.toLocaleDateString() || "N/A"
                     }`
-                : subscription.currentTier === "free"
-                ? "Free plan"
+                : subscription.currentTier === "trial"
+                ? "Trial plan"
                 : `Your plan has expired`
             }
           />

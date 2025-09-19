@@ -1122,7 +1122,7 @@ export const ReceiptsListScreen: React.FC = () => {
                 <Text
                   style={[styles.usageLabel, { color: theme.text.tertiary }]}
                 >
-                  {subscription?.currentTier === "free" && !isTeamMember
+                  {subscription?.currentTier === "trial" && !subscription?.trial.isActive && !isTeamMember
                     ? "Total Usage (includes deleted)"
                     : "Monthly Usage (includes deleted)"}
                 </Text>
@@ -1139,7 +1139,7 @@ export const ReceiptsListScreen: React.FC = () => {
             <View style={styles.usageDivider} />
 
             <View style={styles.usageInfo}>
-              {subscription?.currentTier !== "free" && maxReceipts !== -1 && (
+              {subscription?.currentTier !== "trial" && maxReceipts !== -1 && (
                 <Text
                   style={[styles.usageLabel, { color: theme.text.tertiary }]}
                 >
@@ -1287,6 +1287,7 @@ export const ReceiptsListScreen: React.FC = () => {
     try {
       const success = await handleSubscriptionWithRevenueCat(
         "starter",
+        'monthly', // Default to monthly
         user.email || "",
         user.displayName || "User"
       );
@@ -1969,8 +1970,8 @@ export const ReceiptsListScreen: React.FC = () => {
                       !isTeamMember
                         ? [{ isLimitReachedPrompt: true }]
                         : []),
-                      // Add upgrade prompt as last item for free users with remaining receipts (not for team members)
-                      ...(subscription?.currentTier === "free" &&
+                      // Add upgrade prompt as last item for trial users with remaining receipts (not for team members)
+                      ...(subscription?.currentTier === "trial" &&
                       remainingReceipts > 0 &&
                       !isUpgradePromptDismissed &&
                       !isTeamMember
@@ -2035,7 +2036,7 @@ export const ReceiptsListScreen: React.FC = () => {
                         try {
                           const success =
                             await handleSubscriptionWithRevenueCat(
-                              "growth",
+                              "growth", "monthly",
                               user?.email || "",
                               user?.displayName || "User"
                             );
@@ -2207,8 +2208,8 @@ export const ReceiptsListScreen: React.FC = () => {
               !isTeamMember
                 ? [{ isLimitReachedPrompt: true }]
                 : []),
-              // Add upgrade prompt as last item for free users with remaining receipts (not for team members)
-              ...(subscription?.currentTier === "free" &&
+              // Add upgrade prompt as last item for trial users with remaining receipts (not for team members)
+              ...(subscription?.currentTier === "trial" &&
               remainingReceipts > 0 &&
               !isUpgradePromptDismissed &&
               !isTeamMember
@@ -2270,7 +2271,7 @@ export const ReceiptsListScreen: React.FC = () => {
                         try {
                           const success =
                             await handleSubscriptionWithRevenueCat(
-                              "growth",
+                              "growth", "monthly",
                               user?.email || "",
                               user?.displayName || "User"
                             );

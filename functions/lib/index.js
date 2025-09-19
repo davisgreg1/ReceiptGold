@@ -25,11 +25,12 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUserAccount = exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
+exports.deleteUserAccount = exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.updateSubscriptionAfterPayment = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.cleanupExpiredSoftDeletedAccounts = exports.markRecoveredAccounts = exports.onRevenueCatTransfer = exports.onRevenueCatProductChange = exports.onRevenueCatBillingIssue = exports.onRevenueCatExpiration = exports.onRevenueCatCancellation = exports.onRevenueCatRenewal = exports.onRevenueCatPurchase = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
 const functions = __importStar(require("firebase-functions"));
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
 const https_1 = require("firebase-functions/v2/https");
+const eventarc_1 = require("firebase-functions/v2/eventarc");
 const sgMail = require('@sendgrid/mail');
 const jwt = require('jsonwebtoken');
 // Structured logging utility for production
@@ -80,7 +81,7 @@ const db = admin.firestore();
 // Receipt limits configuration from environment variables
 const getReceiptLimits = () => {
     return {
-        free: parseInt(process.env.FREE_TIER_MAX_RECEIPTS || "10", 10),
+        trial: parseInt(process.env.TRIAL_TIER_MAX_RECEIPTS || "-1", 10),
         starter: parseInt(process.env.STARTER_TIER_MAX_RECEIPTS || "50", 10),
         growth: parseInt(process.env.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
         professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
@@ -144,25 +145,6 @@ exports.TIER_LIMITS = {
 };
 // Subscription tier configurations (keeping your existing setup)
 const subscriptionTiers = {
-    free: {
-        name: "Free",
-        limits: {
-            maxReceipts: getReceiptLimits().free,
-            maxBusinesses: 1,
-            apiCallsPerMonth: 0,
-            maxReports: 3,
-        },
-        features: {
-            advancedReporting: false,
-            taxPreparation: false,
-            accountingIntegrations: false,
-            prioritySupport: false,
-            multiBusinessManagement: false,
-            whiteLabel: false,
-            apiAccess: false,
-            dedicatedManager: false,
-        },
-    },
     starter: {
         name: "Starter",
         limits: {
@@ -242,7 +224,7 @@ const subscriptionTiers = {
     trial: {
         name: "Trial",
         limits: {
-            maxReceipts: getReceiptLimits().professional,
+            maxReceipts: getReceiptLimits().trial,
             maxBusinesses: -1,
             apiCallsPerMonth: 1000,
             maxReports: -1, // unlimited during trial
@@ -253,39 +235,12 @@ const subscriptionTiers = {
             accountingIntegrations: true,
             prioritySupport: true,
             multiBusinessManagement: true,
-            whiteLabel: false,
+            whiteLabel: true,
             apiAccess: true,
-            dedicatedManager: false, // No dedicated manager during trial
+            dedicatedManager: true, // No dedicated manager during trial
         },
     },
 };
-/* COMMENTED OUT - Using RevenueCat instead of Stripe
-
-// Helper function to determine tier from Stripe price ID
-function getTierFromPriceId(priceId: string): string {
-  // Map your Stripe price IDs to tiers
-  const priceToTierMap: Record<string, string> = {
-    // TODO: Update these with your actual Stripe Price IDs from the dashboard
-    'price_1RpYbuAZ9H3S1Eo7Qd3qk3IV': "starter",
-    'price_1RpYbeAZ9H3S1Eo75oTj2nHe': "growth",
-    'price_1RpYbJAZ9H3S1Eo78dUvxerL': "professional",
-
-    // Example format - replace with your actual price IDs:
-    // 'price_1234567890abcdef': "starter",
-    // 'price_0987654321fedcba': "growth",
-    // 'price_abcdef1234567890': "professional",
-  };
-
-  const tier = priceToTierMap[priceId];
-  if (!tier) {
-    console.warn(`Unknown price ID: ${priceId}, defaulting to free tier`);
-    return "free";
-  }
-
-  return tier;
-}
-
-*/
 // DeviceCheck configuration
 const getDeviceCheckConfig = () => {
     const keyId = process.env.APPLE_DEVICE_CHECK_KEY_ID;
@@ -620,12 +575,921 @@ exports.completeAccountCreation = (0, https_1.onRequest)({ cors: true, invoker: 
         });
     }
 });
+// RevenueCat Event Handlers using Firebase Extensions EventArc
+// Handle subscription lifecycle events from RevenueCat
+// Handle new purchases and subscription starts
+exports.onRevenueCatPurchase = (0, eventarc_1.onCustomEventPublished)("com.revenuecat.v1.purchase", async (event) => {
+    try {
+        Logger.info('RevenueCat purchase event received', { eventId: event.id });
+        const eventData = event.data;
+        const userId = eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id;
+        if (!userId) {
+            Logger.error('No app_user_id found in purchase event', { eventData });
+            return;
+        }
+        await handleRevenueCatSubscriptionChange(userId, eventData, 'purchase');
+        Logger.info('Successfully processed RevenueCat purchase event', { userId });
+    }
+    catch (error) {
+        Logger.error('Error processing RevenueCat purchase event', { error: error.message });
+    }
+});
+// Handle subscription renewals
+exports.onRevenueCatRenewal = (0, eventarc_1.onCustomEventPublished)("com.revenuecat.v1.renewal", async (event) => {
+    try {
+        Logger.info('RevenueCat renewal event received', { eventId: event.id });
+        const eventData = event.data;
+        const userId = eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id;
+        if (!userId) {
+            Logger.error('No app_user_id found in renewal event', { eventData });
+            return;
+        }
+        await handleRevenueCatSubscriptionChange(userId, eventData, 'renewal');
+        Logger.info('Successfully processed RevenueCat renewal event', { userId });
+    }
+    catch (error) {
+        Logger.error('Error processing RevenueCat renewal event', { error: error.message });
+    }
+});
+// Handle subscription cancellations
+exports.onRevenueCatCancellation = (0, eventarc_1.onCustomEventPublished)("com.revenuecat.v1.cancellation", async (event) => {
+    try {
+        Logger.info('RevenueCat cancellation event received', { eventId: event.id });
+        const eventData = event.data;
+        const userId = eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id;
+        if (!userId) {
+            Logger.error('No app_user_id found in cancellation event', { eventData });
+            return;
+        }
+        await handleRevenueCatSubscriptionChange(userId, eventData, 'cancellation');
+        Logger.info('Successfully processed RevenueCat cancellation event', { userId });
+    }
+    catch (error) {
+        Logger.error('Error processing RevenueCat cancellation event', { error: error.message });
+    }
+});
+// Handle subscription expirations
+exports.onRevenueCatExpiration = (0, eventarc_1.onCustomEventPublished)("com.revenuecat.v1.expiration", async (event) => {
+    try {
+        Logger.info('RevenueCat expiration event received', { eventId: event.id });
+        const eventData = event.data;
+        const userId = eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id;
+        if (!userId) {
+            Logger.error('No app_user_id found in expiration event', { eventData });
+            return;
+        }
+        await handleRevenueCatSubscriptionChange(userId, eventData, 'expiration');
+        Logger.info('Successfully processed RevenueCat expiration event', { userId });
+    }
+    catch (error) {
+        Logger.error('Error processing RevenueCat expiration event', { error: error.message });
+    }
+});
+// Handle billing issues
+exports.onRevenueCatBillingIssue = (0, eventarc_1.onCustomEventPublished)("com.revenuecat.v1.billing_issue", async (event) => {
+    try {
+        Logger.info('RevenueCat billing issue event received', { eventId: event.id });
+        const eventData = event.data;
+        const userId = eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id;
+        if (!userId) {
+            Logger.error('No app_user_id found in billing issue event', { eventData });
+            return;
+        }
+        await handleRevenueCatSubscriptionChange(userId, eventData, 'billing_issue');
+        Logger.info('Successfully processed RevenueCat billing issue event', { userId });
+    }
+    catch (error) {
+        Logger.error('Error processing RevenueCat billing issue event', { error: error.message });
+    }
+});
+// Handle product changes (upgrades/downgrades)
+exports.onRevenueCatProductChange = (0, eventarc_1.onCustomEventPublished)("com.revenuecat.v1.product_change", async (event) => {
+    try {
+        Logger.info('RevenueCat product change event received', { eventId: event.id });
+        const eventData = event.data;
+        const userId = eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id;
+        if (!userId) {
+            Logger.error('No app_user_id found in product change event', { eventData });
+            return;
+        }
+        await handleRevenueCatSubscriptionChange(userId, eventData, 'product_change');
+        Logger.info('Successfully processed RevenueCat product change event', { userId });
+    }
+    catch (error) {
+        Logger.error('Error processing RevenueCat product change event', { error: error.message });
+    }
+});
+// Handle account transfers (when user creates account with existing subscription)
+exports.onRevenueCatTransfer = (0, eventarc_1.onCustomEventPublished)("com.revenuecat.v1.transfer", async (event) => {
+    try {
+        Logger.info('RevenueCat transfer event received', { eventId: event.id });
+        const eventData = event.data;
+        const newUserId = eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id;
+        const originalUserId = eventData === null || eventData === void 0 ? void 0 : eventData.origin_app_user_id;
+        const transferredFrom = eventData === null || eventData === void 0 ? void 0 : eventData.transferred_from;
+        const transferredTo = eventData === null || eventData === void 0 ? void 0 : eventData.transferred_to;
+        if (!newUserId || !originalUserId) {
+            Logger.error('Missing required user IDs in transfer event', {
+                newUserId,
+                originalUserId,
+                eventData
+            });
+            return;
+        }
+        Logger.info('Processing account transfer', {
+            from: originalUserId,
+            to: newUserId,
+            transferredFrom,
+            transferredTo
+        });
+        await handleAccountTransfer(originalUserId, newUserId, eventData);
+        Logger.info('Successfully processed RevenueCat transfer event', {
+            originalUserId,
+            newUserId
+        });
+    }
+    catch (error) {
+        Logger.error('Error processing RevenueCat transfer event', {
+            error: error.message,
+            stack: error.stack
+        });
+    }
+});
+// Helper function to handle all RevenueCat subscription changes
+async function handleRevenueCatSubscriptionChange(userId, eventData, eventType) {
+    try {
+        Logger.info('Processing RevenueCat subscription change', { userId, eventType });
+        // Log the event to the events collection for debugging and auditing
+        await db.collection('events').add({
+            type: 'revenuecat_webhook',
+            subtype: eventType,
+            userId,
+            eventData,
+            processedAt: admin.firestore.FieldValue.serverTimestamp(),
+            source: 'firebase_extension'
+        });
+        // Extract subscription information from the event
+        const subscriber = eventData === null || eventData === void 0 ? void 0 : eventData.subscriber;
+        if (!subscriber) {
+            Logger.error('No subscriber data found in event', { eventData });
+            return;
+        }
+        // Get the entitlements to determine the active subscription tier
+        const entitlements = subscriber.entitlements || {};
+        const subscriptions = subscriber.subscriptions || {};
+        // Determine the current tier based on active entitlements
+        let currentTier = 'trial'; // Default to trial if no active subscription
+        let isActive = false;
+        let subscriptionDetails = null;
+        // Check for active entitlements (RevenueCat's recommended approach)
+        for (const [entitlementId, entitlement] of Object.entries(entitlements)) {
+            if (entitlement && entitlement.expires_date) {
+                const expiresDate = new Date(entitlement.expires_date);
+                if (expiresDate > new Date()) {
+                    isActive = true;
+                    // Map entitlement to tier (you'll need to configure this based on your RevenueCat setup)
+                    currentTier = mapEntitlementToTier(entitlementId);
+                    break;
+                }
+            }
+        }
+        // Get subscription details for billing information
+        for (const [, subscription] of Object.entries(subscriptions)) {
+            if (subscription && subscription.expires_date) {
+                const expiresDate = new Date(subscription.expires_date);
+                if (expiresDate > new Date()) {
+                    subscriptionDetails = subscription;
+                    break;
+                }
+            }
+        }
+        // Handle expiration and cancellation events
+        if (eventType === 'expiration' || eventType === 'cancellation') {
+            currentTier = 'trial';
+            isActive = false;
+        }
+        // Handle billing issues
+        if (eventType === 'billing_issue') {
+            // Don't change the tier immediately, but mark the subscription as having billing issues
+            Logger.warn('Billing issue detected for user', { userId });
+            // You might want to send notifications or take other actions here
+        }
+        // Update the user's subscription document
+        const subscriptionRef = db.collection('subscriptions').doc(userId);
+        const subscriptionDoc = await subscriptionRef.get();
+        if (!subscriptionDoc.exists) {
+            Logger.error('Subscription document not found for user', { userId });
+            // Create a new subscription document
+            const newSubscriptionDoc = {
+                userId,
+                currentTier: currentTier,
+                status: isActive ? 'active' : 'canceled',
+                billing: {
+                    customerId: (eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id) || null,
+                    subscriptionId: (subscriptionDetails === null || subscriptionDetails === void 0 ? void 0 : subscriptionDetails.original_purchase_date) || null,
+                    priceId: (subscriptionDetails === null || subscriptionDetails === void 0 ? void 0 : subscriptionDetails.product_identifier) || null,
+                    currentPeriodStart: (subscriptionDetails === null || subscriptionDetails === void 0 ? void 0 : subscriptionDetails.purchase_date) ? new Date(subscriptionDetails.purchase_date) : new Date(),
+                    currentPeriodEnd: (subscriptionDetails === null || subscriptionDetails === void 0 ? void 0 : subscriptionDetails.expires_date) ? new Date(subscriptionDetails.expires_date) : null,
+                    cancelAtPeriodEnd: eventType === 'cancellation',
+                    trialEnd: (subscriptionDetails === null || subscriptionDetails === void 0 ? void 0 : subscriptionDetails.trial_end) ? new Date(subscriptionDetails.trial_end) : null,
+                },
+                limits: subscriptionTiers[currentTier].limits,
+                features: subscriptionTiers[currentTier].features,
+                history: [{
+                        tier: currentTier,
+                        startDate: new Date(),
+                        endDate: null,
+                        reason: `revenuecat_${eventType}`,
+                    }],
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            await subscriptionRef.set(newSubscriptionDoc);
+        }
+        else {
+            // Update existing subscription
+            const updateData = {
+                currentTier: currentTier,
+                status: isActive ? 'active' : 'canceled',
+                limits: subscriptionTiers[currentTier].limits,
+                features: subscriptionTiers[currentTier].features,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            };
+            // Update billing information if available
+            if (subscriptionDetails) {
+                updateData.billing = {
+                    customerId: (eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id) || null,
+                    subscriptionId: subscriptionDetails.original_purchase_date || null,
+                    priceId: subscriptionDetails.product_identifier || null,
+                    currentPeriodStart: subscriptionDetails.purchase_date ? new Date(subscriptionDetails.purchase_date) : new Date(),
+                    currentPeriodEnd: subscriptionDetails.expires_date ? new Date(subscriptionDetails.expires_date) : null,
+                    cancelAtPeriodEnd: eventType === 'cancellation',
+                    trialEnd: subscriptionDetails.trial_end ? new Date(subscriptionDetails.trial_end) : null,
+                };
+            }
+            // Add to history
+            const existingData = subscriptionDoc.data();
+            const updatedHistory = [...(existingData.history || []), {
+                    tier: currentTier,
+                    startDate: new Date(),
+                    endDate: eventType === 'expiration' || eventType === 'cancellation' ? new Date() : null,
+                    reason: `revenuecat_${eventType}`,
+                }];
+            updateData.history = updatedHistory;
+            await subscriptionRef.update(updateData);
+        }
+        // Update user's usage limits for the current month
+        const currentMonth = new Date().toISOString().slice(0, 7);
+        const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
+        await usageRef.set({
+            limits: subscriptionTiers[currentTier].limits,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }, { merge: true });
+        Logger.info('Successfully updated subscription from RevenueCat event', {
+            userId,
+            eventType,
+            currentTier,
+            isActive
+        });
+    }
+    catch (error) {
+        Logger.error('Error handling RevenueCat subscription change', {
+            error: error.message,
+            userId,
+            eventType
+        });
+        throw error;
+    }
+}
+// Helper function to handle account transfers from RevenueCat
+async function handleAccountTransfer(originalUserId, newUserId, eventData) {
+    try {
+        Logger.info('Starting account transfer process', { originalUserId, newUserId });
+        // Use a batch for atomic operations
+        const batch = db.batch();
+        const transferErrors = [];
+        // Log the transfer event for auditing
+        await db.collection('events').add({
+            type: 'account_transfer',
+            originalUserId,
+            newUserId,
+            eventData,
+            processedAt: admin.firestore.FieldValue.serverTimestamp(),
+            source: 'revenuecat_transfer'
+        });
+        // 1. Transfer Subscription Data
+        try {
+            const originalSubscriptionRef = db.collection('subscriptions').doc(originalUserId);
+            const originalSubscriptionDoc = await originalSubscriptionRef.get();
+            if (originalSubscriptionDoc.exists) {
+                const subscriptionData = originalSubscriptionDoc.data();
+                // Update the subscription to point to the new user
+                const newSubscriptionRef = db.collection('subscriptions').doc(newUserId);
+                const transferredSubscription = {
+                    ...subscriptionData,
+                    userId: newUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    history: [
+                        ...(subscriptionData.history || []),
+                        {
+                            tier: subscriptionData.currentTier,
+                            startDate: new Date(),
+                            endDate: null,
+                            reason: 'account_transfer'
+                        }
+                    ]
+                };
+                batch.set(newSubscriptionRef, transferredSubscription);
+                // Archive the original subscription
+                batch.update(originalSubscriptionRef, {
+                    status: 'transferred',
+                    transferredTo: newUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                Logger.info('Subscription transfer prepared', { originalUserId, newUserId });
+            }
+        }
+        catch (error) {
+            transferErrors.push(`Subscription transfer failed: ${error.message}`);
+        }
+        // 2. Transfer All Receipts
+        try {
+            const receiptsSnapshot = await db.collection('receipts')
+                .where('userId', '==', originalUserId)
+                .get();
+            Logger.info(`Found ${receiptsSnapshot.size} receipts to transfer`);
+            for (const receiptDoc of receiptsSnapshot.docs) {
+                const receiptData = receiptDoc.data();
+                const newReceiptRef = db.collection('receipts').doc(); // New document ID
+                batch.set(newReceiptRef, {
+                    ...receiptData,
+                    userId: newUserId,
+                    transferredFrom: originalUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                // Mark original receipt as transferred
+                batch.update(receiptDoc.ref, {
+                    status: 'transferred',
+                    transferredTo: newUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        catch (error) {
+            transferErrors.push(`Receipts transfer failed: ${error.message}`);
+        }
+        // 3. Transfer Team Memberships (as team owner)
+        try {
+            const teamMembershipsSnapshot = await db.collection('teamMemberships')
+                .where('ownerId', '==', originalUserId)
+                .get();
+            Logger.info(`Found ${teamMembershipsSnapshot.size} team memberships to transfer`);
+            for (const membershipDoc of teamMembershipsSnapshot.docs) {
+                batch.update(membershipDoc.ref, {
+                    ownerId: newUserId,
+                    transferredFrom: originalUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        catch (error) {
+            transferErrors.push(`Team memberships transfer failed: ${error.message}`);
+        }
+        // 4. Transfer Team Members (where user is a member)
+        try {
+            const teamMembersSnapshot = await db.collection('teamMembers')
+                .where('userId', '==', originalUserId)
+                .get();
+            Logger.info(`Found ${teamMembersSnapshot.size} team member records to transfer`);
+            for (const memberDoc of teamMembersSnapshot.docs) {
+                batch.update(memberDoc.ref, {
+                    userId: newUserId,
+                    transferredFrom: originalUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        catch (error) {
+            transferErrors.push(`Team members transfer failed: ${error.message}`);
+        }
+        // 5. Transfer Usage Data
+        try {
+            const usageSnapshot = await db.collection('usage')
+                .where('userId', '==', originalUserId)
+                .get();
+            Logger.info(`Found ${usageSnapshot.size} usage records to transfer`);
+            for (const usageDoc of usageSnapshot.docs) {
+                const usageData = usageDoc.data();
+                // Create new usage document with updated userId pattern
+                const newUsageId = usageDoc.id.replace(originalUserId, newUserId);
+                const newUsageRef = db.collection('usage').doc(newUsageId);
+                batch.set(newUsageRef, {
+                    ...usageData,
+                    userId: newUserId,
+                    transferredFrom: originalUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                // Mark original as transferred
+                batch.update(usageDoc.ref, {
+                    status: 'transferred',
+                    transferredTo: newUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        catch (error) {
+            transferErrors.push(`Usage data transfer failed: ${error.message}`);
+        }
+        // 6. Transfer Business Stats
+        try {
+            const businessStatsSnapshot = await db.collection('businessStats')
+                .where('userId', '==', originalUserId)
+                .get();
+            Logger.info(`Found ${businessStatsSnapshot.size} business stats records to transfer`);
+            for (const statsDoc of businessStatsSnapshot.docs) {
+                const statsData = statsDoc.data();
+                const newStatsRef = db.collection('businessStats').doc();
+                batch.set(newStatsRef, {
+                    ...statsData,
+                    userId: newUserId,
+                    transferredFrom: originalUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                // Mark original as transferred
+                batch.update(statsDoc.ref, {
+                    status: 'transferred',
+                    transferredTo: newUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        catch (error) {
+            transferErrors.push(`Business stats transfer failed: ${error.message}`);
+        }
+        // 7. Transfer Bank Connections
+        try {
+            const bankConnectionsSnapshot = await db.collection('bankConnections')
+                .where('userId', '==', originalUserId)
+                .get();
+            Logger.info(`Found ${bankConnectionsSnapshot.size} bank connections to transfer`);
+            for (const connectionDoc of bankConnectionsSnapshot.docs) {
+                batch.update(connectionDoc.ref, {
+                    userId: newUserId,
+                    transferredFrom: originalUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        catch (error) {
+            transferErrors.push(`Bank connections transfer failed: ${error.message}`);
+        }
+        // 8. Transfer User Preferences/Settings
+        try {
+            const userPrefsSnapshot = await db.collection('userPreferences')
+                .where('userId', '==', originalUserId)
+                .get();
+            Logger.info(`Found ${userPrefsSnapshot.size} user preference records to transfer`);
+            for (const prefsDoc of userPrefsSnapshot.docs) {
+                const prefsData = prefsDoc.data();
+                const newPrefsRef = db.collection('userPreferences').doc(newUserId);
+                batch.set(newPrefsRef, {
+                    ...prefsData,
+                    userId: newUserId,
+                    transferredFrom: originalUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                // Mark original as transferred
+                batch.update(prefsDoc.ref, {
+                    status: 'transferred',
+                    transferredTo: newUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        catch (error) {
+            transferErrors.push(`User preferences transfer failed: ${error.message}`);
+        }
+        // 9. Transfer Notification Settings
+        try {
+            const notificationSettingsSnapshot = await db.collection('notificationSettings')
+                .where('userId', '==', originalUserId)
+                .get();
+            Logger.info(`Found ${notificationSettingsSnapshot.size} notification settings to transfer`);
+            for (const settingsDoc of notificationSettingsSnapshot.docs) {
+                batch.update(settingsDoc.ref, {
+                    userId: newUserId,
+                    transferredFrom: originalUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+            }
+        }
+        catch (error) {
+            transferErrors.push(`Notification settings transfer failed: ${error.message}`);
+        }
+        // Commit all the batch operations
+        await batch.commit();
+        // Log the completion
+        if (transferErrors.length > 0) {
+            Logger.warn('Account transfer completed with some errors', {
+                originalUserId,
+                newUserId,
+                errors: transferErrors
+            });
+        }
+        else {
+            Logger.info('Account transfer completed successfully', {
+                originalUserId,
+                newUserId
+            });
+        }
+        // Send notification to the new user about the successful transfer
+        try {
+            await db.collection('notifications').add({
+                userId: newUserId,
+                type: 'account_transfer_complete',
+                title: 'Account Transfer Complete',
+                message: 'Your subscription and data have been successfully transferred to your new account.',
+                read: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
+        catch (error) {
+            Logger.warn('Failed to create transfer notification', { error: error.message });
+        }
+    }
+    catch (error) {
+        Logger.error('Critical error during account transfer', {
+            error: error.message,
+            stack: error.stack,
+            originalUserId,
+            newUserId
+        });
+        throw error;
+    }
+}
+// Helper function to recover soft deleted account data
+async function recoverSoftDeletedAccount(originalUserId, newUserId, email) {
+    try {
+        Logger.info('Starting account recovery process', { originalUserId, newUserId, email });
+        const batch = db.batch();
+        // 1. Recover user document
+        const originalUserRef = db.collection('users').doc(originalUserId);
+        const originalUserDoc = await originalUserRef.get();
+        if (originalUserDoc.exists) {
+            const userData = originalUserDoc.data();
+            if (userData === null || userData === void 0 ? void 0 : userData.originalData) {
+                // Restore original user data with new userId
+                const newUserRef = db.collection('users').doc(newUserId);
+                batch.set(newUserRef, {
+                    ...userData.originalData,
+                    userId: newUserId,
+                    email: email,
+                    status: 'active',
+                    recoveredAt: admin.firestore.FieldValue.serverTimestamp(),
+                    recoveredFrom: originalUserId
+                });
+            }
+        }
+        // 2. Recover subscription
+        const originalSubscriptionRef = db.collection('subscriptions').doc(originalUserId);
+        const originalSubscriptionDoc = await originalSubscriptionRef.get();
+        if (originalSubscriptionDoc.exists) {
+            const subscriptionData = originalSubscriptionDoc.data();
+            if (subscriptionData === null || subscriptionData === void 0 ? void 0 : subscriptionData.originalData) {
+                const newSubscriptionRef = db.collection('subscriptions').doc(newUserId);
+                batch.set(newSubscriptionRef, {
+                    ...subscriptionData.originalData,
+                    userId: newUserId,
+                    status: 'active',
+                    recoveredAt: admin.firestore.FieldValue.serverTimestamp(),
+                    recoveredFrom: originalUserId
+                });
+            }
+        }
+        // 3. Recover receipts
+        const receiptsSnapshot = await db.collection('receipts')
+            .where('userId', '==', originalUserId)
+            .where('status', '==', 'soft_deleted')
+            .get();
+        receiptsSnapshot.forEach((doc) => {
+            batch.update(doc.ref, {
+                userId: newUserId,
+                status: 'active',
+                recoveredAt: admin.firestore.FieldValue.serverTimestamp(),
+                recoveredFrom: originalUserId
+            });
+        });
+        // 4. Recover other collections
+        const collectionsToRecover = [
+            'businesses', 'reports', 'usage', 'teamMembers',
+            'bankConnections', 'customCategories', 'budgets'
+        ];
+        for (const collectionName of collectionsToRecover) {
+            const snapshot = await db.collection(collectionName)
+                .where('userId', '==', originalUserId)
+                .where('status', '==', 'soft_deleted')
+                .get();
+            snapshot.forEach((doc) => {
+                batch.update(doc.ref, {
+                    userId: newUserId,
+                    status: 'active',
+                    recoveredAt: admin.firestore.FieldValue.serverTimestamp(),
+                    recoveredFrom: originalUserId
+                });
+            });
+        }
+        await batch.commit();
+        Logger.info('Successfully recovered account data', { originalUserId, newUserId });
+    }
+    catch (error) {
+        Logger.error('Error recovering soft deleted account', {
+            error: error.message,
+            originalUserId,
+            newUserId
+        });
+        throw error;
+    }
+}
+// Helper function to check and restore RevenueCat subscription
+async function checkAndRestoreRevenueCatSubscription(userId, email) {
+    try {
+        Logger.info('Checking for RevenueCat subscription recovery', { userId, email });
+        const revenueCatApiKey = process.env.REVENUECAT_API_KEY;
+        if (!revenueCatApiKey) {
+            Logger.warn('RevenueCat API key not configured, skipping subscription check');
+            return;
+        }
+        // Try to find user by email in RevenueCat
+        // Note: RevenueCat doesn't have a direct email lookup, so we'll need to use other methods
+        // This is a simplified approach - in production you might want to:
+        // 1. Store email -> RevenueCat user ID mapping
+        // 2. Use RevenueCat's subscriber attributes to search
+        // 3. Use your own database to track this relationship
+        // For now, we'll check if there's a subscription record in our deleted accounts
+        const deletedAccountsSnapshot = await db.collection('deletedAccounts')
+            .where('email', '==', email.toLowerCase())
+            .where('hasActiveSubscription', '==', true)
+            .orderBy('deletedAt', 'desc')
+            .limit(1)
+            .get();
+        if (!deletedAccountsSnapshot.empty) {
+            const deletedAccount = deletedAccountsSnapshot.docs[0];
+            const deletedAccountData = deletedAccount.data();
+            if (deletedAccountData.subscriptionInfo) {
+                Logger.info('Found previous subscription info, restoring', { userId });
+                // Create subscription document for new user
+                await db.collection('subscriptions').doc(userId).set({
+                    userId,
+                    currentTier: deletedAccountData.subscriptionInfo.currentTier || 'trial',
+                    status: 'active',
+                    billing: deletedAccountData.subscriptionInfo.billing || null,
+                    limits: deletedAccountData.subscriptionInfo.limits || subscriptionTiers['trial'].limits,
+                    features: deletedAccountData.subscriptionInfo.features || subscriptionTiers['trial'].features,
+                    history: [{
+                            tier: deletedAccountData.subscriptionInfo.currentTier || 'trial',
+                            startDate: new Date(),
+                            endDate: null,
+                            reason: 'account_recovery'
+                        }],
+                    recoveredFrom: deletedAccountData.userId,
+                    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                // Mark the deleted account as recovered
+                await deletedAccount.ref.update({
+                    status: 'recovered',
+                    recoveredAt: admin.firestore.FieldValue.serverTimestamp(),
+                    newUserId: userId,
+                    recoverable: false,
+                    recoveryType: 'subscription_only'
+                });
+                Logger.info('Successfully restored subscription from previous account', {
+                    userId,
+                    tier: deletedAccountData.subscriptionInfo.currentTier
+                });
+            }
+        }
+    }
+    catch (error) {
+        Logger.error('Error checking RevenueCat subscription recovery', {
+            error: error.message,
+            userId,
+            email
+        });
+        // Don't throw - this is not critical for user creation
+    }
+}
+// Helper function to map RevenueCat entitlements to your app's tiers
+function mapEntitlementToTier(entitlementId) {
+    // Configure this mapping based on your RevenueCat entitlement setup
+    const entitlementToTierMap = {
+        'starter': 'starter',
+        'growth': 'growth',
+        'professional': 'professional',
+        'pro': 'professional',
+        'premium': 'professional',
+        // Add your specific entitlement identifiers here
+    };
+    const tier = entitlementToTierMap[entitlementId.toLowerCase()];
+    if (tier) {
+        return tier;
+    }
+    Logger.warn(`Unknown entitlement ID: ${entitlementId}, defaulting to trial tier`);
+    return 'trial'; // Default to trial if unknown
+}
+// Helper function to manually mark recovered accounts (useful for fixing existing data)
+exports.markRecoveredAccounts = (0, https_1.onCall)({
+    region: 'us-central1',
+    invoker: 'private'
+}, async (request) => {
+    try {
+        const { email, newUserId } = request.data;
+        if (!email || !newUserId) {
+            throw new Error('Email and newUserId are required');
+        }
+        Logger.info('Manually marking deleted account as recovered', { email, newUserId });
+        // Find the deleted account for this email
+        const deletedAccountQuery = await db.collection('deletedAccounts')
+            .where('email', '==', email.toLowerCase())
+            .where('status', '==', 'soft_deleted')
+            .limit(1)
+            .get();
+        if (deletedAccountQuery.empty) {
+            throw new Error(`No soft-deleted account found for email: ${email}`);
+        }
+        const deletedAccount = deletedAccountQuery.docs[0];
+        // Update the deleted account record
+        await deletedAccount.ref.update({
+            status: 'recovered',
+            recoveredAt: admin.firestore.FieldValue.serverTimestamp(),
+            newUserId: newUserId,
+            recoverable: false,
+            recoveryType: 'manual_update'
+        });
+        Logger.info('Successfully marked account as recovered', { email, newUserId });
+        return {
+            success: true,
+            message: `Account for ${email} marked as recovered`,
+            deletedAccountId: deletedAccount.id
+        };
+    }
+    catch (error) {
+        Logger.error('Error marking account as recovered', {
+            error: error.message
+        });
+        throw new Error(`Failed to mark account as recovered: ${error.message}`);
+    }
+});
+// Scheduled function to permanently delete accounts after 30-day recovery period
+exports.cleanupExpiredSoftDeletedAccounts = functionsV1.pubsub
+    .schedule('every 24 hours')
+    .timeZone('UTC')
+    .onRun(async (context) => {
+    try {
+        Logger.info('Starting cleanup of expired soft deleted accounts');
+        const now = admin.firestore.Timestamp.now();
+        // Find accounts that have passed their permanent deletion date
+        const expiredAccountsSnapshot = await db.collection('deletedAccounts')
+            .where('status', '==', 'soft_deleted')
+            .where('permanentDeletionDate', '<=', now)
+            .limit(100) // Process in batches
+            .get();
+        if (expiredAccountsSnapshot.empty) {
+            Logger.info('No expired accounts to cleanup');
+            return null;
+        }
+        Logger.info(`Found ${expiredAccountsSnapshot.size} expired accounts to permanently delete`);
+        for (const deletedAccountDoc of expiredAccountsSnapshot.docs) {
+            const deletedAccountData = deletedAccountDoc.data();
+            const userId = deletedAccountData.userId;
+            try {
+                await permanentlyDeleteUserData(userId);
+                // Update the deleted account record
+                await deletedAccountDoc.ref.update({
+                    status: 'permanently_deleted',
+                    permanentlyDeletedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                Logger.info(`Successfully permanently deleted account: ${userId}`);
+            }
+            catch (error) {
+                Logger.error(`Failed to permanently delete account: ${userId}`, {
+                    error: error.message
+                });
+            }
+        }
+        Logger.info('Cleanup of expired soft deleted accounts completed');
+        return null;
+    }
+    catch (error) {
+        Logger.error('Error in cleanup function', { error: error.message });
+        throw error;
+    }
+});
+// Helper function to permanently delete user data
+async function permanentlyDeleteUserData(userId) {
+    try {
+        Logger.info(`Starting permanent deletion for user: ${userId}`);
+        const collectionsToDelete = [
+            'users', 'receipts', 'businesses', 'subscriptions', 'customCategories',
+            'bankConnections', 'teamMembers', 'notifications', 'userSettings',
+            'usage', 'reports', 'budgets', 'user_notifications', 'connection_notifications',
+            'teamInvitations', 'transactionCandidates', 'generatedReceipts',
+            'candidateStatus', 'plaid_items'
+        ];
+        const batch = db.batch();
+        let deletionCount = 0;
+        for (const collectionName of collectionsToDelete) {
+            try {
+                // Query for documents where userId matches
+                const userDocsQuery = db.collection(collectionName)
+                    .where('userId', '==', userId)
+                    .limit(500);
+                const userDocsSnapshot = await userDocsQuery.get();
+                userDocsSnapshot.forEach((doc) => {
+                    batch.delete(doc.ref);
+                    deletionCount++;
+                });
+                // Also check for accountHolderId field (for team-related data)
+                if (['receipts', 'businesses', 'customCategories', 'teamMembers'].includes(collectionName)) {
+                    const accountHolderDocsQuery = db.collection(collectionName)
+                        .where('accountHolderId', '==', userId)
+                        .limit(500);
+                    const accountHolderDocsSnapshot = await accountHolderDocsQuery.get();
+                    accountHolderDocsSnapshot.forEach((doc) => {
+                        batch.delete(doc.ref);
+                        deletionCount++;
+                    });
+                }
+                // Handle documents with specific patterns (like usage documents)
+                if (collectionName === 'usage') {
+                    const usageQuery = db.collection(collectionName)
+                        .where(admin.firestore.FieldPath.documentId(), '>=', userId)
+                        .where(admin.firestore.FieldPath.documentId(), '<', userId + '\uf8ff')
+                        .limit(500);
+                    const usageSnapshot = await usageQuery.get();
+                    usageSnapshot.forEach((doc) => {
+                        batch.delete(doc.ref);
+                        deletionCount++;
+                    });
+                }
+            }
+            catch (error) {
+                Logger.warn(`Error querying collection ${collectionName} for permanent deletion`, {
+                    error: error.message,
+                    userId
+                });
+            }
+        }
+        if (deletionCount > 0) {
+            await batch.commit();
+            Logger.info(`Permanently deleted ${deletionCount} documents for user ${userId}`);
+        }
+    }
+    catch (error) {
+        Logger.error('Error permanently deleting user data', {
+            error: error.message,
+            userId
+        });
+        throw error;
+    }
+}
 // 1. User Creation Trigger (updated for Firebase Functions v6)
 exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
     try {
         const userId = user.uid;
         const email = user.email || '';
         const displayName = user.displayName || '';
+        Logger.info('New user created, checking for account recovery', { userId, email });
+        // Check if this email has a soft-deleted account that can be recovered
+        const deletedAccountQuery = await db.collection("deletedAccounts")
+            .where("email", "==", email.toLowerCase())
+            .where("status", "==", "soft_deleted")
+            .where("recoverable", "==", true)
+            .where("permanentDeletionDate", ">", admin.firestore.Timestamp.now())
+            .limit(1)
+            .get();
+        if (!deletedAccountQuery.empty) {
+            const deletedAccount = deletedAccountQuery.docs[0];
+            const deletedAccountData = deletedAccount.data();
+            const originalUserId = deletedAccountData.userId;
+            Logger.info('Found recoverable deleted account, initiating recovery', {
+                originalUserId,
+                newUserId: userId,
+                email
+            });
+            await recoverSoftDeletedAccount(originalUserId, userId, email);
+            // Mark the deleted account record as recovered
+            await deletedAccount.ref.update({
+                status: 'recovered',
+                recoveredAt: admin.firestore.FieldValue.serverTimestamp(),
+                newUserId: userId,
+                recoverable: false
+            });
+            Logger.info('Account recovery completed successfully', { originalUserId, newUserId: userId });
+            return; // Exit early since we've recovered the account
+        }
+        // Check for active RevenueCat subscription for this email
+        await checkAndRestoreRevenueCatSubscription(userId, email);
         // Create user document
         const userDoc = {
             userId,
@@ -721,56 +1585,11 @@ exports.onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
             return; // Early return for team members - no subscription document needed
         }
         // Only create subscription documents for account holders (non-team members)
-        // Create regular user subscription with 1 minute trial for testing
-        Logger.info('Creating trial subscription for new account holder', { email }, userId);
-        const trialExpires = admin.firestore.Timestamp.fromDate(new Date(Date.now() + (1 * 60 * 1000)) // 1 minute from now (FOR TESTING)
-        );
-        const subscriptionDoc = {
-            userId,
-            currentTier: "trial",
-            status: "active",
-            trial: {
-                startedAt: now,
-                expiresAt: trialExpires,
-            },
-            billing: {
-                customerId: null,
-                subscriptionId: null,
-                priceId: null,
-                currentPeriodStart: now,
-                currentPeriodEnd: null,
-                cancelAtPeriodEnd: false,
-                trialEnd: null,
-            },
-            limits: subscriptionTiers.trial.limits,
-            features: subscriptionTiers.trial.features,
-            history: [
-                {
-                    tier: "trial",
-                    startDate: now,
-                    endDate: trialExpires,
-                    reason: "initial_signup",
-                },
-            ],
-            createdAt: now,
-            updatedAt: now,
-        };
-        await db.collection("subscriptions").doc(userId).set(subscriptionDoc);
-        // Create usage tracking document
-        const currentMonth = new Date().toISOString().slice(0, 7);
-        const usageDoc = {
-            userId,
-            month: currentMonth,
-            receiptsUploaded: 0,
-            apiCalls: 0,
-            reportsGenerated: 0,
-            limits: subscriptionTiers.free.limits,
-            resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString(),
-            createdAt: admin.firestore.Timestamp.now(),
-            updatedAt: admin.firestore.Timestamp.now(),
-        };
-        await db.collection("usage").doc(`${userId}_${currentMonth}`).set(usageDoc);
-        Logger.info('User initialized successfully', {}, userId);
+        // No trial subscription - user will start trial via App Store
+        Logger.info('Account holder created - subscription will be created via RevenueCat webhook', { email }, userId);
+        // Note: No subscription document or usage document created here
+        // These will be created when user starts trial via RevenueCat webhook
+        Logger.info('User account created successfully', { email }, userId);
     }
     catch (error) {
         Logger.error('Error creating user documents', { error: error });
@@ -1179,14 +1998,26 @@ async function handleSubscriptionCreated(subscription: Stripe.Subscription): Pro
         console.log(`Created new subscription for user ${userId}`);
       }
 
-      // Also update the user's usage limits for current month
+      // Also create/update the user's usage document for current month
       const currentMonth: string = new Date().toISOString().slice(0, 7);
       const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
 
-      transaction.update(usageRef, {
+      // Use set with merge to create document if it doesn't exist
+      transaction.set(usageRef, {
+        userId,
+        month: currentMonth,
+        receiptsUploaded: 0,
+        apiCalls: 0,
+        reportsGenerated: 0,
         limits: subscriptionTiers[tier].limits,
+        resetDate: new Date(
+          new Date().getFullYear(),
+          new Date().getMonth() + 1,
+          1
+        ).toISOString(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
     });
 
     Logger.info('Successfully processed subscription creation for user ${userId}', {});
@@ -1917,217 +2748,6 @@ exports.createPlaidLinkToken = (0, https_1.onCall)({ region: 'us-central1' }, as
         throw new https_1.HttpsError('internal', `Failed to create link token: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
 });
-// COMMENTED OUT - Using RevenueCat instead of Stripe
-/*
-async function handleSubscriptionUpdated(subscription: Stripe.Subscription): Promise<void> {
-  const customerId: string = subscription.customer as string;
-  const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
-  const userId: string | undefined = customer.metadata?.userId;
-
-  if (!userId) {
-    Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-    return;
-  }
-
-  console.log(`Processing subscription updated for user: ${userId}`);
-
-  const tier: string = getTierFromPriceId(subscription.items.data[0].price.id);
-
-  await db
-    .collection("subscriptions")
-    .doc(userId)
-    .update({
-      currentTier: tier,
-      status: subscription.status,
-      billing: {
-        customerId: customerId,
-        subscriptionId: subscription.id,
-        priceId: subscription.items.data[0].price.id,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-        cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        trialEnd: subscription.trial_end
-          ? new Date(subscription.trial_end * 1000)
-          : null,
-      },
-      limits: subscriptionTiers[tier].limits,
-      features: subscriptionTiers[tier].features,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-}
-*/
-// COMMENTED OUT - Using RevenueCat instead of Stripe
-/*
-async function handleSubscriptionDeleted(subscription: Stripe.Subscription): Promise<void> {
-  const customerId: string = subscription.customer as string;
-  const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
-  const userId: string | undefined = customer.metadata?.userId;
-
-  if (!userId) {
-    Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-    return;
-  }
-
-  console.log(`Processing subscription deleted for user: ${userId}`);
-
-  // Downgrade to free tier
-  await db.collection("subscriptions").doc(userId).update({
-    currentTier: "free",
-    status: "canceled",
-    limits: subscriptionTiers.free.limits,
-    features: subscriptionTiers.free.features,
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-}
-*/
-// COMMENTED OUT - Using RevenueCat instead of Stripe
-/*
-async function handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
-  Logger.info('Payment succeeded for invoice', { value: invoice.id });
-  console.log("Full invoice data:", JSON.stringify(invoice, null, 2));
-
-  try {
-    const customerId: string = invoice.customer as string;
-    Logger.info('Customer ID from invoice', { value: customerId });
-
-    const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
-    console.log("Customer data:", JSON.stringify(customer, null, 2));
-
-    const userId: string | undefined = customer.metadata?.userId;
-
-    if (!userId) {
-      Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-      return;
-    }
-
-    console.log(`Processing successful payment for user: ${userId}`);
-
-    // Try to get subscription ID from different possible sources
-    let subscriptionId = invoice.subscription;
-
-    if (!subscriptionId && invoice.lines?.data) {
-      // Look for subscription in invoice line items
-      const subscriptionItem = invoice.lines.data.find(
-        line => line.type === 'subscription'
-      );
-      if (subscriptionItem) {
-        subscriptionId = subscriptionItem.subscription;
-        Logger.info('Found subscription ID in line items', { value: subscriptionId });
-      }
-    }
-
-    // If still no subscription, try to find it by customer
-    if (!subscriptionId) {
-      const subscriptions = await getStripe().subscriptions.list({
-        customer: customerId,
-        limit: 1,
-        status: 'active'
-      });
-
-      if (subscriptions.data.length > 0) {
-        subscriptionId = subscriptions.data[0].id;
-        Logger.info('Found subscription ID from customers subscriptions', { subscriptionId });
-      }
-    }
-    Logger.info('Subscription ID from invoice', { subscriptionId });
-    if (subscriptionId) {
-      // Get subscription status in Firestore
-      const subscriptionRef = db.collection("subscriptions").doc(userId);
-      const subscriptionDoc = await subscriptionRef.get();
-
-      const updateData = {
-        status: "active", // Ensure status is active since payment succeeded
-        "billing.lastPaymentStatus": "succeeded",
-        "billing.lastPaymentDate": admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
-        "billing.lastInvoiceId": invoice.id,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      };
-
-      if (!subscriptionDoc.exists) {
-        console.log(`Creating new subscription document for user ${userId}`);
-        // Get the subscription from Stripe to determine the tier
-        const stripeSubscription = await getStripe().subscriptions.retrieve(subscriptionId as string);
-        const priceId = stripeSubscription.items.data[0].price.id;
-        const tier = getTierFromPriceId(priceId);
-
-        // Create a new subscription document
-        await subscriptionRef.set({
-          userId,
-          currentTier: tier,
-          status: "active",
-          billing: {
-            customerId: customerId,
-            subscriptionId: subscriptionId,
-            priceId: priceId,
-            currentPeriodStart: admin.firestore.Timestamp.fromDate(new Date(stripeSubscription.current_period_start * 1000)),
-            currentPeriodEnd: admin.firestore.Timestamp.fromDate(new Date(stripeSubscription.current_period_end * 1000)),
-            cancelAtPeriodEnd: stripeSubscription.cancel_at_period_end,
-            trialEnd: stripeSubscription.trial_end ? new Date(stripeSubscription.trial_end * 1000) : null,
-            lastPaymentStatus: "succeeded",
-            lastPaymentDate: admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
-            lastInvoiceId: invoice.id,
-          },
-          limits: subscriptionTiers[tier].limits,
-          features: subscriptionTiers[tier].features,
-          history: [{
-            tier: tier,
-            startDate: new Date(),
-            endDate: null,
-            reason: "subscription_created"
-          }],
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-      } else {
-        // Update existing subscription
-        await subscriptionRef.update(updateData);
-      }
-
-      // Add to billing history collection if you're tracking detailed payment history
-      await db.collection("billing_history").add({
-        userId,
-        invoiceId: invoice.id,
-        subscriptionId: subscriptionId,
-        amount: invoice.amount_paid,
-        currency: invoice.currency,
-        status: "succeeded",
-        paymentDate: admin.firestore.Timestamp.fromDate(new Date(invoice.status_transitions.paid_at || Date.now())),
-        periodStart: admin.firestore.Timestamp.fromDate(new Date(invoice.period_start * 1000)),
-        periodEnd: admin.firestore.Timestamp.fromDate(new Date(invoice.period_end * 1000)),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      });
-
-      Logger.info('Successfully updated billing records for user ${userId}', {});
-    } else {
-      console.log("Invoice is not associated with a subscription");
-    }
-  } catch (error) {
-    Logger.error('Error processing successful payment:', { error: (error as Error) });
-    throw error; // Rethrow to trigger webhook retry if needed
-  }
-}
-*/
-// COMMENTED OUT - Using RevenueCat instead of Stripe
-/*
-async function handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
-  Logger.info('Payment failed for invoice', { value: invoice.id });
-
-  const customerId: string = invoice.customer as string;
-  const customer = await getStripe().customers.retrieve(customerId) as Stripe.Customer;
-  const userId: string | undefined = customer.metadata?.userId;
-
-  if (!userId) {
-    Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-    return;
-  }
-
-  // Update subscription status
-  await db.collection("subscriptions").doc(userId).update({
-    status: "past_due",
-    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-  });
-}
-*/
 // 5. Proactive Bank Connection Health Monitoring
 exports.monitorBankConnections = functionsV1.pubsub
     .schedule("0 */6 * * *") // Run every 6 hours
@@ -2676,52 +3296,77 @@ exports.generateReport = (0, https_1.onCall)(async (request) => {
 exports.onUserDelete = functionsV1.auth.user().onDelete(async (user) => {
     try {
         const userId = user.uid;
-        console.log(`Starting cleanup for deleted user: ${userId}`);
-        // Delete user data in batches
-        const batch = db.batch();
-        // Delete user document
-        batch.delete(db.collection("users").doc(userId));
-        // Delete subscription
-        batch.delete(db.collection("subscriptions").doc(userId));
-        // Delete receipts
+        console.log(`Starting soft deletion for user: ${userId}`);
+        // Instead of hard delete, mark user as soft deleted
+        const deletionDate = new Date();
+        const permanentDeletionDate = new Date(deletionDate.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        // Create soft deletion record
+        await db.collection("deletedAccounts").doc(userId).set({
+            userId,
+            email: user.email || '',
+            deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+            permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate),
+            deletionType: 'auth_triggered',
+            status: 'soft_deleted',
+            recoverable: true
+        });
+        // Mark user document as deleted instead of removing it
+        const userDocRef = db.collection("users").doc(userId);
+        const userDoc = await userDocRef.get();
+        if (userDoc.exists) {
+            await userDocRef.update({
+                status: 'soft_deleted',
+                deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+                permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate),
+                originalData: userDoc.data() // Backup original data for recovery
+            });
+        }
+        // Mark subscription as soft deleted
+        const subscriptionRef = db.collection("subscriptions").doc(userId);
+        const subscriptionDoc = await subscriptionRef.get();
+        if (subscriptionDoc.exists) {
+            await subscriptionRef.update({
+                status: 'soft_deleted',
+                deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+                permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate),
+                originalData: subscriptionDoc.data()
+            });
+        }
+        // Mark all receipts as soft deleted (batch operation)
         const receiptsSnapshot = await db
             .collection("receipts")
             .where("userId", "==", userId)
             .get();
+        const batch = db.batch();
         receiptsSnapshot.forEach((doc) => {
-            batch.delete(doc.ref);
+            batch.update(doc.ref, {
+                status: 'soft_deleted',
+                deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+                permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate)
+            });
         });
-        // Delete businesses
-        const businessesSnapshot = await db
-            .collection("businesses")
-            .where("userId", "==", userId)
-            .get();
-        businessesSnapshot.forEach((doc) => {
-            batch.delete(doc.ref);
-        });
-        // Delete reports
-        const reportsSnapshot = await db
-            .collection("reports")
-            .where("userId", "==", userId)
-            .get();
-        reportsSnapshot.forEach((doc) => {
-            batch.delete(doc.ref);
-        });
-        // Delete usage data
-        const usageSnapshot = await db
-            .collection("usage")
-            .where("userId", "==", userId)
-            .get();
-        usageSnapshot.forEach((doc) => {
-            batch.delete(doc.ref);
-        });
+        // Mark other user data as soft deleted
+        const collections = ['businesses', 'reports', 'usage', 'teamMembers', 'bankConnections'];
+        for (const collectionName of collections) {
+            const snapshot = await db
+                .collection(collectionName)
+                .where("userId", "==", userId)
+                .get();
+            snapshot.forEach((doc) => {
+                batch.update(doc.ref, {
+                    status: 'soft_deleted',
+                    deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+                    permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate)
+                });
+            });
+        }
         await batch.commit();
-        // Update device tracking records to mark account as deleted
+        // Update device tracking records to mark account as soft deleted
         await updateDeviceTrackingForDeletedAccount(userId);
-        Logger.info('User ${userId} data deleted successfully', {});
+        Logger.info(`User ${userId} soft deleted successfully. Recovery available until ${permanentDeletionDate.toISOString()}`, {});
     }
     catch (error) {
-        Logger.error('Error deleting user data:', { error: error });
+        Logger.error('Error soft deleting user data:', { error: error });
     }
 });
 // OPTIMIZATION: Helper function to determine subscription tier from RevenueCat API
@@ -2732,7 +3377,7 @@ async function getRevenueCatSubscriptionTier(revenueCatUserId) {
         const revenueCatApiKey = process.env.REVENUECAT_API_KEY;
         if (!revenueCatApiKey) {
             functions.logger.warn('⚠️ RevenueCat API key not configured, falling back to client-provided tier');
-            return 'free';
+            return 'trial'; // Default to trial if no API key
         }
         // Call RevenueCat REST API to get subscriber info
         const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${revenueCatUserId}`, {
@@ -2747,7 +3392,7 @@ async function getRevenueCatSubscriptionTier(revenueCatUserId) {
                 status: response.status,
                 statusText: response.statusText,
             });
-            return 'free';
+            return 'trial'; // Default to trial on error
         }
         const subscriberData = await response.json();
         functions.logger.info('📦 RevenueCat subscriber data received', { subscriberData });
@@ -2755,24 +3400,25 @@ async function getRevenueCatSubscriptionTier(revenueCatUserId) {
         const entitlements = ((_a = subscriberData.subscriber) === null || _a === void 0 ? void 0 : _a.entitlements) || {};
         const activeEntitlements = Object.values(entitlements).filter((ent) => ent.expires_date === null || new Date(ent.expires_date) > new Date());
         if (activeEntitlements.length === 0) {
-            return 'free';
+            return 'trial'; // No active entitlements
         }
         // Check product IDs to determine tier (same logic as client-side)
         const productIds = activeEntitlements.map((ent) => ent.product_identifier);
-        if (productIds.some(id => id === 'rc_professional_monthly' || id === 'rc_professional_annual')) {
+        Logger.info("Active RevenueCat product IDs:", { productIds });
+        if (productIds.some(id => id === 'rg_professional_monthly' || id === 'rg_professional_annual')) {
             return 'professional';
         }
-        else if (productIds.some(id => id === 'rc_growth_monthly' || id === 'rc_growth_annual')) {
+        else if (productIds.some(id => id === 'rg_growth_monthly' || id === 'rg_growth_annual')) {
             return 'growth';
         }
-        else if (productIds.some(id => id === 'rc_starter')) {
+        else if (productIds.some(id => id === 'rg_starter')) {
             return 'starter';
         }
-        return 'free';
+        return 'trial';
     }
     catch (error) {
         functions.logger.error('❌ Error calling RevenueCat API', error);
-        return 'free';
+        return 'trial';
     }
 }
 exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => {
@@ -2800,7 +3446,7 @@ exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => 
         let finalTierId;
         if (tierId) {
             // Client provided tier - validate it
-            const validTiers = ['free', 'starter', 'growth', 'professional', 'trial'];
+            const validTiers = ['starter', 'growth', 'professional', 'trial'];
             if (!validTiers.includes(tierId)) {
                 throw new https_1.HttpsError('invalid-argument', `Invalid tier: ${tierId}`);
             }
@@ -2847,13 +3493,13 @@ exports.updateSubscriptionAfterPayment = (0, https_1.onCall)(async (request) => 
         functions.logger.info('🔍 Trial check', {
             currentTrialActive,
             finalTierId,
-            shouldEndTrial: currentTrialActive && finalTierId !== 'free',
+            shouldEndTrial: currentTrialActive && finalTierId !== 'trial',
             trialData,
             isActiveField: trialData === null || trialData === void 0 ? void 0 : trialData.isActive,
             expiresAt: (_c = trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) === null || _c === void 0 ? void 0 : _c.toDate(),
             now: new Date()
         });
-        if (currentTrialActive && finalTierId !== 'free') {
+        if (currentTrialActive && finalTierId !== 'trial') {
             functions.logger.info('🏁 Ending trial for user upgrading to paid subscription');
             subscriptionUpdateData.trial = {
                 isActive: false,
@@ -3686,13 +4332,21 @@ async function handleRevenueCatSubscriptionCreated(event) {
                 });
                 console.log(`Created new subscription for user ${userId}`);
             }
-            // Also update the user's usage limits for current month (ported from Stripe)
+            // Also create/update the user's usage document for current month
             const currentMonth = new Date().toISOString().slice(0, 7);
             const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
-            transaction.update(usageRef, {
+            // Use set with merge to create document if it doesn't exist
+            transaction.set(usageRef, {
+                userId,
+                month: currentMonth,
+                receiptsUploaded: 0,
+                apiCalls: 0,
+                reportsGenerated: 0,
                 limits: subscriptionTiers[tier].limits,
+                resetDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString(),
                 updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-            });
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
         });
         Logger.info('Successfully processed RevenueCat subscription creation for user ${userId}', {});
     }
@@ -3719,7 +4373,7 @@ async function handleRevenueCatSubscriptionUpdated(event) {
         // Get current tier for comparison
         const subscriptionRef = db.collection("subscriptions").doc(userId);
         const currentSub = await subscriptionRef.get();
-        const currentTier = ((_a = currentSub.data()) === null || _a === void 0 ? void 0 : _a.currentTier) || 'free';
+        const currentTier = ((_a = currentSub.data()) === null || _a === void 0 ? void 0 : _a.currentTier) || 'trial';
         // Prepare subscription update data
         const subscriptionUpdateData = {
             currentTier: tier,
@@ -3747,13 +4401,13 @@ async function handleRevenueCatSubscriptionUpdated(event) {
             },
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
-        // End trial when confirming subscription (if trial is still active) and tier is not free
+        // End trial when confirming subscription (if trial is still active) and tier is not trial
         const currentData = currentSub.data();
         const trialData = currentData === null || currentData === void 0 ? void 0 : currentData.trial;
         const currentTrialActive = (trialData === null || trialData === void 0 ? void 0 : trialData.isActive) !== false && // if isActive is undefined or true
             (trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) &&
             trialData.expiresAt.toDate() > new Date(); // and not expired
-        if (currentTrialActive && tier !== 'free') {
+        if (currentTrialActive && tier !== 'trial') {
             console.log(`🏁 Ending trial for user upgrading to paid subscription: ${tier}`);
             subscriptionUpdateData.trial = {
                 isActive: false,
@@ -3770,7 +4424,7 @@ async function handleRevenueCatSubscriptionUpdated(event) {
             const currentMonth = new Date().toISOString().slice(0, 7);
             const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
             await usageRef.set({
-                limits: ((_c = subscriptionTiers[tier]) === null || _c === void 0 ? void 0 : _c.limits) || subscriptionTiers.free.limits,
+                limits: ((_c = subscriptionTiers[tier]) === null || _c === void 0 ? void 0 : _c.limits) || subscriptionTiers.trial.limits,
                 updatedAt: admin.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
             Logger.info('Updated usage limits for ${currentMonth} due to tier change', {});
@@ -3793,23 +4447,23 @@ async function handleRevenueCatSubscriptionDeleted(event) {
             return;
         }
         console.log(`Processing RevenueCat subscription deleted for user: ${userId}`);
-        // Downgrade to free tier (ported from Stripe logic)
+        // Downgrade to trial tier (ported from Stripe logic)
         const subscriptionRef = db.collection("subscriptions").doc(userId);
         // Use transaction to handle creating document if it doesn't exist
         await db.runTransaction(async (transaction) => {
             const doc = await transaction.get(subscriptionRef);
             const updateData = {
-                currentTier: "free",
+                currentTier: "trial",
                 status: event.type === 'CANCELLATION' ? "canceled" : "expired",
                 billing: {
                     isActive: false,
                     willRenew: false,
                     unsubscribeDetectedAt: new Date(event_timestamp_ms),
                 },
-                limits: subscriptionTiers.free.limits,
-                features: subscriptionTiers.free.features,
+                limits: subscriptionTiers.trial.limits,
+                features: subscriptionTiers.trial.features,
                 history: admin.firestore.FieldValue.arrayUnion({
-                    tier: "free",
+                    tier: "trial",
                     startDate: new Date(event_timestamp_ms),
                     endDate: null,
                     reason: event.type === 'CANCELLATION' ? "cancellation" : "expiration"
@@ -3824,17 +4478,17 @@ async function handleRevenueCatSubscriptionDeleted(event) {
             if (doc.exists) {
                 // Update existing subscription
                 transaction.update(subscriptionRef, updateData);
-                console.log(`Updated subscription to free tier for user ${userId}`);
+                console.log(`Updated subscription to trial tier for user ${userId}`);
             }
             else {
-                // Create new subscription document with free tier
+                // Create new subscription document with trial tier
                 const createData = {
                     ...updateData,
                     userId: userId,
                     createdAt: admin.firestore.FieldValue.serverTimestamp(),
                 };
                 transaction.set(subscriptionRef, createData);
-                console.log(`Created new free tier subscription for user ${userId}`);
+                console.log(`Created new trial tier subscription for user ${userId}`);
             }
         });
         Logger.info('Successfully processed RevenueCat subscription deletion for user ${userId}', {});
@@ -3894,8 +4548,8 @@ async function handleRevenueCatPaymentSucceeded(event) {
                     ...updateData,
                     userId: userId,
                     currentTier: tier,
-                    limits: ((_a = subscriptionTiers[tier]) === null || _a === void 0 ? void 0 : _a.limits) || subscriptionTiers.free.limits,
-                    features: ((_b = subscriptionTiers[tier]) === null || _b === void 0 ? void 0 : _b.features) || subscriptionTiers.free.features,
+                    limits: ((_a = subscriptionTiers[tier]) === null || _a === void 0 ? void 0 : _a.limits) || subscriptionTiers.trial.limits,
+                    features: ((_b = subscriptionTiers[tier]) === null || _b === void 0 ? void 0 : _b.features) || subscriptionTiers.trial.features,
                     history: [{
                             tier: tier,
                             startDate: new Date(event_timestamp_ms),
@@ -4160,17 +4814,17 @@ async function recordOneTimePurchase(userId: string, purchaseData: any): Promise
 // Map RevenueCat product ID to subscription tier
 function mapProductIdToTier(productId) {
     const productToTierMap = {
-        'rc_starter': 'starter',
-        'rc_growth_monthly': 'growth',
-        'rc_growth_annual': 'growth',
-        'rc_professional_monthly': 'professional',
-        'rc_professional_annual': 'professional'
+        'rg_starter': 'starter',
+        'rg_growth_monthly': 'growth',
+        'rg_growth_annual': 'growth',
+        'rg_professional_monthly': 'professional',
+        'rg_professional_annual': 'professional'
     };
-    return productToTierMap[productId] || 'free';
+    return productToTierMap[productId] || 'trial';
 }
 // Check if usage limits should be updated (when downgrading)
 function shouldUpdateUsageLimits(currentTier, newTier) {
-    const tierPriority = { free: 0, starter: 1, growth: 2, professional: 3 };
+    const tierPriority = { trial: 0, starter: 1, growth: 2, professional: 3 };
     return (tierPriority[newTier] || 0) <
         (tierPriority[currentTier] || 0);
 }
@@ -4198,7 +4852,7 @@ exports.checkAccountHolderSubscription = (0, https_1.onCall)(async (request) => 
         }
         // Check if subscription is active AND includes team management features
         const isActive = subscription.status === 'active' &&
-            subscription.tier !== 'free' &&
+            subscription.tier !== 'trial' &&
             new Date(((_b = (_a = subscription.expiresAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) || subscription.expiresAt) > new Date();
         // Check if the tier includes team management features
         // Only growth, professional, and teammate tiers support team management
@@ -4232,9 +4886,9 @@ exports.onSubscriptionStatusChange = functionsV1.firestore
         const afterSubscription = afterData;
         // Check if subscription status changed from active to inactive
         const wasActive = (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.status) === 'active' &&
-            (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.currentTier) !== 'free';
+            (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.currentTier) !== 'trial';
         const isNowInactive = (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.status) !== 'active' ||
-            (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.currentTier) === 'free';
+            (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.currentTier) === 'trial';
         if (wasActive && isNowInactive) {
             Logger.info('Account holder subscription became inactive, revoking teammate access', {
                 accountHolderId: userId,
@@ -4287,7 +4941,7 @@ async function updateDeviceTrackingForDeletedAccount(userId) {
         const subscription = userData === null || userData === void 0 ? void 0 : userData.subscription;
         // Determine subscription status
         const hadActiveSubscription = (subscription === null || subscription === void 0 ? void 0 : subscription.status) === 'active' &&
-            (subscription === null || subscription === void 0 ? void 0 : subscription.tier) !== 'free' &&
+            (subscription === null || subscription === void 0 ? void 0 : subscription.tier) !== 'trial' &&
             new Date(((_b = (_a = subscription === null || subscription === void 0 ? void 0 : subscription.expiresAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) || (subscription === null || subscription === void 0 ? void 0 : subscription.expiresAt)) > new Date();
         const subscriptionStatus = (subscription === null || subscription === void 0 ? void 0 : subscription.status) || 'none';
         // Find device tracking records directly by userId (much more reliable!)
@@ -4717,7 +5371,7 @@ exports.deleteUserAccount = (0, https_1.onCall)({
     region: 'us-central1',
     invoker: 'private' // Only allow authenticated users
 }, async (request) => {
-    var _a, _b;
+    var _a, _b, _c, _d, _e;
     Logger.info('🗑️ Account deletion request received', {
         hasAuth: !!request.auth,
         authUid: (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid,
@@ -4733,17 +5387,46 @@ exports.deleteUserAccount = (0, https_1.onCall)({
         throw new https_1.HttpsError("invalid-argument", "Password is required for account deletion");
     }
     try {
-        Logger.info('🗑️ Starting account deletion process', { userId });
+        Logger.info('🗑️ Starting account soft deletion process', { userId });
         // Get the user record
         const userRecord = await admin.auth().getUser(userId);
         if (!userRecord.email) {
             throw new https_1.HttpsError('internal', 'User email not found');
         }
-        // Re-authenticate the user by checking if they can sign in with the provided password
-        // Note: We cannot re-authenticate from server side, so we trust the client has already done this
-        // The client should re-authenticate before calling this function
-        // Delete user data from all Firestore collections
-        const collectionsToDelete = [
+        // Check if user has active RevenueCat subscription
+        let hasActiveSubscription = false;
+        let subscriptionInfo = null;
+        try {
+            const subscriptionDoc = await db.collection('subscriptions').doc(userId).get();
+            if (subscriptionDoc.exists) {
+                const subData = subscriptionDoc.data();
+                hasActiveSubscription = (subData === null || subData === void 0 ? void 0 : subData.status) === 'active' &&
+                    (subData === null || subData === void 0 ? void 0 : subData.currentTier) !== 'trial';
+                subscriptionInfo = subData;
+            }
+        }
+        catch (error) {
+            Logger.warn('Could not check subscription status', { error: error.message });
+        }
+        // Calculate deletion dates
+        const deletionDate = new Date();
+        const permanentDeletionDate = new Date(deletionDate.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+        // Create soft deletion record with detailed info
+        await db.collection("deletedAccounts").doc(userId).set({
+            userId,
+            email: userRecord.email,
+            deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+            permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate),
+            deletionType: 'user_requested',
+            status: 'soft_deleted',
+            recoverable: true,
+            hasActiveSubscription,
+            subscriptionInfo: hasActiveSubscription ? subscriptionInfo : null,
+            userAgent: ((_d = (_c = request.rawRequest) === null || _c === void 0 ? void 0 : _c.headers) === null || _d === void 0 ? void 0 : _d['user-agent']) || 'unknown',
+            ipAddress: ((_e = request.rawRequest) === null || _e === void 0 ? void 0 : _e.ip) || 'unknown'
+        });
+        // Soft delete user data from all Firestore collections
+        const collectionsToSoftDelete = [
             'receipts',
             'businesses',
             'subscriptions',
@@ -4766,8 +5449,9 @@ exports.deleteUserAccount = (0, https_1.onCall)({
         ];
         // Use batched operations for efficiency
         const batch = admin.firestore().batch();
-        let deletionCount = 0;
-        for (const collectionName of collectionsToDelete) {
+        let softDeletionCount = 0;
+        // Process each collection
+        for (const collectionName of collectionsToSoftDelete) {
             try {
                 // Query for documents where userId matches
                 const userDocsQuery = admin.firestore()
@@ -4776,8 +5460,14 @@ exports.deleteUserAccount = (0, https_1.onCall)({
                     .limit(500); // Firestore batch limit
                 const userDocsSnapshot = await userDocsQuery.get();
                 userDocsSnapshot.forEach((doc) => {
-                    batch.delete(doc.ref);
-                    deletionCount++;
+                    const originalData = doc.data();
+                    batch.update(doc.ref, {
+                        status: 'soft_deleted',
+                        deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+                        permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate),
+                        originalData: originalData // Backup for recovery
+                    });
+                    softDeletionCount++;
                 });
                 // Also check for accountHolderId field (for team-related data)
                 if (['receipts', 'businesses', 'customCategories', 'teamMembers'].includes(collectionName)) {
@@ -4787,8 +5477,14 @@ exports.deleteUserAccount = (0, https_1.onCall)({
                         .limit(500);
                     const accountHolderDocsSnapshot = await accountHolderDocsQuery.get();
                     accountHolderDocsSnapshot.forEach((doc) => {
-                        batch.delete(doc.ref);
-                        deletionCount++;
+                        const originalData = doc.data();
+                        batch.update(doc.ref, {
+                            status: 'soft_deleted',
+                            deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate),
+                            originalData: originalData
+                        });
+                        softDeletionCount++;
                     });
                 }
                 // Handle documents with specific patterns (like usage documents)
@@ -4800,29 +5496,45 @@ exports.deleteUserAccount = (0, https_1.onCall)({
                         .limit(500);
                     const usageSnapshot = await usageQuery.get();
                     usageSnapshot.forEach((doc) => {
-                        batch.delete(doc.ref);
-                        deletionCount++;
+                        const originalData = doc.data();
+                        batch.update(doc.ref, {
+                            status: 'soft_deleted',
+                            deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+                            permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate),
+                            originalData: originalData
+                        });
+                        softDeletionCount++;
                     });
                 }
             }
             catch (error) {
-                Logger.warn(`Error querying collection ${collectionName}`, {
+                Logger.warn(`Error soft deleting collection ${collectionName}`, {
                     error: error.message,
                     userId
                 });
                 // Continue with other collections even if one fails
             }
         }
-        // Delete user profile document
+        // Soft delete user profile document
         const userDocRef = admin.firestore().collection('users').doc(userId);
-        batch.delete(userDocRef);
-        deletionCount++;
-        // Commit all deletions
-        if (deletionCount > 0) {
+        const userDoc = await userDocRef.get();
+        if (userDoc.exists) {
+            const originalData = userDoc.data();
+            batch.update(userDocRef, {
+                status: 'soft_deleted',
+                deletedAt: admin.firestore.FieldValue.serverTimestamp(),
+                permanentDeletionDate: admin.firestore.Timestamp.fromDate(permanentDeletionDate),
+                originalData: originalData
+            });
+            softDeletionCount++;
+        }
+        // Commit all soft deletions
+        if (softDeletionCount > 0) {
             await batch.commit();
-            Logger.info('✅ Successfully deleted user data from Firestore', {
-                deletionCount,
-                userId
+            Logger.info('✅ Successfully soft deleted user data from Firestore', {
+                softDeletionCount,
+                userId,
+                recoveryAvailableUntil: permanentDeletionDate.toISOString()
             });
         }
         // Update device tracking records
@@ -4832,12 +5544,12 @@ exports.deleteUserAccount = (0, https_1.onCall)({
         Logger.info('✅ Successfully deleted user account', {
             userId,
             email: userRecord.email,
-            deletionCount
+            deletionCount: softDeletionCount
         });
         return {
             success: true,
-            message: 'Account deleted successfully',
-            deletedDocuments: deletionCount
+            message: 'Account deleted successfully. You have 30 days to recover your data by signing up with the same email.',
+            deletedDocuments: softDeletionCount
         };
     }
     catch (error) {

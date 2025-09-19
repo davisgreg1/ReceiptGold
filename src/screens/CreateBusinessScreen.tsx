@@ -178,7 +178,7 @@ const CreateBusinessScreen: React.FC = () => {
 
   // Estimate input position based on form layout
   const getInputEstimatedPosition = (inputKey: string): number => {
-    const positions = {
+    const positions: { [key: string]: number } = {
       // Business Information section starts around 60px
       'name': 60,        // First input in business info
       'taxId': 200,      // After business name + business type + some spacing
@@ -240,12 +240,14 @@ const CreateBusinessScreen: React.FC = () => {
       ...formData,
       name: formData.name.trim(),
       industry: formData.industry?.trim() || '',
-      address: {
+      address: formData.address ? {
         ...formData.address,
-        street: formData.address?.street?.trim() || '',
-        city: formData.address?.city?.trim() || '',
-        state: formData.address?.state?.trim() || '',
-      }
+        street: formData.address.street?.trim() || '',
+        city: formData.address.city?.trim() || '',
+        state: formData.address.state?.trim() || '',
+        zipCode: formData.address.zipCode?.trim() || '',
+        country: formData.address.country?.trim() || 'US',
+      } : undefined
     };
 
     // Validate form with trimmed data

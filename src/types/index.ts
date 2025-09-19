@@ -20,7 +20,7 @@ export interface SubscriptionTier {
 
 export interface SubscriptionDocument {
   userId: string;
-  currentTier: 'free' | 'starter' | 'growth' | 'professional';
+  currentTier: 'trial' | 'starter' | 'growth' | 'professional';
   status: 'active' | 'canceled' | 'past_due' | 'incomplete';
   billing: {
     customerId: string | null;

@@ -135,10 +135,8 @@ export const SignUpScreen: React.FC<SignUpScreenProps> = ({
       
       showSuccess('Welcome!', 'Your account has been created successfully');
       
-      // Automatically attempt to restore any existing subscriptions
-      setTimeout(async () => {
-        await handleAutoRestore();
-      }, 1000);
+      // Note: Removed auto-restore on signup. Users will start with paywall and need to
+      // manually restore purchases if they have existing subscriptions, or start new trial via App Store.
 
       // Save device token to database to prevent future accounts (only if DeviceCheck is enabled)
       setTimeout(async () => {

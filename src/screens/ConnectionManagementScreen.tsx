@@ -75,7 +75,7 @@ const ConnectionManagementScreen: React.FC<ConnectionManagementScreenProps> = ({
     
     try {
       // Import Plaid Link
-      const { PlaidLink } = await import('react-native-plaid-link-sdk');
+      const { create, open } = await import('react-native-plaid-link-sdk');
       
       // Get update mode link token from Firebase function
       const createPlaidUpdateToken = async (itemId: string) => {
@@ -96,10 +96,8 @@ const ConnectionManagementScreen: React.FC<ConnectionManagementScreenProps> = ({
       }
 
       // Launch Plaid Link in update mode
-      PlaidLink.open({
-        tokenConfig: {
-          token: tokenResponse.link_token,
-        },
+      create({ token: tokenResponse.link_token });
+      open({
         onSuccess: (success: any) => {
           console.log('Plaid Link update success:', success);
           Alert.alert(
@@ -169,7 +167,7 @@ const ConnectionManagementScreen: React.FC<ConnectionManagementScreenProps> = ({
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.colors.primary} />
+          <ActivityIndicator size="large" color={theme.gold.primary} />
           <Text style={[styles.loadingText, { color: theme.text.secondary }]}>
             Loading bank connections...
           </Text>
@@ -287,7 +285,7 @@ const ConnectionManagementScreen: React.FC<ConnectionManagementScreenProps> = ({
                 
                 {notification.actionRequired && (
                   <TouchableOpacity
-                    style={[styles.actionButton, { backgroundColor: theme.colors.primary }]}
+                    style={[styles.actionButton, { backgroundColor: theme.gold.primary }]}
                     onPress={() => {
                       const item = items.find(i => i.itemId === notification.itemId);
                       if (item) handleReconnect(item);
@@ -311,7 +309,7 @@ const ConnectionManagementScreen: React.FC<ConnectionManagementScreenProps> = ({
           
           {items.length === 0 ? (
             <View style={[styles.emptyCard, { backgroundColor: theme.background.secondary }]}>
-              <Ionicons name="bank-outline" size={48} color={theme.text.tertiary} />
+              <Ionicons name="business" size={48} color={theme.text.tertiary} />
               <Text style={[styles.emptyTitle, { color: theme.text.primary }]}>
                 No Banks Connected
               </Text>
@@ -319,7 +317,7 @@ const ConnectionManagementScreen: React.FC<ConnectionManagementScreenProps> = ({
                 Connect your bank accounts to automatically track receipt expenses from transactions.
               </Text>
               <TouchableOpacity
-                style={[styles.connectButton, { backgroundColor: theme.colors.primary }]}
+                style={[styles.connectButton, { backgroundColor: theme.gold.primary }]}
                 onPress={() => navigation.navigate('PlaidConnection')}
               >
                 <ButtonText style={[styles.connectButtonText, { color: 'white' }]}>
@@ -373,7 +371,7 @@ const ConnectionManagementScreen: React.FC<ConnectionManagementScreenProps> = ({
                   {(item.needsReauth || !item.active || item.status === 'error') && (
                     <TouchableOpacity
                       style={[styles.reconnectButton, { 
-                        backgroundColor: theme.colors.primary,
+                        backgroundColor: theme.gold.primary,
                         opacity: reconnectingItem === item.id ? 0.7 : 1
                       }]}
                       onPress={() => handleReconnect(item)}
@@ -421,8 +419,8 @@ const ConnectionManagementScreen: React.FC<ConnectionManagementScreenProps> = ({
           style={[styles.addConnectionButton, { backgroundColor: theme.background.secondary }]}
           onPress={() => navigation.navigate('PlaidConnection')}
         >
-          <Ionicons name="add-circle-outline" size={24} color={theme.colors.primary} />
-          <ButtonText style={[styles.addConnectionText, { color: theme.colors.primary }]}>
+          <Ionicons name="add-circle-outline" size={24} color={theme.gold.primary} />
+          <ButtonText style={[styles.addConnectionText, { color: theme.gold.primary }]}>
             Connect Another Bank
           </ButtonText>
         </TouchableOpacity>

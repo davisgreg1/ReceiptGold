@@ -225,7 +225,7 @@ export class TeamService {
         const subscriptionData = subscriptionDoc.data();
 
         // Check if user has any active subscription or trial
-        if (subscriptionData?.status === 'active' && subscriptionData?.currentTier !== 'free') {
+        if (subscriptionData?.status === 'active' && subscriptionData?.currentTier !== 'trial') {
           throw new Error('Users with active subscriptions cannot become team members. Please cancel your subscription first.');
         }
       }

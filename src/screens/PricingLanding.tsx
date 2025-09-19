@@ -165,6 +165,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
       // Use the Stripe service to handle subscription
       const success = await handleSubscriptionWithRevenueCat(
         tier.id,
+        'monthly', // Default to monthly
         customerEmail,
         customerName
       );
@@ -410,7 +411,7 @@ const PricingLanding: React.FC<PricingLandingProps> = () => {
                 color="inverse"
                 style={{ fontWeight: "700", letterSpacing: 0.5 }}
               >
-                {subscription?.currentTier === "free"
+                {subscription?.currentTier === "trial"
                   ? `Get ${tier.name}`
                   : `Upgrade Now`}
               </ButtonText>

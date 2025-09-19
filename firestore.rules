@@ -75,6 +75,11 @@ service cloud.firestore {
             return isAuthenticated() && request.auth.token.email_verified == true;
         }
 
+        // Events collection - users can only read events associated with their user ID
+        match /events/{id} {
+            allow read: if isOwner(resource.data.app_user_id)
+        }
+
         // Users collection - users can only access their own data
         match /users/{userId} {
             allow read, write: if isOwner(userId);
@@ -86,7 +91,7 @@ service cloud.firestore {
 
             // Allow users to delete their own account
             allow delete: if isOwner(userId);
-            
+
             // Allow account holders and admin team members to query users by email for duplicate checking
             // This is needed for team invitation validation
             allow list: if isAuthenticated() && 
@@ -98,20 +103,20 @@ service cloud.firestore {
         match /subscriptions/{userId} {
             allow read: if isOwner(userId) || isTeamMemberOfAccount(userId);
 
-            // Allow users to add trial information to existing subscriptions
+            // Allow users to update trial information in existing subscriptions
             allow update: if isOwner(userId) && 
             (
-                // Allow adding trial field to free tier without changing currentTier
-                (resource.data.currentTier == "free" &&
-                 request.resource.data.currentTier == "free" &&
-                 request.resource.data.keys().hasAll(['trial'])) ||
-                // Allow converting from free to trial
-                (resource.data.currentTier == "free" &&
-                 request.resource.data.currentTier == "trial" &&
-                 request.resource.data.keys().hasAll(['trial'])) 
+            // Allow updating trial field for trial tier without changing currentTier
+            (resource.data.currentTier == "trial" &&
+            request.resource.data.currentTier == "trial" &&
+            request.resource.data.keys().hasAll(['trial'])) ||
+            // Allow converting from trial to trial (trial extension/update)
+            (resource.data.currentTier == "trial" &&
+            request.resource.data.currentTier == "trial" &&
+            request.resource.data.keys().hasAll(['trial'])) 
             ) &&
-            // Prevent users from upgrading to paid tiers
-            request.resource.data.currentTier in ["free", "trial"];
+            // Prevent users from upgrading to paid tiers - only trial is allowed for user updates
+            request.resource.data.currentTier == "trial";
 
             // Only Cloud Functions can write other subscription changes
             // This prevents users from upgrading themselves to paid tiers
@@ -130,49 +135,49 @@ service cloud.firestore {
         // Receipts collection - users can access their own receipts or receipts they created as team members
         match /receipts/{receiptId} {
             allow read, list: if isAuthenticated() && (
-                request.auth.uid == resource.data.userId ||
-                // Allow admin team members to read all receipts for their account holder
-                isAdminTeamMember(resource.data.userId) ||
-                // Allow team members to read receipts they created
-                // Business-level filtering is enforced at the application level
-                (resource.data.teamAttribution != null && 
-                 resource.data.teamAttribution.createdByUserId == request.auth.uid)
+            request.auth.uid == resource.data.userId ||
+            // Allow admin team members to read all receipts for their account holder
+            isAdminTeamMember(resource.data.userId) ||
+            // Allow team members to read receipts they created
+            // Business-level filtering is enforced at the application level
+            (resource.data.teamAttribution != null && 
+            resource.data.teamAttribution.createdByUserId == request.auth.uid)
             );
 
             allow create: if isAuthenticated() && 
             // Account holders can create receipts for themselves
             (request.auth.uid == request.resource.data.userId ||
-             // Team members can create receipts (stored under account holder's userId)
-             // Business-level validation is enforced at the application level
-             (request.resource.data.teamAttribution != null && 
-              request.resource.data.teamAttribution.createdByUserId == request.auth.uid)) &&
+            // Team members can create receipts (stored under account holder's userId)
+            // Business-level validation is enforced at the application level
+            (request.resource.data.teamAttribution != null && 
+            request.resource.data.teamAttribution.createdByUserId == request.auth.uid)) &&
             // Validate userId is present, is a string, and has reasonable length
             request.resource.data.keys().hasAll(['userId']) &&
             request.resource.data.userId is string &&
             request.resource.data.userId.size() <= 128;
 
             allow update: if isAuthenticated() && (
-                // Account holders can update their receipts
-                request.auth.uid == resource.data.userId ||
-                // Admin team members can update all receipts for their account holder
-                isAdminTeamMember(resource.data.userId) ||
-                // Team members can only update receipts they created
-                // Business-level validation is enforced at the application level
-                (resource.data.teamAttribution != null && 
-                 resource.data.teamAttribution.createdByUserId == request.auth.uid)
+            // Account holders can update their receipts
+            request.auth.uid == resource.data.userId ||
+            // Admin team members can update all receipts for their account holder
+            isAdminTeamMember(resource.data.userId) ||
+            // Team members can only update receipts they created
+            // Business-level validation is enforced at the application level
+            (resource.data.teamAttribution != null && 
+            resource.data.teamAttribution.createdByUserId == request.auth.uid)
             ) &&
             // Prevent changing userId (must remain the same)
             request.resource.data.userId == resource.data.userId;
 
             allow delete: if isAuthenticated() && (
-                // Account holders can delete their receipts
-                request.auth.uid == resource.data.userId ||
-                // Admin team members can delete all receipts for their account holder
-                isAdminTeamMember(resource.data.userId) ||
-                // Team members can only delete receipts they created
-                // Business-level validation is enforced at the application level
-                (resource.data.teamAttribution != null && 
-                 resource.data.teamAttribution.createdByUserId == request.auth.uid)
+            // Account holders can delete their receipts
+            request.auth.uid == resource.data.userId ||
+            // Admin team members can delete all receipts for their account holder
+            isAdminTeamMember(resource.data.userId) ||
+            // Team members can only delete receipts they created
+            // Business-level validation is enforced at the application level
+            (resource.data.teamAttribution != null && 
+            resource.data.teamAttribution.createdByUserId == request.auth.uid)
             );
         }
 
@@ -180,7 +185,7 @@ service cloud.firestore {
         match /businesses/{businessId} {
             allow read: if isAuthenticated() && 
             (request.auth.uid == resource.data.userId || isTeamMemberOfBusiness(businessId));
-            
+
             allow write: if isAuthenticated() && 
             request.auth.uid == resource.data.userId;
 
@@ -229,264 +234,264 @@ service cloud.firestore {
         match /usage/{usageId} {
             // Allow users to read their own usage data
             allow read: if isAuthenticated() && 
-            usageId.matches(request.auth.uid + '_.*');
+                usageId.matches(request.auth.uid + '_.*');
 
-            // Only Cloud Functions can write usage data
-            allow write: if false;
+                // Only Cloud Functions can write usage data
+                allow write: if false;
 
-            // Allow creation during user initialization
-            allow create: if isAuthenticated() && 
-            usageId.matches(request.auth.uid + '_.*') &&
-            request.resource.data.userId == request.auth.uid;
+                // Allow creation during user initialization
+                allow create: if isAuthenticated() && 
+                    usageId.matches(request.auth.uid + '_.*') &&
+                    request.resource.data.userId == request.auth.uid;
 
-            // Allow users to delete their usage data during account deletion
-            allow delete: if isAuthenticated() && 
-            usageId.matches(request.auth.uid + '_.*');
-        }
+                    // Allow users to delete their usage data during account deletion
+                    allow delete: if isAuthenticated() && 
+                        usageId.matches(request.auth.uid + '_.*');
+                    }
 
-        // Categories collection - public read access, admin write only
-        match /categories/{categoryId} {
-            // Anyone can read categories (for autocomplete, etc.)
-            allow read: if true;
+                    // Categories collection - public read access, admin write only
+                    match /categories/{categoryId} {
+                        // Anyone can read categories (for autocomplete, etc.)
+                        allow read: if true;
 
-            // Only admins can write categories
-            // This would need to be updated with admin logic or use Cloud Functions
-            allow write: if false;
-        }
+                        // Only admins can write categories
+                        // This would need to be updated with admin logic or use Cloud Functions
+                        allow write: if false;
+                    }
 
-        // Custom Categories collection - temporary permissive rules for testing
-        // TODO: Tighten security after confirming functionality works
-        match /customCategories/{categoryId} {
-            allow read, list: if isAuthenticated();
+                    // Custom Categories collection - temporary permissive rules for testing
+                    // TODO: Tighten security after confirming functionality works
+                    match /customCategories/{categoryId} {
+                        allow read, list: if isAuthenticated();
 
-            allow create: if isAuthenticated();
+                        allow create: if isAuthenticated();
 
-            allow update: if isAuthenticated() &&
-            // Prevent changing core fields
-            request.resource.data.accountHolderId == resource.data.accountHolderId &&
-            request.resource.data.createdByUserId == resource.data.createdByUserId;
+                        allow update: if isAuthenticated() &&
+                        // Prevent changing core fields
+                        request.resource.data.accountHolderId == resource.data.accountHolderId &&
+                        request.resource.data.createdByUserId == resource.data.createdByUserId;
 
-            allow delete: if isAuthenticated();
-        }
+                        allow delete: if isAuthenticated();
+                    }
 
-        // Budgets collection - users can only access their own budgets
-        match /budgets/{budgetId} {
-            allow read: if isAuthenticated() && 
-            request.auth.uid == resource.data.userId;
+                    // Budgets collection - users can only access their own budgets
+                    match /budgets/{budgetId} {
+                        allow read: if isAuthenticated() && 
+                        request.auth.uid == resource.data.userId;
 
-            allow create: if isAuthenticated() && 
-            request.auth.uid == request.resource.data.userId &&
-            // Validate required fields and sizes
-            request.resource.data.keys().hasAll(['userId', 'name', 'amount']) &&
-            request.resource.data.name is string &&
-            request.resource.data.name.size() > 0 &&
-            request.resource.data.name.size() <= 100;
+                        allow create: if isAuthenticated() && 
+                        request.auth.uid == request.resource.data.userId &&
+                        // Validate required fields and sizes
+                        request.resource.data.keys().hasAll(['userId', 'name', 'amount']) &&
+                        request.resource.data.name is string &&
+                        request.resource.data.name.size() > 0 &&
+                        request.resource.data.name.size() <= 100;
 
-            allow update: if isAuthenticated() && 
-            request.auth.uid == resource.data.userId &&
-            // Prevent changing userId
-            request.resource.data.userId == resource.data.userId;
+                        allow update: if isAuthenticated() && 
+                        request.auth.uid == resource.data.userId &&
+                        // Prevent changing userId
+                        request.resource.data.userId == resource.data.userId;
 
-            allow delete: if isAuthenticated() && 
-            request.auth.uid == resource.data.userId;
-        }
+                        allow delete: if isAuthenticated() && 
+                        request.auth.uid == resource.data.userId;
+                    }
 
-        // Admin functions (if needed)
-        // You can extend this with custom claims for admin users
-        function isAdmin() {
-            return isAuthenticated() && 
-            request.auth.token.admin == true;
-        }
+                    // Admin functions (if needed)
+                    // You can extend this with custom claims for admin users
+                    function isAdmin() {
+                        return isAuthenticated() && 
+                        request.auth.token.admin == true;
+                    }
 
-        // Check if user is an admin team member for a specific account holder
-        // Note: This is a simplified check - full team member validation should be done in application logic
-        function isAdminTeamMember(accountHolderId) {
-            return isAuthenticated() && request.auth.uid != accountHolderId;
-        }
+                    // Check if user is an admin team member for a specific account holder
+                    // Note: This is a simplified check - full team member validation should be done in application logic
+                    function isAdminTeamMember(accountHolderId) {
+                        return isAuthenticated() && request.auth.uid != accountHolderId;
+                    }
 
-        // Check if user is a team member for a specific business
-        // Note: This is a simplified check - more complex queries cannot be done in Firestore rules
-        function isTeamMemberOfBusiness(businessId) {
-            return isAuthenticated() && businessId != null;
-        }
+                    // Check if user is a team member for a specific business
+                    // Note: This is a simplified check - more complex queries cannot be done in Firestore rules
+                    function isTeamMemberOfBusiness(businessId) {
+                        return isAuthenticated() && businessId != null;
+                    }
 
-        // Check if user is a team member of a specific account holder
-        // Note: This is a simplified check - in practice, team member validation is done at application level
-        function isTeamMemberOfAccount(accountHolderId) {
-            return isAuthenticated() && accountHolderId != null && request.auth.uid != accountHolderId;
-        }
+                    // Check if user is a team member of a specific account holder
+                    // Note: This is a simplified check - in practice, team member validation is done at application level
+                    function isTeamMemberOfAccount(accountHolderId) {
+                        return isAuthenticated() && accountHolderId != null && request.auth.uid != accountHolderId;
+                    }
 
 
 
-        // Admin-only collections (if you add them later)
-        match /admin/{document=**} {
-            allow read, write: if isAdmin();
-        }
+                    // Admin-only collections (if you add them later)
+                    match /admin/{document=**} {
+                        allow read, write: if isAdmin();
+                    }
 
-        // Analytics collection (optional - for tracking app usage)
-        match /analytics/{document=**} {
-            // Only allow reading/writing via Cloud Functions
-            allow read, write: if false;
-        }
+                    // Analytics collection (optional - for tracking app usage)
+                    match /analytics/{document=**} {
+                        // Only allow reading/writing via Cloud Functions
+                        allow read, write: if false;
+                    }
 
-        // User notifications - users can read/write their own notifications
-        match /user_notifications/{notificationId} {
-            allow read, write: if isAuthenticated() &&
-            (request.auth.uid == resource.data.userId ||
-             request.auth.uid == request.resource.data.userId);
-        }
+                    // User notifications - users can read/write their own notifications
+                    match /user_notifications/{notificationId} {
+                        allow read, write: if isAuthenticated() &&
+                        (request.auth.uid == resource.data.userId ||
+                        request.auth.uid == request.resource.data.userId);
+                    }
 
-        // Notifications collection - users can read/write/delete their own notifications
-        match /notifications/{notificationId} {
-            allow read, write: if isAuthenticated() &&
-            (request.auth.uid == resource.data.userId ||
-             request.auth.uid == request.resource.data.userId);
-            allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
-        }
+                    // Notifications collection - users can read/write/delete their own notifications
+                    match /notifications/{notificationId} {
+                        allow read, write: if isAuthenticated() &&
+                        (request.auth.uid == resource.data.userId ||
+                        request.auth.uid == request.resource.data.userId);
+                        allow delete: if isAuthenticated() && request.auth.uid == resource.data.userId;
+                    }
 
-        // User Settings collection - users can read/write/delete their own settings
-        match /userSettings/{userId} {
-            allow read, write, delete: if isOwner(userId);
-            allow create: if isAuthenticated() && request.auth.uid == userId;
-        }
+                    // User Settings collection - users can read/write/delete their own settings
+                    match /userSettings/{userId} {
+                        allow read, write, delete: if isOwner(userId);
+                        allow create: if isAuthenticated() && request.auth.uid == userId;
+                    }
 
-        // Connection notifications - read-only for users, write via Cloud Functions
-        match /connection_notifications/{notificationId} {
-            allow read: if isAuthenticated() && 
-            request.auth.uid == resource.data.userId;
-            allow write: if false; // Only Cloud Functions can write
-        }
+                    // Connection notifications - read-only for users, write via Cloud Functions
+                    match /connection_notifications/{notificationId} {
+                        allow read: if isAuthenticated() && 
+                        request.auth.uid == resource.data.userId;
+                        allow write: if false; // Only Cloud Functions can write
+                    }
 
-        // Audit logs (optional - for compliance)
-        match /audit_logs/{logId} {
-            // Users can read their own audit logs
-            allow read: if isAuthenticated() && 
-            resource.data.userId == request.auth.uid;
+                    // Audit logs (optional - for compliance)
+                    match /audit_logs/{logId} {
+                        // Users can read their own audit logs
+                        allow read: if isAuthenticated() && 
+                        resource.data.userId == request.auth.uid;
 
-            // Only Cloud Functions can write audit logs
-            allow write: if false;
-        }
+                        // Only Cloud Functions can write audit logs
+                        allow write: if false;
+                    }
 
-        // Team Invitations collection - account holders and admin team members can manage invitations
-        match /teamInvitations/{invitationId} {
-            // Account holders can read and list their own invitations
-            // Admin team members can read invitations for their account holder
-            allow read, list: if isAuthenticated() && (
-                request.auth.uid == resource.data.accountHolderId ||
-                isAdminTeamMember(resource.data.accountHolderId)
-            );
-            
-            // Allow limited queries for duplicate checking (email validation)
-            // This is needed when creating team invitations to check for duplicates
-            allow list: if isAuthenticated() && 
-            // Restrict to small queries for validation purposes
-            request.query.limit <= 10;
+                    // Team Invitations collection - account holders and admin team members can manage invitations
+                    match /teamInvitations/{invitationId} {
+                        // Account holders can read and list their own invitations
+                        // Admin team members can read invitations for their account holder
+                        allow read, list: if isAuthenticated() && (
+                        request.auth.uid == resource.data.accountHolderId ||
+                        isAdminTeamMember(resource.data.accountHolderId)
+                        );
 
-            // Account holders and admin team members can create invitations
-            allow create: if isAuthenticated() && (
-                request.auth.uid == request.resource.data.accountHolderId ||
-                isAdminTeamMember(request.resource.data.accountHolderId)
-            ) &&
-            // Validate required fields including business association
-            request.resource.data.keys().hasAll(['accountHolderId', 'businessId', 'inviteEmail', 'status', 'token', 'expiresAt', 'createdAt', 'role']) &&
-            // Validate field types and sizes
-            request.resource.data.inviteEmail is string &&
-            request.resource.data.inviteEmail.size() <= 254 &&
-            request.resource.data.status == 'pending' &&
-            request.resource.data.token is string &&
-            request.resource.data.role in ['teammate', 'admin'];
+                        // Allow limited queries for duplicate checking (email validation)
+                        // This is needed when creating team invitations to check for duplicates
+                        allow list: if isAuthenticated() && 
+                        // Restrict to small queries for validation purposes
+                        request.query.limit <= 10;
 
-            // Account holders can update (revoke) their invitations
-            allow update: if isAuthenticated() && 
-            request.auth.uid == resource.data.accountHolderId &&
-            // Prevent changing core fields, only allow status updates
-            request.resource.data.accountHolderId == resource.data.accountHolderId &&
-            request.resource.data.inviteEmail == resource.data.inviteEmail &&
-            request.resource.data.token == resource.data.token;
+                        // Account holders and admin team members can create invitations
+                        allow create: if isAuthenticated() && (
+                        request.auth.uid == request.resource.data.accountHolderId ||
+                        isAdminTeamMember(request.resource.data.accountHolderId)
+                        ) &&
+                        // Validate required fields including business association
+                        request.resource.data.keys().hasAll(['accountHolderId', 'businessId', 'inviteEmail', 'status', 'token', 'expiresAt', 'createdAt', 'role']) &&
+                        // Validate field types and sizes
+                        request.resource.data.inviteEmail is string &&
+                        request.resource.data.inviteEmail.size() <= 254 &&
+                        request.resource.data.status == 'pending' &&
+                        request.resource.data.token is string &&
+                        request.resource.data.role in ['teammate', 'admin'];
 
-            // Account holders can delete their invitations
-            allow delete: if isAuthenticated() && 
-            request.auth.uid == resource.data.accountHolderId;
+                        // Account holders can update (revoke) their invitations
+                        allow update: if isAuthenticated() && 
+                        request.auth.uid == resource.data.accountHolderId &&
+                        // Prevent changing core fields, only allow status updates
+                        request.resource.data.accountHolderId == resource.data.accountHolderId &&
+                        request.resource.data.inviteEmail == resource.data.inviteEmail &&
+                        request.resource.data.token == resource.data.token;
 
-            // Allow invited users to read invitations by token (for accepting invitations)
-            allow read, list: if isAuthenticated() && 
-            resource.data.inviteEmail.lower() == request.auth.token.email.lower() &&
-            resource.data.status == 'pending';
-        }
+                        // Account holders can delete their invitations
+                        allow delete: if isAuthenticated() && 
+                        request.auth.uid == resource.data.accountHolderId;
 
-        // Device Tracking collection - for preventing multiple accounts per device
-        match /device_tracking/{deviceToken} {
-            // Allow authenticated users to create device tracking records
-            allow create: if isAuthenticated() &&
-            // Validate required fields
-            request.resource.data.keys().hasAll(['hasCreatedAccount', 'createdAt', 'lastUpdated']) &&
-            request.resource.data.hasCreatedAccount == true;
-            
-            // Only Cloud Functions can read and update device tracking (for blocking logic)
-            allow read, update: if false;
-            
-            // Don't allow deletion of device tracking records
-            allow delete: if false;
-        }
+                        // Allow invited users to read invitations by token (for accepting invitations)
+                        allow read, list: if isAuthenticated() && 
+                        resource.data.inviteEmail.lower() == request.auth.token.email.lower() &&
+                        resource.data.status == 'pending';
+                    }
 
-        // Team Members collection - account holders and team members can read, limited write access
-        match /teamMembers/{memberId} {
-            // Account holders can read and list all their team members
-            // Admin team members can read and list team members for their account holder
-            // Team members can read their own membership record
-            allow read, list: if isAuthenticated() && (
-                request.auth.uid == resource.data.accountHolderId ||
-                request.auth.uid == resource.data.userId ||
-                isAdminTeamMember(resource.data.accountHolderId)
-            );
-            
-            // Allow account holders to query their team members for migration purposes
-            allow list: if isAuthenticated() && 
-            resource == null; // Allow queries that haven't been filtered yet
-            
-            // Allow limited queries for duplicate checking (email validation)
-            // This is needed when creating team invitations to check for duplicates
-            allow list: if isAuthenticated() && 
-            // Restrict to small queries for validation purposes
-            request.query.limit <= 10;
+                    // Device Tracking collection - for preventing multiple accounts per device
+                    match /device_tracking/{deviceToken} {
+                        // Allow authenticated users to create device tracking records
+                        allow create: if isAuthenticated() &&
+                        // Validate required fields
+                        request.resource.data.keys().hasAll(['hasCreatedAccount', 'createdAt', 'lastUpdated']) &&
+                        request.resource.data.hasCreatedAccount == true;
 
-            // Only allow creation during invitation acceptance (Cloud Functions preferred)
-            allow create: if isAuthenticated() && 
-            request.auth.uid == request.resource.data.userId &&
-            // Validate required fields including business association
-            request.resource.data.keys().hasAll(['accountHolderId', 'businessId', 'userId', 'email', 'role', 'status', 'joinedAt']) &&
-            // Validate field types
-            request.resource.data.status == 'active' &&
-            request.resource.data.role in ['teammate', 'admin'];
+                        // Only Cloud Functions can read and update device tracking (for blocking logic)
+                        allow read, update: if false;
 
-            // Account holders can update team member status (suspend/activate)
-            // Admin team members can update team member status and permissions
-            // Team members can update their own display name and last active time
-            allow update: if isAuthenticated() && (
-                (request.auth.uid == resource.data.accountHolderId &&
-                 // Account holders can only change status and permissions
-                 request.resource.data.userId == resource.data.userId &&
-                 request.resource.data.accountHolderId == resource.data.accountHolderId &&
-                 request.resource.data.email == resource.data.email) ||
-                (isAdminTeamMember(resource.data.accountHolderId) &&
-                 // Admin team members can change status and permissions
-                 request.resource.data.userId == resource.data.userId &&
-                 request.resource.data.accountHolderId == resource.data.accountHolderId &&
-                 request.resource.data.email == resource.data.email) ||
-                (request.auth.uid == resource.data.userId &&
-                 // Team members can only update their display name and last active time
-                 request.resource.data.userId == resource.data.userId &&
-                 request.resource.data.accountHolderId == resource.data.accountHolderId &&
-                 request.resource.data.email == resource.data.email &&
-                 request.resource.data.role == resource.data.role &&
-                 request.resource.data.status == resource.data.status)
-            );
+                        // Don't allow deletion of device tracking records
+                        allow delete: if false;
+                    }
 
-            // Account holders and admin team members can delete (remove) team members
-            allow delete: if isAuthenticated() && (
-                request.auth.uid == resource.data.accountHolderId ||
-                isAdminTeamMember(resource.data.accountHolderId)
-            );
-        }
-    }
-}
+                    // Team Members collection - account holders and team members can read, limited write access
+                    match /teamMembers/{memberId} {
+                        // Account holders can read and list all their team members
+                        // Admin team members can read and list team members for their account holder
+                        // Team members can read their own membership record
+                        allow read, list: if isAuthenticated() && (
+                        request.auth.uid == resource.data.accountHolderId ||
+                        request.auth.uid == resource.data.userId ||
+                        isAdminTeamMember(resource.data.accountHolderId)
+                        );
+
+                        // Allow account holders to query their team members for migration purposes
+                        allow list: if isAuthenticated() && 
+                        resource == null; // Allow queries that haven't been filtered yet
+
+                        // Allow limited queries for duplicate checking (email validation)
+                        // This is needed when creating team invitations to check for duplicates
+                        allow list: if isAuthenticated() && 
+                        // Restrict to small queries for validation purposes
+                        request.query.limit <= 10;
+
+                        // Only allow creation during invitation acceptance (Cloud Functions preferred)
+                        allow create: if isAuthenticated() && 
+                        request.auth.uid == request.resource.data.userId &&
+                        // Validate required fields including business association
+                        request.resource.data.keys().hasAll(['accountHolderId', 'businessId', 'userId', 'email', 'role', 'status', 'joinedAt']) &&
+                        // Validate field types
+                        request.resource.data.status == 'active' &&
+                        request.resource.data.role in ['teammate', 'admin'];
+
+                        // Account holders can update team member status (suspend/activate)
+                        // Admin team members can update team member status and permissions
+                        // Team members can update their own display name and last active time
+                        allow update: if isAuthenticated() && (
+                        (request.auth.uid == resource.data.accountHolderId &&
+                        // Account holders can only change status and permissions
+                        request.resource.data.userId == resource.data.userId &&
+                        request.resource.data.accountHolderId == resource.data.accountHolderId &&
+                        request.resource.data.email == resource.data.email) ||
+                        (isAdminTeamMember(resource.data.accountHolderId) &&
+                        // Admin team members can change status and permissions
+                        request.resource.data.userId == resource.data.userId &&
+                        request.resource.data.accountHolderId == resource.data.accountHolderId &&
+                        request.resource.data.email == resource.data.email) ||
+                        (request.auth.uid == resource.data.userId &&
+                        // Team members can only update their display name and last active time
+                        request.resource.data.userId == resource.data.userId &&
+                        request.resource.data.accountHolderId == resource.data.accountHolderId &&
+                        request.resource.data.email == resource.data.email &&
+                        request.resource.data.role == resource.data.role &&
+                        request.resource.data.status == resource.data.status)
+                        );
+
+                        // Account holders and admin team members can delete (remove) team members
+                        allow delete: if isAuthenticated() && (
+                        request.auth.uid == resource.data.accountHolderId ||
+                        isAdminTeamMember(resource.data.accountHolderId)
+                        );
+                    }
+                }
+            }
