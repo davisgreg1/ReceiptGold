@@ -295,7 +295,7 @@ export const SettingsScreen: React.FC = () => {
           lastRefreshTime.current = now;
           
           // Only refresh bank connections for professional tier or trial users
-          if (subscription.currentTier === 'professional' || subscription.trial.isActive) {
+          if (subscription.currentTier === 'professional' || subscription.isActive) {
             refreshBankConnections();
           }
           
@@ -609,7 +609,7 @@ export const SettingsScreen: React.FC = () => {
       await loadCustomCategories(true);
       
       // Also refresh bank connections if user has access
-      if (subscription.currentTier === 'professional' || subscription.trial.isActive) {
+      if (subscription.currentTier === 'professional' || subscription.isActive) {
         await refreshBankConnections();
       }
     } catch (error) {
@@ -624,7 +624,7 @@ export const SettingsScreen: React.FC = () => {
     if (!user) return;
     
     // Only allow professional tier or trial users to access bank connections
-    if (subscription.currentTier !== 'professional' && !subscription.trial.isActive) {
+    if (subscription.currentTier !== 'professional' && !subscription.isActive) {
       setBankConnections([]);
       return;
     }
@@ -1723,7 +1723,7 @@ export const SettingsScreen: React.FC = () => {
             }
             description={
               subscription.isActive
-                ? subscription.currentTier === "trial" || subscription.trial.isActive
+                ? subscription.currentTier === "trial" || subscription.isActive
                   ? `Your trial ends on ${
                       subscription.expiresAt?.toLocaleDateString() || "N/A"
                     }`

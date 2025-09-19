@@ -30,7 +30,6 @@ import { BankTransactionsScreen } from "../screens/BankTransactionsScreen";
 import { ContactSupportScreen } from "../screens/ContactSupportScreen";
 import { HelpCenterScreen } from "../screens/HelpCenterScreen";
 import { PrivacyPolicyScreen } from "../screens/PrivacyPolicyScreen";
-import { TrialBanner } from "../components/TrialBanner";
 import { TermsOfServiceScreen } from "../screens/TermsOfServiceScreen";
 import BusinessManagementScreen from "../screens/BusinessManagementScreen";
 import CreateBusinessScreen from "../screens/CreateBusinessScreen";
@@ -413,7 +412,7 @@ const BaseAppNavigator: React.FC = () => {
   const { theme } = useTheme();
   const { isTeamMember } = useTeam();
   const { logout, user } = useAuth();
-  const { isTrialExpiredAndNoPaidPlan, subscription } = useSubscription();
+  const { subscription } = useSubscription();
   const { showError, showSuccess } = useCustomAlert();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
@@ -423,19 +422,15 @@ const BaseAppNavigator: React.FC = () => {
   // Monitor for automatic teammate logouts
   useTeammateLogoutDetection();
 
-  // Check if user needs to see paywall (no subscription document or trial expired)
-  const needsSubscription =
-    (!subscription.isActive && subscription.currentTier === "trial" && !isTeamMember) ||
-    (!subscription.trial.isActive && subscription.currentTier === "trial" && !isTeamMember);
+  // Check if user needs to see paywall (no active subscription)
+  const needsSubscription = !subscription.isActive && !isTeamMember;
 
   // Debug logging for subscription state
   console.log("🚀 AppNavigator subscription state:", {
-    trialIsActive: subscription.trial.isActive,
     subscriptionIsActive: subscription.isActive,
     currentTier: subscription.currentTier,
     isTeamMember,
     needsSubscription,
-    trialExpiresAt: subscription.trial.expiresAt?.toISOString(),
   });
 
   // Handle account deletion with password confirmation
@@ -575,7 +570,6 @@ const BaseAppNavigator: React.FC = () => {
           }}
         />
       </Tab.Navigator>
-      <TrialBanner />
 
       {/* Custom Delete Account Dialog */}
       {showDeleteDialog && (

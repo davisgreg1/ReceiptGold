@@ -495,7 +495,7 @@ export const BankTransactionsScreen: React.FC = () => {
 
 
   useEffect(() => {
-    if (user && (subscription.currentTier === "professional" || subscription.trial.isActive)) {
+    if (user && subscription.currentTier === "professional" && subscription.isActive) {
       // Only load candidates and create link token; do not clear bank connections in dev mode
       loadTransactionCandidates();
       loadBankConnections();
@@ -732,7 +732,7 @@ export const BankTransactionsScreen: React.FC = () => {
     if (!user) return;
 
     // Only professional tier or trial users can connect banks
-    if (subscription.currentTier !== "professional" && !subscription.trial.isActive) {
+    if (subscription.currentTier !== "professional" && !subscription.isActive) {
       showNotification({
         type: "warning",
         title: "Professional Tier Required",
@@ -2659,7 +2659,7 @@ export const BankTransactionsScreen: React.FC = () => {
   });
 
   // Check if user has Professional subscription or active trial
-  if (subscription.currentTier !== "professional" && !subscription.trial.isActive) {
+  if (subscription.currentTier !== "professional" && !subscription.isActive) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.emptyState}>

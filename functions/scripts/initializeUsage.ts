@@ -23,7 +23,6 @@ const db = admin.firestore();
 // Get receipt limits from environment variables
 const getReceiptLimits = () => {
   return {
-    trial: parseInt(process.env.TRIAL_TIER_MAX_RECEIPTS || "10", 10),
     starter: parseInt(process.env.STARTER_TIER_MAX_RECEIPTS || "50", 10),
     growth: parseInt(process.env.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
     professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
@@ -31,7 +30,7 @@ const getReceiptLimits = () => {
   };
 };
 
-type SubscriptionTier = 'trial' | 'starter' | 'growth' | 'professional' | 'teammate';
+type SubscriptionTier = 'starter' | 'growth' | 'professional' | 'teammate';
 
 interface SubscriptionLimits {
   maxReceipts: number;
@@ -83,25 +82,6 @@ interface SubscriptionDocument {
 }
 
 const subscriptionTiers: Record<SubscriptionTier, TierConfig & { features: SubscriptionDocument['features'] }> = {
-  trial: {
-    name: "Trial",
-    limits: {
-      maxReceipts: getReceiptLimits().trial,
-      maxBusinesses: 1,
-      apiCallsPerMonth: 0,
-      maxReports: 3,
-    },
-    features: {
-      advancedReporting: false,
-      taxPreparation: false,
-      accountingIntegrations: false,
-      prioritySupport: false,
-      multiBusinessManagement: false,
-      whiteLabel: false,
-      apiAccess: false,
-      dedicatedManager: false,
-    }
-  },
   starter: {
     name: "Starter",
     limits: {
@@ -207,7 +187,7 @@ async function initializeUsageCollection() {
       const subscriptionRef = db.collection('subscriptions').doc(userId);
       const subscriptionDoc = await subscriptionRef.get();
       
-    let currentTier: SubscriptionTier = 'trial';
+    let currentTier: SubscriptionTier = 'starter';
     
     if (!subscriptionDoc.exists) {
       console.log(`Creating subscription for user ${userId}...`);
