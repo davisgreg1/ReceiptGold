@@ -562,6 +562,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           // For team members, get their account holder's subscription
           const { TeamService } = await import('../services/TeamService');
           const membership = await TeamService.getTeamMembershipByUserId(user.uid);
+          console.log("🚀 ~ setupSubscriptionListener ~ membership:", membership)
           if (membership?.accountHolderId) {
             subscriptionUserId = membership.accountHolderId;
           } else {
@@ -582,6 +583,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           }
 
           const currentTier = (data.currentTier || "trial") as SubscriptionTier;
+          console.log("🚀 ~ setupSubscriptionListener ~ currentTier:", currentTier)
           
           // OPTIMIZATION: Use memoized trial calculation
           const trialData = computeTrialData(data.trial);

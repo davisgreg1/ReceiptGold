@@ -410,6 +410,43 @@ export const receiptService = {
             updatedAt: serverTimestamp(),
           });
         } else {
+          // Get user's current subscription to set appropriate limits
+          const subscriptionRef = doc(db, 'subscriptions', userId);
+          const subscriptionDoc = await transaction.get(subscriptionRef);
+          const subscriptionData = subscriptionDoc.data();
+          const currentTier = subscriptionData?.currentTier || 'trial';
+
+          // Determine limits based on subscription tier
+          let maxReceipts, maxApiCalls, maxReports;
+
+          switch (currentTier) {
+            case 'starter':
+              maxReceipts = parseInt(Constants.expoConfig?.extra?.STARTER_TIER_MAX_RECEIPTS || "50", 10);
+              maxApiCalls = 0;
+              maxReports = 10;
+              break;
+            case 'growth':
+              maxReceipts = parseInt(Constants.expoConfig?.extra?.GROWTH_TIER_MAX_RECEIPTS || "150", 10);
+              maxApiCalls = 1000;
+              maxReports = 50;
+              break;
+            case 'professional':
+              maxReceipts = parseInt(Constants.expoConfig?.extra?.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10);
+              maxApiCalls = -1; // unlimited
+              maxReports = -1; // unlimited
+              break;
+            case 'teammate':
+              maxReceipts = parseInt(Constants.expoConfig?.extra?.TEAMMATE_TIER_MAX_RECEIPTS || "-1", 10);
+              maxApiCalls = 0;
+              maxReports = 0;
+              break;
+            default: // trial or unknown
+              maxReceipts = parseInt(Constants.expoConfig?.extra?.TRIAL_TIER_MAX_RECEIPTS || "-1", 10);
+              maxApiCalls = -1; // unlimited during trial
+              maxReports = -1; // unlimited during trial
+              break;
+          }
+
           // Create new usage document starting with 1 receipt
           const nextMonth = new Date();
           nextMonth.setMonth(nextMonth.getMonth() + 1);
@@ -423,9 +460,9 @@ export const receiptService = {
             apiCalls: 0,
             reportsGenerated: 0,
             limits: {
-              maxReceipts: parseInt(Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || "10", 10),
-              maxApiCalls: 0,
-              maxReports: 1,
+              maxReceipts,
+              maxApiCalls,
+              maxReports,
             },
             resetDate: nextMonth,
             createdAt: serverTimestamp(),
@@ -453,6 +490,14 @@ export const usageService = {
       }
 
       // Create initial usage document if it doesn't exist
+      // Get user's current subscription to set appropriate limits
+      const subscriptionRef = doc(db, 'subscriptions', userId);
+      const subscriptionDoc = await getDoc(subscriptionRef);
+      const subscriptionData = subscriptionDoc.data();
+      const currentTier = subscriptionData?.currentTier || 'trial';
+
+      const limits = this.getLimitsForTier(currentTier as SubscriptionTier);
+
       const nextMonth = new Date();
       nextMonth.setMonth(nextMonth.getMonth() + 1);
       nextMonth.setDate(1);
@@ -464,11 +509,7 @@ export const usageService = {
         receiptsUploaded: 0,
         apiCalls: 0,
         reportsGenerated: 0,
-        limits: {
-          maxReceipts: parseInt(process.env.REACT_APP_FREE_TIER_MAX_RECEIPTS || "10", 10),
-          maxApiCalls: 0,
-          maxReports: 1,
-        },
+        limits,
         resetDate: nextMonth,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -510,19 +551,19 @@ export const usageService = {
         return {
           maxReceipts: parseInt(Constants.expoConfig?.extra?.STARTER_TIER_MAX_RECEIPTS || "50", 10),
           maxApiCalls: 0,
-          maxReports: -1, // unlimited
+          maxReports: 10,
         };
       case 'growth':
         return {
           maxReceipts: parseInt(Constants.expoConfig?.extra?.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
-          maxApiCalls: 100,
-          maxReports: -1,
+          maxApiCalls: 1000,
+          maxReports: 50,
         };
       case 'professional':
         return {
           maxReceipts: parseInt(Constants.expoConfig?.extra?.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
-          maxApiCalls: 1000,
-          maxReports: -1,
+          maxApiCalls: -1, // unlimited
+          maxReports: -1, // unlimited
         };
       case 'teammate':
         return {
@@ -533,7 +574,13 @@ export const usageService = {
       case 'trial':
         return {
           maxReceipts: parseInt(Constants.expoConfig?.extra?.TRIAL_TIER_MAX_RECEIPTS || "-1", 10),
-          maxApiCalls: 1000,
+          maxApiCalls: -1, // unlimited during trial
+          maxReports: -1, // unlimited during trial
+        };
+      default:
+        return {
+          maxReceipts: parseInt(Constants.expoConfig?.extra?.TRIAL_TIER_MAX_RECEIPTS || "-1", 10),
+          maxApiCalls: -1,
           maxReports: -1,
         };
     }

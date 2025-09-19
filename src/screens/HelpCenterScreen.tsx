@@ -431,12 +431,12 @@ const faqs: FAQ[] = [
           ReceiptGold offers three subscription tiers:
         </FAQParagraph>
 
-        <View style={{ marginBottom: 12 }}>
-          <FAQBoldText>Free</FAQBoldText>
+        {/* <View style={{ marginBottom: 12 }}>
+          <FAQBoldText>Trial</FAQBoldText>
         </View>
         <FAQBulletList
-          items={["10 receipts per month", "Basic scanning and storage"]}
-        />
+          items={["Selected tier access, free for 3 days"]}
+        /> */}
 
         <View style={{ marginBottom: 12 }}>
           <FAQBoldText>Starter</FAQBoldText>
