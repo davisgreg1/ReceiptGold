@@ -49,7 +49,7 @@ interface DashboardData {
 export const HomeScreen: React.FC = () => {
   const { theme } = useTheme();
   const { user } = useAuth();
-  const { subscription, startTrial } = useSubscription();
+  const { subscription } = useSubscription();
   const { isTeamMember, currentMembership, accountHolderId } = useTeam();
   const homeNavigation = useHomeNavigation();
   const tabNavigation = useTabNavigation();
@@ -282,20 +282,6 @@ export const HomeScreen: React.FC = () => {
     }).format(amount);
   };
 
-  // Debug function to migrate existing trial users to trial
-  const handleMigrateToTrial = async () => {
-    try {
-      const result = await startTrial();
-      if (result.success) {
-        alert('Successfully migrated to trial! You now have access to all features for 3 days.');
-      } else {
-        alert(`Failed to migrate to trial: ${result.error}`);
-      }
-    } catch (error) {
-      console.error('Error migrating to trial:', error);
-      alert('Error occurred while migrating to trial.');
-    }
-  };
 
   const formatDate = (date: any) => {
     if (!date) return 'Unknown Date';
@@ -434,7 +420,7 @@ export const HomeScreen: React.FC = () => {
               </TouchableOpacity>
             )}
             
-            {(subscription.currentTier === 'professional' || subscription.trial.isActive) && !isTeamMember && (
+            {subscription.currentTier === 'professional' && subscription.isActive && !isTeamMember && (
               <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: theme.status.success }]}
                 onPress={() => homeNavigation.navigate('BankTransactions')}
@@ -546,31 +532,28 @@ export const HomeScreen: React.FC = () => {
             }]}>
               <View style={styles.subscriptionIcon}>
                 <Text style={styles.subscriptionEmoji}>
-                  {subscription.currentTier === 'starter' ? '📄' : 
-                   subscription.currentTier === 'growth' ? '📈' : 
-                   subscription.currentTier === 'professional' || subscription.trial.isActive ? '💼' : '🆓'}
+                  {subscription.currentTier === 'starter' ? '📄' :
+                   subscription.currentTier === 'growth' ? '📈' :
+                   subscription.currentTier === 'professional' ? '💼' : '🆓'}
                 </Text>
               </View>
               <View style={styles.subscriptionDetails}>
                 <HeadingText size="medium" color="gold">
-                  {subscription.currentTier === 'starter' ? 'Starter Plan' : 
-                   subscription.currentTier === 'growth' ? 'Growth Plan' : 
-                   subscription.currentTier === 'professional' ? 'Professional Plan' : 
-                   subscription.trial.isActive ? 'Trial Active' : 'Trial Ended'}
+                  {subscription.currentTier === 'starter' ? 'Starter Plan' :
+                   subscription.currentTier === 'growth' ? 'Growth Plan' :
+                   subscription.currentTier === 'professional' ? 'Professional Plan' : 'No Active Plan'}
                 </HeadingText>
                 <BodyText size="small" color="secondary">
-                  {subscription.currentTier === 'trial' && !subscription.trial.isActive && 'Trial expired • Choose a plan to continue'}
                   {subscription.currentTier === 'starter' && 'Starter Plan • 50 receipts/month'}
                   {subscription.currentTier === 'growth' && 'Growth Plan • 150 receipts/month'}
                   {subscription.currentTier === 'professional' && 'Professional Plan • Unlimited receipts'}
-                  {subscription.currentTier === 'trial' && subscription.trial.isActive && 'Trial Active • All features unlocked'}
+                  {!subscription.isActive && 'Choose a plan to get started'}
                 </BodyText>
                 <BodyText size="small" color="tertiary" style={{ marginTop: 4 }}>
                   {subscription.currentTier === 'starter' && '$9.99/month'}
                   {subscription.currentTier === 'growth' && '$19.99/month'}
                   {subscription.currentTier === 'professional' && '$39.99/month'}
-                  {subscription.currentTier === 'trial' && subscription.trial.isActive && 'Trial Active'}
-                  {subscription.currentTier === 'trial' && !subscription.trial.isActive && 'Choose your plan to continue'}
+                  {!subscription.isActive && 'Choose your plan to continue'}
                 </BodyText>
               </View>
               <TouchableOpacity
@@ -578,7 +561,7 @@ export const HomeScreen: React.FC = () => {
                 onPress={() => homeNavigation.navigate('Subscription')}
               >
                 <ButtonText size="small" color="inverse">
-                  {subscription.currentTier === 'trial' && !subscription.trial.isActive ? 'Choose Plan' : 'Manage'}
+                  {!subscription.isActive ? 'Choose Plan' : 'Manage'}
                 </ButtonText>
               </TouchableOpacity>
             </View>

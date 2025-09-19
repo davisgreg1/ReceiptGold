@@ -183,8 +183,8 @@ export const NotificationSettingsScreen: React.FC = () => {
       }
 
       // Only allow professional tier or trial users to test webhooks
-      if (subscription.subscription.currentTier !== 'professional' && !subscription.subscription.trial.isActive) {
-        Alert.alert('Upgrade Required', 'Webhook testing is only available for Professional tier or trial users.');
+      if (subscription.subscription.currentTier !== 'professional' || !subscription.subscription.isActive) {
+        Alert.alert('Upgrade Required', 'Webhook testing is only available for Professional tier users.');
         return;
       }
 

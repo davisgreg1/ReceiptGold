@@ -18,7 +18,7 @@ import { useAuth } from "./AuthContext";
 import { db } from "../config/firebase";
 import { getMonthlyReceiptCount } from "../utils/getMonthlyReceipts";
 
-export type SubscriptionTier = "trial" | "starter" | "growth" | "professional" | "teammate";
+export type SubscriptionTier = "starter" | "growth" | "professional" | "teammate";
 
 export interface SubscriptionFeatures {
   maxReceipts: number;
@@ -57,12 +57,6 @@ export interface SubscriptionState {
   isActive: boolean;
   expiresAt: Date | null;
   billing: BillingInfo;
-  trial: {
-    isActive: boolean;
-    startedAt: Date | null;
-    expiresAt: Date | null;
-    daysRemaining: number;
-  };
 }
 
 interface SubscriptionContextType {
@@ -79,11 +73,9 @@ interface SubscriptionContextType {
   }>;
   refreshSubscription: () => Promise<{ success: boolean; error?: string }>;
   isRefreshing: boolean;
-  startTrial: () => Promise<{ success: boolean; error?: string }>;
   canAccessPremiumFeatures: () => boolean;
   hasProfessionalAccess: () => boolean;
   getFeaturesForTeammate: (teamMemberRole?: string) => SubscriptionFeatures;
-  isTrialExpiredAndNoPaidPlan: () => boolean;
 }
 
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(
@@ -96,7 +88,6 @@ import Constants from "expo-constants";
 const getReceiptLimits = () => {
   const extra = Constants.expoConfig?.extra || {};
   return {
-    trial: parseInt(extra.TRIAL_TIER_MAX_RECEIPTS || "-1", 10),
     starter: parseInt(extra.STARTER_TIER_MAX_RECEIPTS || "50", 10),
     growth: parseInt(extra.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
     professional: parseInt(extra.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
@@ -108,20 +99,6 @@ const getFeaturesByTier = (tier: SubscriptionTier, teamMemberRole?: string): Sub
   const limits = getReceiptLimits();
 
   switch (tier) {
-    case "trial":
-      return {
-        maxReceipts: limits.professional,
-        advancedReporting: true,
-        taxPreparation: true,
-        accountingIntegrations: true,
-        prioritySupport: true,
-        multiBusinessManagement: true,
-        whiteLabel: true,
-        apiAccess: true,
-        dedicatedManager: true,
-        bankConnection: true,
-        teamManagement: true,
-      };
     case "starter":
       return {
         maxReceipts: limits.starter,
@@ -206,54 +183,29 @@ const REFRESH_CONFIG = {
 } as const;
 
 // OPTIMIZATION: Memoized helper functions to reduce expensive recalculations
-const computeTrialData = (trialData: any) => {
-  if (!trialData) {
-    return {
-      isActive: false,
-      startedAt: null,
-      expiresAt: null,
-      daysRemaining: 0,
-    };
-  }
-
-  const startedAt = trialData.startedAt?.toDate() || null;
-  const expiresAt = trialData.expiresAt?.toDate() || null;
-  const now = new Date();
-  const isActive = !!(expiresAt && now < expiresAt);
-  const daysRemaining = expiresAt 
-    ? Math.max(0, Math.ceil((expiresAt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)))
-    : 0;
-
-  return {
-    isActive,
-    startedAt,
-    expiresAt,
-    daysRemaining,
-  };
-};
 
 const computeSubscriptionLimits = (effectiveTier: SubscriptionTier, receiptLimits: any) => {
   return {
     maxReceipts:
-      effectiveTier === "professional" || effectiveTier === "trial" || effectiveTier === "teammate"
+      effectiveTier === "professional" || effectiveTier === "teammate"
         ? receiptLimits.professional
         : effectiveTier === "growth"
         ? receiptLimits.growth
-        : receiptLimits.starter, // Default to starter instead of free
+        : receiptLimits.starter,
     maxBusinesses:
-      effectiveTier === "professional" || effectiveTier === "trial"
+      effectiveTier === "professional"
         ? -1
         : effectiveTier === "teammate"
         ? 1 // Teammates work within assigned business
         : 1, // 1 for others
     apiCallsPerMonth:
-      effectiveTier === "professional" || effectiveTier === "trial"
+      effectiveTier === "professional"
         ? -1
         : effectiveTier === "growth"
         ? 1000
         : 0,
     maxReports:
-      effectiveTier === "professional" || effectiveTier === "trial"
+      effectiveTier === "professional"
         ? -1
         : effectiveTier === "growth"
         ? 50
@@ -261,7 +213,7 @@ const computeSubscriptionLimits = (effectiveTier: SubscriptionTier, receiptLimit
         ? 10
         : 5, // Reduced default for non-subscribers
     maxTeamMembers:
-      effectiveTier === "professional" || effectiveTier === "trial"
+      effectiveTier === "professional"
         ? 10 // Reasonable limit for team members
         : effectiveTier === "teammate"
         ? 0 // Teammates can't have their own team members
@@ -474,13 +426,13 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [user?.uid]);
 
   const [subscription, setSubscription] = useState<SubscriptionState>({
-    currentTier: "trial",
-    features: getFeaturesByTier("trial"),
+    currentTier: "starter",
+    features: getFeaturesByTier("starter"),
     limits: {
-      maxReceipts: -1, // Unlimited during trial
+      maxReceipts: 50, // Starter tier limit
       maxBusinesses: 1,
       apiCallsPerMonth: 0,
-      maxReports: 3,
+      maxReports: 10,
       maxTeamMembers: 0,
     },
     isActive: false,
@@ -493,12 +445,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       currentPeriodEnd: null,
       cancelAtPeriodEnd: false,
       trialEnd: null,
-    },
-    trial: {
-      isActive: false,
-      startedAt: null,
-      expiresAt: null,
-      daysRemaining: 0,
     },
   });
   console.log("🚀 ~ SubscriptionProvider ~ subscription:", subscription)
@@ -522,13 +468,13 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
     if (!user) {
       setSubscription({
-        currentTier: "trial",
-        features: getFeaturesByTier("trial"),
+        currentTier: "starter",
+        features: getFeaturesByTier("starter"),
         limits: {
-          maxReceipts: -1, // Unlimited during trial
+          maxReceipts: 50, // Starter tier limit
           maxBusinesses: 1,
           apiCallsPerMonth: 0,
-          maxReports: 3,
+          maxReports: 10,
           maxTeamMembers: 0,
         },
         isActive: false,
@@ -541,12 +487,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           currentPeriodEnd: null,
           cancelAtPeriodEnd: false,
           trialEnd: null,
-        },
-        trial: {
-          isActive: false,
-          startedAt: null,
-          expiresAt: null,
-          daysRemaining: 0,
         },
       });
       setLoading(false);
@@ -582,42 +522,34 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             return;
           }
 
-          const currentTier = (data.currentTier || "trial") as SubscriptionTier;
+          const currentTier = (data.currentTier || "starter") as SubscriptionTier;
           console.log("🚀 ~ setupSubscriptionListener ~ currentTier:", currentTier)
-          
-          // OPTIMIZATION: Use memoized trial calculation
-          const trialData = computeTrialData(data.trial);
-          const effectiveTier = trialData.isActive ? "trial" : (currentTier === "trial" ? "trial" : currentTier);
-          
 
           // OPTIMIZATION: Use memoized limits calculation
           const receiptLimits = getReceiptLimits();
-          const limits = computeSubscriptionLimits(effectiveTier, receiptLimits);
+          const limits = computeSubscriptionLimits(currentTier, receiptLimits);
 
           // OPTIMIZATION: Use memoized team member override logic
           const baseState = {
-            currentTier: effectiveTier,
-            features: getFeaturesByTier(effectiveTier),
+            currentTier: currentTier,
+            features: getFeaturesByTier(currentTier),
             limits: limits,
           };
 
-          const { currentTier: finalTier, features: finalFeatures, limits: finalLimits } = isTeamMember 
+          const { currentTier: finalTier, features: finalFeatures, limits: finalLimits } = isTeamMember
             ? applyTeamMemberOverrides(baseState, teamMemberRole)
             : baseState;
-
 
           const newSubscriptionState = {
             currentTier: finalTier,
             features: finalFeatures,
             limits: finalLimits,
-            isActive: effectiveTier !== "trial" || trialData.isActive, // Active if not trial or if trial is active
-            expiresAt: trialData.isActive 
-              ? trialData.expiresAt
-              : data.billing?.currentPeriodEnd
-                ? data.billing.currentPeriodEnd instanceof Date
-                  ? data.billing.currentPeriodEnd
-                  : data.billing.currentPeriodEnd.toDate()
-                : null,
+            isActive: data.status === 'active',
+            expiresAt: data.billing?.currentPeriodEnd
+              ? data.billing.currentPeriodEnd instanceof Date
+                ? data.billing.currentPeriodEnd
+                : data.billing.currentPeriodEnd.toDate()
+              : null,
             billing: {
               customerId: data.billing?.customerId || null,
               subscriptionId: data.billing?.subscriptionId || null,
@@ -629,58 +561,44 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               cancelAtPeriodEnd: data.billing?.cancelAtPeriodEnd || false,
               trialEnd: data.billing?.trialEnd?.toDate() || null,
             },
-            trial: trialData,
           };
 
           setSubscription(newSubscriptionState);
 
           // OPTIMIZATION: Only refresh receipt count when tier actually changes
-          const hasEffectiveTierChanged = previousTierRef.current !== effectiveTier;
+          const hasEffectiveTierChanged = previousTierRef.current !== finalTier;
           if (hasEffectiveTierChanged) {
-            previousTierRef.current = effectiveTier;
+            previousTierRef.current = finalTier;
             setTimeout(() => {
               refreshReceiptCount(undefined, { skipDelay: true, forceRefresh: true });
             }, 500); // Small delay to allow for Firestore consistency
           } else {
             // Update the ref even if no change to keep it current
-            previousTierRef.current = effectiveTier;
+            previousTierRef.current = finalTier;
           }
 
         } else {
-          // New user - start with trial
-          
+          // New user - start with starter plan
+
           // Check if there might be existing RevenueCat subscriptions to restore
           try {
             const { revenueCatService } = await import('../services/revenuecatService');
             const currentTier = await revenueCatService.getCurrentTier(true); // force refresh
-            
-            if (currentTier !== 'trial') {
-              // Don't auto-sync - let user manually restore purchases
-              // This will be handled by the restorePurchases function in useRevenueCatPayments
-            }
+            // Don't auto-sync - let user manually restore purchases
+            // This will be handled by the restorePurchases function in useRevenueCatPayments
           } catch (error) {
             console.warn('Failed to check RevenueCat:', error);
           }
 
-          const receiptLimits = getReceiptLimits();
-          const now = new Date();
-          const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
-
           // Note: Subscription document will be created by onUserCreate Cloud Function
           // We just set local state here temporarily until the Cloud Function completes
-          
-          // Override features for team members even for new users
-          let newUserTier = "trial";
-          let newUserFeatures = getFeaturesByTier("trial");
-          let newUserLimits = {
-            maxReceipts: receiptLimits.professional,
-            maxBusinesses: -1,
-            apiCallsPerMonth: -1,
-            maxReports: -1,
-            maxTeamMembers: 10,
-          };
+
+          let newUserTier: SubscriptionTier;
+          let newUserFeatures: SubscriptionFeatures;
+          let newUserLimits: any;
 
           if (isTeamMember) {
+            // Team members get access based on their role
             newUserTier = "teammate";
             newUserFeatures = getFeaturesByTier("teammate", teamMemberRole);
             newUserLimits = {
@@ -689,6 +607,29 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               apiCallsPerMonth: 0, // No API access
               maxReports: 0, // No reports for teammates
               maxTeamMembers: teamMemberRole === 'admin' ? 10 : 0, // Only admin teammates can manage team
+            };
+          } else {
+            // New regular users get no access until they subscribe
+            newUserTier = "starter";
+            newUserFeatures = {
+              maxReceipts: 0,
+              advancedReporting: false,
+              taxPreparation: false,
+              accountingIntegrations: false,
+              prioritySupport: false,
+              multiBusinessManagement: false,
+              whiteLabel: false,
+              apiAccess: false,
+              dedicatedManager: false,
+              bankConnection: false,
+              teamManagement: false,
+            };
+            newUserLimits = {
+              maxReceipts: 0, // No receipts until they subscribe
+              maxBusinesses: 0,
+              apiCallsPerMonth: 0,
+              maxReports: 0,
+              maxTeamMembers: 0,
             };
           }
 
@@ -702,16 +643,10 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
               customerId: null,
               subscriptionId: null,
               priceId: null,
-              currentPeriodStart: now,
+              currentPeriodStart: new Date(),
               currentPeriodEnd: null,
               cancelAtPeriodEnd: false,
               trialEnd: null,
-            },
-            trial: {
-              isActive: false, // No subscription document means no trial
-              startedAt: null,
-              expiresAt: null,
-              daysRemaining: 0,
             },
           });
         }
@@ -720,13 +655,25 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       } catch (error) {
         console.error("Error setting up subscription listener:", error);
         setSubscription({
-          currentTier: "trial",
-          features: getFeaturesByTier("trial"),
+          currentTier: "starter",
+          features: {
+            maxReceipts: 0,
+            advancedReporting: false,
+            taxPreparation: false,
+            accountingIntegrations: false,
+            prioritySupport: false,
+            multiBusinessManagement: false,
+            whiteLabel: false,
+            apiAccess: false,
+            dedicatedManager: false,
+            bankConnection: false,
+            teamManagement: false,
+          },
           limits: {
-            maxReceipts: -1, // Unlimited during trial
-            maxBusinesses: 1,
+            maxReceipts: 0, // No access until they subscribe
+            maxBusinesses: 0,
             apiCallsPerMonth: 0,
-            maxReports: 3,
+            maxReports: 0,
             maxTeamMembers: 0,
           },
           isActive: false,
@@ -739,12 +686,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
             currentPeriodEnd: null,
             cancelAtPeriodEnd: false,
             trialEnd: null,
-          },
-          trial: {
-            isActive: false,
-            startedAt: null,
-            expiresAt: null,
-            daysRemaining: 0,
           },
         });
         setLoading(false);
@@ -763,54 +704,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     };
   }, [user, limits.starter, refreshReceiptCount, cancelRefresh, isTeamMember, teamMemberRole]); // Changed from limits.free to limits.starter
 
-  // Add precise trial expiration monitoring
-  useEffect(() => {
-    // Only set up timer if we have an active trial
-    if (!subscription.trial.isActive || !subscription.trial.expiresAt) {
-      return;
-    }
-
-    const now = new Date();
-    const expiresAt = subscription.trial.expiresAt;
-    const timeUntilExpiration = expiresAt.getTime() - now.getTime();
-
-    console.log('🕐 Setting up trial expiration timer:', {
-      now: now.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-      timeUntilExpiration: `${Math.round(timeUntilExpiration / 1000)}s`,
-      isActive: subscription.trial.isActive,
-      currentTier: subscription.currentTier
-    });
-
-    // If already expired, update immediately
-    if (timeUntilExpiration <= 0) {
-      console.log('🕐 Trial already expired! Updating subscription state...');
-      setSubscription(prev => ({
-        ...prev,
-        trial: {
-          ...prev.trial,
-          isActive: false,
-        }
-      }));
-      return;
-    }
-
-    // Set up single timeout for exact expiration time
-    const timeout = setTimeout(() => {
-      console.log('🕐 Trial expired! Updating subscription state...');
-      setSubscription(prev => ({
-        ...prev,
-        trial: {
-          ...prev.trial,
-          isActive: false,
-        }
-      }));
-    }, timeUntilExpiration);
-
-    return () => {
-      clearTimeout(timeout);
-    };
-  }, [subscription.trial.isActive, subscription.trial.expiresAt]);
 
   const canAccessFeature = useCallback(
     (feature: keyof SubscriptionFeatures): boolean => {
@@ -838,45 +731,15 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     [subscription.limits.maxReceipts]
   );
 
-  // Trial management methods
-  const startTrial = useCallback(async (): Promise<{ success: boolean; error?: string }> => {
-    if (!user?.uid) {
-      return { success: false, error: "No user authenticated" };
-    }
-
-    try {
-      const now = new Date();
-      const trialExpires = new Date(now.getTime() + (3 * 24 * 60 * 60 * 1000)); // 3 days from now
-      
-      const subscriptionData = {
-        currentTier: "trial",
-        status: "active",
-        trial: {
-          startedAt: now,
-          expiresAt: trialExpires,
-        },
-        updatedAt: now,
-      };
-
-      const { setDoc } = await import('firebase/firestore');
-      await setDoc(doc(db, "subscriptions", user.uid), subscriptionData, { merge: true });
-      
-      return { success: true };
-    } catch (error) {
-      console.error("Error starting trial:", error);
-      return { success: false, error: "Failed to start trial" };
-    }
-  }, [user?.uid]);
 
   const canAccessPremiumFeatures = useCallback((): boolean => {
-    // Users can only access premium features during trial or with paid subscription
-    return subscription.trial.isActive || 
-           (subscription.currentTier !== "trial" && subscription.currentTier !== "teammate");
-  }, [subscription.currentTier, subscription.trial.isActive]);
+    // Users can access premium features with paid subscription
+    return subscription.isActive && subscription.currentTier !== "teammate";
+  }, [subscription.currentTier, subscription.isActive]);
 
   const hasProfessionalAccess = useCallback((): boolean => {
-    return subscription.currentTier === "professional" || subscription.trial.isActive;
-  }, [subscription.currentTier, subscription.trial.isActive]);
+    return subscription.currentTier === "professional" && subscription.isActive;
+  }, [subscription.currentTier, subscription.isActive]);
 
   // Method to get features for teammates with role-based permissions
   const getFeaturesForTeammate = useCallback((teamMemberRole?: string): SubscriptionFeatures => {
@@ -886,28 +749,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     return getFeaturesByTier("teammate", teamMemberRole);
   }, [subscription.currentTier, subscription.features]);
 
-  // Check if trial has expired and user has no paid plan (should show paywall)
-  const isTrialExpiredAndNoPaidPlan = useCallback((): boolean => {
-    // Team members inherit from account holder, so they don't have trial restrictions
-    if (isTeamMember) {
-      return false;
-    }
-
-    // If trial is active, user can access features
-    if (subscription.trial.isActive) {
-      return false;
-    }
-
-    // If user has a paid plan (starter, growth, or professional), they can access features
-    if (subscription.currentTier === "starter" || 
-        subscription.currentTier === "growth" || 
-        subscription.currentTier === "professional") {
-      return false;
-    }
-
-    // If we get here, trial has expired and user needs to subscribe (no free tier)
-    return true;
-  }, [subscription.trial.isActive, subscription.currentTier, isTeamMember]);
 
   const contextValue = {
     subscription,
@@ -964,11 +805,9 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       }
     },
     isRefreshing,
-    startTrial,
     canAccessPremiumFeatures,
     hasProfessionalAccess,
     getFeaturesForTeammate,
-    isTrialExpiredAndNoPaidPlan,
   };
 
   return (

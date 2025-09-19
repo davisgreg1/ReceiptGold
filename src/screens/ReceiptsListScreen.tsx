@@ -1122,9 +1122,7 @@ export const ReceiptsListScreen: React.FC = () => {
                 <Text
                   style={[styles.usageLabel, { color: theme.text.tertiary }]}
                 >
-                  {subscription?.currentTier === "trial" && !subscription?.trial.isActive && !isTeamMember
-                    ? "Total Usage (includes deleted)"
-                    : "Monthly Usage (includes deleted)"}
+                  {"Monthly Usage (includes deleted)"}
                 </Text>
                 <Text
                   style={[styles.usageValue, { color: theme.text.primary }]}

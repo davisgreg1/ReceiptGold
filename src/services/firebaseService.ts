@@ -440,10 +440,10 @@ export const receiptService = {
               maxApiCalls = 0;
               maxReports = 0;
               break;
-            default: // trial or unknown
-              maxReceipts = parseInt(Constants.expoConfig?.extra?.TRIAL_TIER_MAX_RECEIPTS || "-1", 10);
-              maxApiCalls = -1; // unlimited during trial
-              maxReports = -1; // unlimited during trial
+            default: // unknown tier, default to starter
+              maxReceipts = parseInt(Constants.expoConfig?.extra?.STARTER_TIER_MAX_RECEIPTS || "50", 10);
+              maxApiCalls = 0;
+              maxReports = 10;
               break;
           }
 
@@ -571,17 +571,11 @@ export const usageService = {
           maxApiCalls: 0, // No API access for teammates
           maxReports: 0, // No reports for teammates
         };
-      case 'trial':
-        return {
-          maxReceipts: parseInt(Constants.expoConfig?.extra?.TRIAL_TIER_MAX_RECEIPTS || "-1", 10),
-          maxApiCalls: -1, // unlimited during trial
-          maxReports: -1, // unlimited during trial
-        };
       default:
         return {
-          maxReceipts: parseInt(Constants.expoConfig?.extra?.TRIAL_TIER_MAX_RECEIPTS || "-1", 10),
-          maxApiCalls: -1,
-          maxReports: -1,
+          maxReceipts: parseInt(Constants.expoConfig?.extra?.STARTER_TIER_MAX_RECEIPTS || "50", 10),
+          maxApiCalls: 0,
+          maxReports: 10,
         };
     }
   },

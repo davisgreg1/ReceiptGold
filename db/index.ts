@@ -91,7 +91,7 @@ interface SubscriptionHistory {
 
 interface SubscriptionDocument {
   userId: string;
-  currentTier: 'trial' | 'starter' | 'growth' | 'professional';
+  currentTier: 'starter' | 'growth' | 'professional';
   status: 'active' | 'canceled' | 'past_due' | 'incomplete';
   billing: BillingInfo;
   limits: SubscriptionLimits;
@@ -334,25 +334,6 @@ export const createReceiptDocument = async (
 
 // Subscription tier configurations
 export const subscriptionTiers: Record<string, SubscriptionTier> = {
-  trial: {
-    name: "Trial",
-    price: 0,
-    limits: {
-      maxReceipts: getReceiptLimits().trial,
-      maxBusinesses: -1,
-      apiCallsPerMonth: 1000,
-    },
-    features: {
-      advancedReporting: true,
-      taxPreparation: true,
-      accountingIntegrations: true,
-      prioritySupport: true,
-      multiBusinessManagement: true,
-      whiteLabel: true,
-      apiAccess: true,
-      dedicatedManager: true,
-    },
-  },
   starter: {
     name: "Starter",
     price: 9.99,
