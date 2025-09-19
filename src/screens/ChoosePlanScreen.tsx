@@ -171,7 +171,7 @@ const PlanCard: React.FC<PlanCardProps> = ({
   }, [monthlyProductId, annualProductId]);
 
   // Early returns after all hooks are called
-  if (tier === 'trial' || tier === 'free' || tier === 'teammate') {
+  if (tier === 'trial' || tier === 'teammate') {
     return null; // Don't show these tiers in the plan selection
   }
   
@@ -186,12 +186,14 @@ const PlanCard: React.FC<PlanCardProps> = ({
   // Use RevenueCat pricing if available, fallback to hardcoded
   const currentPricing = billingPeriod === 'monthly' ? pricing.monthly : pricing.annual;
   const displayPrice = currentPricing ? currentPricing.price : 
-    (billingPeriod === 'monthly' ? `$${tierData.monthlyPrice.toFixed(2)}` : `$${tierData.annualPrice.toFixed(2)}`);
+    (billingPeriod === 'monthly' ? `$${tierData.monthlyPrice.toFixed(2)}` : 
+     ('annualPrice' in tierData && tierData.annualPrice ? `$${tierData.annualPrice.toFixed(2)}` : `$${tierData.monthlyPrice.toFixed(2)}`));
   
   // Calculate savings for annual plans
   const annualSavings = (billingPeriod === 'annual' && pricing.monthly && pricing.annual) ? 
     Math.round((1 - (pricing.annual.amount / 12) / pricing.monthly.amount) * 100) : 
-    (billingPeriod === 'annual' ? Math.round((1 - (tierData.annualPrice / 12) / tierData.monthlyPrice) * 100) : 0);
+    (billingPeriod === 'annual' && 'annualPrice' in tierData && tierData.annualPrice ? 
+     Math.round((1 - (tierData.annualPrice / 12) / tierData.monthlyPrice) * 100) : 0);
 
   return (
     <View style={styles.cardWrapper}>
@@ -332,15 +334,22 @@ const ChoosePlanScreen: React.FC = () => {
   React.useEffect(() => {
     const loadCurrentBillingPeriod = async () => {
       try {
-        const currentPeriod = await getCurrentBillingPeriod();
-        setCurrentBillingPeriod(currentPeriod);
+        // Only check RevenueCat billing period if user has an active paid subscription
+        if (subscription.isActive && subscription.currentTier !== 'trial') {
+          const currentPeriod = await getCurrentBillingPeriod();
+          setCurrentBillingPeriod(currentPeriod);
+        } else {
+          // No active subscription - clear billing period
+          setCurrentBillingPeriod(null);
+        }
       } catch (error) {
         console.error('Failed to load current billing period:', error);
+        setCurrentBillingPeriod(null);
       }
     };
-    
+
     loadCurrentBillingPeriod();
-  }, [getCurrentBillingPeriod, subscription.currentTier]);
+  }, [getCurrentBillingPeriod, subscription.currentTier, subscription.isActive]);
 
   // Handle swipe gestures for billing toggle area
   const onBillingToggleSwipe = (event: any) => {

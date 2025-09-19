@@ -1,4 +1,3 @@
-// functions/scripts/cleanupTestData.js
 // Script to cleanup test user data
 
 const admin = require("firebase-admin");
@@ -22,7 +21,7 @@ const db = admin.firestore();
 
 const TEST_USER_ID = "test-user-12345";
 
-async function deleteCollection(collectionName, userId) {
+async function deleteCollection(collectionName: string, userId: string) {
   const query = db.collection(collectionName).where("userId", "==", userId);
   const snapshot = await query.get();
 
@@ -32,7 +31,7 @@ async function deleteCollection(collectionName, userId) {
   }
 
   const batch = db.batch();
-  snapshot.docs.forEach((doc) => {
+  snapshot.docs.forEach((doc: any) => {
     batch.delete(doc.ref);
   });
 
@@ -98,7 +97,7 @@ async function cleanupTestData() {
 
     if (!usageSnapshot.empty) {
       const batch = db.batch();
-      usageSnapshot.docs.forEach((doc) => {
+      usageSnapshot.docs.forEach((doc: any) => {
         batch.delete(doc.ref);
       });
       await batch.commit();

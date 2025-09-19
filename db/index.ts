@@ -91,7 +91,7 @@ interface SubscriptionHistory {
 
 interface SubscriptionDocument {
   userId: string;
-  currentTier: 'free' | 'starter' | 'growth' | 'professional';
+  currentTier: 'trial' | 'starter' | 'growth' | 'professional';
   status: 'active' | 'canceled' | 'past_due' | 'incomplete';
   billing: BillingInfo;
   limits: SubscriptionLimits;
@@ -334,23 +334,23 @@ export const createReceiptDocument = async (
 
 // Subscription tier configurations
 export const subscriptionTiers: Record<string, SubscriptionTier> = {
-  free: {
-    name: "Free",
+  trial: {
+    name: "Trial",
     price: 0,
     limits: {
-      maxReceipts: getReceiptLimits().free,
-      maxBusinesses: 1,
-      apiCallsPerMonth: 0,
+      maxReceipts: getReceiptLimits().trial,
+      maxBusinesses: -1,
+      apiCallsPerMonth: 1000,
     },
     features: {
-      advancedReporting: false,
-      taxPreparation: false,
-      accountingIntegrations: false,
-      prioritySupport: false,
-      multiBusinessManagement: false,
-      whiteLabel: false,
-      apiAccess: false,
-      dedicatedManager: false,
+      advancedReporting: true,
+      taxPreparation: true,
+      accountingIntegrations: true,
+      prioritySupport: true,
+      multiBusinessManagement: true,
+      whiteLabel: true,
+      apiAccess: true,
+      dedicatedManager: true,
     },
   },
   starter: {
@@ -399,16 +399,16 @@ export const subscriptionTiers: Record<string, SubscriptionTier> = {
       maxBusinesses: -1, // unlimited
       apiCallsPerMonth: 10000,
     },
-    features: {
-      advancedReporting: true,
-      taxPreparation: true,
-      accountingIntegrations: true,
-      prioritySupport: true,
-      multiBusinessManagement: true,
-      whiteLabel: true,
-      apiAccess: true,
-      dedicatedManager: true,
-    },
+      features: {
+        advancedReporting: true,
+        taxPreparation: true,
+        accountingIntegrations: true,
+        prioritySupport: true,
+        multiBusinessManagement: true,
+        whiteLabel: true,
+        apiAccess: true,
+        dedicatedManager: true,
+      },
   },
 };
 

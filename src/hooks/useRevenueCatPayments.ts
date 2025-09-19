@@ -36,9 +36,8 @@ export const useRevenueCatPayments = () => {
     setLoading(true);
     
     try {
-      
-      if (tierId === 'free' || tierId === 'trial') {
-        showAlert?.('warning', 'Free Plan', 'You are already on the free plan!');
+      if (tierId === 'trial') {
+        showAlert?.('warning', 'Trial Plan', 'You are already on the trial plan!');
         return false;
       }
 
@@ -76,9 +75,9 @@ export const useRevenueCatPayments = () => {
         // We know exactly which product was purchased based on the parameters we passed to startSubscription
         const getProductId = (tier: string, billing: 'monthly' | 'annual'): string => {
           const productMap: { [key: string]: { [key: string]: string } } = {
-            'starter': { 'monthly': 'rc_starter', 'annual': 'rc_starter' },
-            'growth': { 'monthly': 'rc_growth_monthly', 'annual': 'rc_growth_annual' },
-            'professional': { 'monthly': 'rc_professional_monthly', 'annual': 'rc_professional_annual' }
+            'starter': { 'monthly': 'rg_starter', 'annual': 'rg_starter' },
+            'growth': { 'monthly': 'rg_growth_monthly', 'annual': 'rg_growth_annual' },
+            'professional': { 'monthly': 'rg_professional_monthly', 'annual': 'rg_professional_annual' }
           };
           return productMap[tier]?.[billing] || 'revenuecat_subscription';
         };
@@ -147,9 +146,9 @@ export const useRevenueCatPayments = () => {
       
       if (result.success) {
         const currentTier = await revenueCatService.getCurrentTier(true); // Force refresh
-        
+
         // If we found a paid subscription, update Firestore to sync the state
-        if (currentTier !== 'free') {
+        if (currentTier !== 'trial') {
           
           const auth = getAuth();
           const currentUser = auth.currentUser;
@@ -199,11 +198,16 @@ export const useRevenueCatPayments = () => {
               return true;
             }
           }
+        } else {
+          // No paid subscription found - user has no previous purchases to restore
+          showAlert?.('warning', 'No Purchases Found', 'No previous purchases were found for this Apple ID. Start a new subscription to access premium features.');
+          return false;
         }
-        
+
+        // This line should only be reached if currentTier !== 'trial' (paid subscription found)
         // Update local subscription state
         await refreshReceiptCount();
-        
+
         showAlert?.('success', 'Success', 'Purchases restored successfully!');
         return true;
       } else {
@@ -230,7 +234,7 @@ export const useRevenueCatPayments = () => {
       return await revenueCatService.getCurrentTier();
     } catch (error) {
       console.error('Failed to get current tier:', error);
-      return 'free';
+      return 'trial' as SubscriptionTierKey;
     }
   }, []);
 

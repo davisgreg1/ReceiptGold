@@ -250,7 +250,7 @@ export const BusinessProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     const processBusinessSnapshot = (snapshot: any) => {
       const businessList: BusinessData[] = [];
       
-      snapshot.forEach((doc) => {
+      snapshot.forEach((doc: any) => {
         const data = doc.data();
         businessList.push({
           id: doc.id,

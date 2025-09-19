@@ -506,12 +506,6 @@ export const usageService = {
 
   getLimitsForTier(tier: SubscriptionTier) {
     switch (tier) {
-      case 'free':
-        return {
-          maxReceipts: parseInt(Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || "10", 10),
-          maxApiCalls: 0,
-          maxReports: 1,
-        };
       case 'starter':
         return {
           maxReceipts: parseInt(Constants.expoConfig?.extra?.STARTER_TIER_MAX_RECEIPTS || "50", 10),
@@ -538,7 +532,7 @@ export const usageService = {
         };
       case 'trial':
         return {
-          maxReceipts: -1, // Unlimited for trial like professional
+          maxReceipts: parseInt(Constants.expoConfig?.extra?.TRIAL_TIER_MAX_RECEIPTS || "-1", 10),
           maxApiCalls: 1000,
           maxReports: -1,
         };

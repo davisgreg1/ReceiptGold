@@ -448,7 +448,7 @@ export const BankTransactionsScreen: React.FC = () => {
 
     const sections = bankConnections.map(connection => {
       console.log("🏦 DEBUG: Processing connection:", connection.institutionName);
-      console.log("🏦 DEBUG: Connection account IDs:", connection.accounts?.map(acc => acc.accountId || acc.account_id));
+      console.log("🏦 DEBUG: Connection account IDs:", connection.accounts?.map((acc: any) => acc.accountId || acc.account_id));
       
       // Debug: Show sample transaction account IDs for comparison
       const sampleTransactionAccountIds = filteredAndSortedCandidates.slice(0, 3).map(c => c.transaction.account_id);

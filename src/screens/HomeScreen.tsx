@@ -49,7 +49,7 @@ interface DashboardData {
 export const HomeScreen: React.FC = () => {
   const { theme } = useTheme();
   const { user } = useAuth();
-  const { subscription } = useSubscription();
+  const { subscription, startTrial } = useSubscription();
   const { isTeamMember, currentMembership, accountHolderId } = useTeam();
   const homeNavigation = useHomeNavigation();
   const tabNavigation = useTabNavigation();
@@ -280,6 +280,21 @@ export const HomeScreen: React.FC = () => {
       style: 'currency',
       currency: 'USD',
     }).format(amount);
+  };
+
+  // Debug function to migrate existing trial users to trial
+  const handleMigrateToTrial = async () => {
+    try {
+      const result = await startTrial();
+      if (result.success) {
+        alert('Successfully migrated to trial! You now have access to all features for 3 days.');
+      } else {
+        alert(`Failed to migrate to trial: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('Error migrating to trial:', error);
+      alert('Error occurred while migrating to trial.');
+    }
   };
 
   const formatDate = (date: any) => {
@@ -540,19 +555,22 @@ export const HomeScreen: React.FC = () => {
                 <HeadingText size="medium" color="gold">
                   {subscription.currentTier === 'starter' ? 'Starter Plan' : 
                    subscription.currentTier === 'growth' ? 'Growth Plan' : 
-                   subscription.currentTier === 'professional' || subscription.trial.isActive ? 'Professional Plan' : 'Free Plan'}
+                   subscription.currentTier === 'professional' ? 'Professional Plan' : 
+                   subscription.trial.isActive ? 'Trial Active' : 'Trial Ended'}
                 </HeadingText>
                 <BodyText size="small" color="secondary">
-                  {subscription.currentTier === 'starter' && '50 receipts/mo • Basic categorization'}
-                  {subscription.currentTier === 'growth' && '150 receipts/mo • Advanced reporting'}
-                  {(subscription.currentTier === 'professional' || subscription.trial.isActive) && (isTeamMember ? 'Team member access • Receipt management' : 'Unlimited receipts • Multi-business • Bank sync')}
-                  {subscription.currentTier === 'free' && !subscription.trial.isActive && 'Limited features • Upgrade for more'}
+                  {subscription.currentTier === 'trial' && !subscription.trial.isActive && 'Trial expired • Choose a plan to continue'}
+                  {subscription.currentTier === 'starter' && 'Starter Plan • 50 receipts/month'}
+                  {subscription.currentTier === 'growth' && 'Growth Plan • 150 receipts/month'}
+                  {subscription.currentTier === 'professional' && 'Professional Plan • Unlimited receipts'}
+                  {subscription.currentTier === 'trial' && subscription.trial.isActive && 'Trial Active • All features unlocked'}
                 </BodyText>
                 <BodyText size="small" color="tertiary" style={{ marginTop: 4 }}>
                   {subscription.currentTier === 'starter' && '$9.99/month'}
                   {subscription.currentTier === 'growth' && '$19.99/month'}
-                  {(subscription.currentTier === 'professional' || subscription.trial.isActive) && (subscription.trial.isActive ? 'Trial Active' : '$39.99/month')}
-                  {subscription.currentTier === 'free' && !subscription.trial.isActive && 'Try premium features'}
+                  {subscription.currentTier === 'professional' && '$39.99/month'}
+                  {subscription.currentTier === 'trial' && subscription.trial.isActive && 'Trial Active'}
+                  {subscription.currentTier === 'trial' && !subscription.trial.isActive && 'Choose your plan to continue'}
                 </BodyText>
               </View>
               <TouchableOpacity
@@ -560,13 +578,30 @@ export const HomeScreen: React.FC = () => {
                 onPress={() => homeNavigation.navigate('Subscription')}
               >
                 <ButtonText size="small" color="inverse">
-                  {subscription.currentTier === 'free' ? 'Upgrade' : 'Manage'}
+                  {subscription.currentTier === 'trial' && !subscription.trial.isActive ? 'Choose Plan' : 'Manage'}
                 </ButtonText>
               </TouchableOpacity>
             </View>
           </View>
         )}
 
+
+        {/* Debug Migration Button - Only show in development */}
+        {(__DEV__) && (
+          <View style={[styles.debugSection, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
+            <BodyText size="small" color="secondary" style={{ marginBottom: 8 }}>
+              Debug Tools
+            </BodyText>
+            <TouchableOpacity
+              style={[styles.debugButton, { backgroundColor: theme.gold.primary }]}
+              onPress={handleMigrateToTrial}
+            >
+              <ButtonText size="small" color="inverse">
+                Migrate to Trial (Debug)
+              </ButtonText>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Signature */}
         <Signature variant="default" />
@@ -822,5 +857,18 @@ const styles = StyleSheet.create({
   },
   stat: {
     alignItems: "center",
+  },
+  debugSection: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  debugButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
   },
 });

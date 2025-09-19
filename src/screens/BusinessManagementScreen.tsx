@@ -189,7 +189,7 @@ const BusinessManagementScreen: React.FC = () => {
       return;
     }
 
-    navigation.navigate('CreateBusiness');
+    navigation.navigate('CreateBusiness', { mode: 'create' });
   };
 
   const isMultiBusinessUser = canAccessFeature('multiBusinessManagement');

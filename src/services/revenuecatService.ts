@@ -26,30 +26,15 @@ export const SUBSCRIPTION_TIERS = {
       annual: null
     },
     features: [
-      `${Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || 10} receipts per month`,
-      'Basic categorization',
-      'Email support'
+      'All features unlocked',
+      'Unlimited receipts',
+      'Advanced reporting & analytics',
+      'Multi-business management',
+      'Team management',
+      'Premium support'
     ],
     limits: {
-      maxReceipts: parseInt(Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || "10", 10)
-    }
-  },
-  free: {
-    id: 'free',
-    name: 'Free',
-    monthlyPrice: 0,
-    annualPrice: 0,
-    productIds: {
-      monthly: null,
-      annual: null
-    },
-    features: [
-      `${Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || 10} receipts per month`,
-      'Basic categorization',
-      'Email support'
-    ],
-    limits: {
-      maxReceipts: parseInt(Constants.expoConfig?.extra?.FREE_TIER_MAX_RECEIPTS || "10", 10)
+      maxReceipts: -1 // Unlimited during trial
     }
   },
   starter: {
@@ -57,7 +42,12 @@ export const SUBSCRIPTION_TIERS = {
     name: 'Starter',
     monthlyPrice: 5.99,
     productIds: {
-      monthly: 'rc_starter',
+      monthly: 'rg_starter', // Actual product ID from RevenueCat
+      annual: null
+    },
+    // Legacy product IDs for backward compatibility
+    legacyProductIds: {
+      monthly: '$rc_monthly', // Old product ID fallback
       annual: null
     },
     features: [
@@ -77,8 +67,13 @@ export const SUBSCRIPTION_TIERS = {
     monthlyPrice: 9.99,
     annualPrice: 39.99,
     productIds: {
-      monthly: 'rc_growth_monthly',
-      annual: 'rc_growth_annual'
+      monthly: 'rg_growth_monthly', // Actual product ID from RevenueCat
+      annual: 'rg_growth_annual'    // Actual product ID from RevenueCat
+    },
+    // Legacy product IDs for backward compatibility
+    legacyProductIds: {
+      monthly: '$rc_monthly',
+      annual: '$rc_annual'
     },
     popular: true,
     limits: {
@@ -99,8 +94,13 @@ export const SUBSCRIPTION_TIERS = {
     monthlyPrice: 12.99,
     annualPrice: 89.99,
     productIds: {
-      monthly: 'rc_professional_monthly',
-      annual: 'rc_professional_annual'
+      monthly: 'rg_professional_monthly', // Actual product ID from RevenueCat
+      annual: 'rg_professional_annual'    // Actual product ID from RevenueCat
+    },
+    // Legacy product IDs for backward compatibility
+    legacyProductIds: {
+      monthly: '$rc_monthly',
+      annual: '$rc_annual'
     },
     features: [
       'Everything in Growth',
@@ -184,17 +184,36 @@ class RevenueCatService {
   async fetchOfferings(): Promise<PurchasesOffering | null> {
     try {
       const offerings = await Purchases.getOfferings();
+      console.log("🚀 ~ RevenueCatService ~ fetchOfferings ~ offerings:", offerings)
 
+      // Log all available packages for debugging
+      if (offerings.current && offerings.current.availablePackages) {
+        console.log("📦 Available packages:");
+        offerings.current.availablePackages.forEach(pkg => {
+          console.log(`  - Product ID: ${pkg.product.identifier}`);
+          console.log(`    Package Type: ${pkg.packageType}`);
+          console.log(`    Price: ${pkg.product.priceString}`);
+        });
+      }
+
+      // First try to find the Default_Premium offering specifically
+      if (offerings.all['Default_Premium']) {
+        this.offerings = offerings.all['Default_Premium'];
+        return offerings.all['Default_Premium'];
+      }
+
+      // Fallback to current offering if Default_Premium not found
       if (offerings.current) {
         this.offerings = offerings.current;
         return offerings.current;
       } else {
-        console.warn('⚠️ No current offering configured in RevenueCat dashboard');
+        console.warn('⚠️ Default_Premium offering not found in RevenueCat dashboard, and no current offering configured');
 
         // Try to use the first available offering
         const allOfferingKeys = Object.keys(offerings.all);
         if (allOfferingKeys.length > 0) {
           const firstOffering = offerings.all[allOfferingKeys[0]];
+          console.warn(`⚠️ Using first available offering: ${allOfferingKeys[0]}`);
           this.offerings = firstOffering;
           return firstOffering;
         }
@@ -208,7 +227,7 @@ class RevenueCatService {
       if (error instanceof Error) {
         if (error.message.includes('No products found')) {
           console.error('💡 RevenueCat Fix: Products not configured in App Store Connect or Google Play Console');
-          console.error('💡 Expected product IDs:', ['rc_starter', 'rc_growth_monthly', 'rc_growth_annual', 'rc_professional_monthly', 'rc_professional_annual']);
+          console.error('💡 Expected product IDs:', ['rg_starter', 'rg_growth_monthly', 'rg_growth_annual', 'rg_professional_monthly', 'rg_professional_annual']);
         } else if (error.message.includes('configuration')) {
           console.error('💡 RevenueCat Fix: Check dashboard configuration and API keys');
         }
@@ -288,15 +307,21 @@ class RevenueCatService {
         // Use the most recent subscription to determine tier
         if (mostRecentProductId) {
 
-          // Check against all possible product IDs for each tier
-          if (mostRecentProductId === 'rc_professional_monthly' || mostRecentProductId === 'rc_professional_annual') {
-            return 'professional';
-          } else if (mostRecentProductId === 'rc_growth_monthly' || mostRecentProductId === 'rc_growth_annual') {
-            return 'growth';
-          } else if (mostRecentProductId === 'rc_starter') {
+          // Check against all possible product IDs for each tier (new and legacy)
+          if (mostRecentProductId === 'rg_starter') {
             return 'starter';
+          } else if (mostRecentProductId === 'rg_growth_monthly' || 
+                     mostRecentProductId === 'rg_growth_annual') {
+            return 'growth';
+          } else if (mostRecentProductId === 'rg_professional_monthly' || 
+                     mostRecentProductId === 'rg_professional_annual') {
+            return 'professional';
+          } else if (mostRecentProductId === '$rc_monthly' ||
+                     mostRecentProductId === '$rc_annual') {
+            return 'growth'; // Default legacy IDs to growth tier
           } else {
-            console.log(`⚠️ Unknown product ID: ${mostRecentProductId}`);
+            console.log(`⚠️ Unknown product ID: ${mostRecentProductId}, defaulting to growth tier`);
+            return 'growth'; // Default to growth for unknown product IDs
           }
         }
 
@@ -305,21 +330,27 @@ class RevenueCatService {
 
         for (const productId of subscriptionsToCheck) {
 
-          if (productId === 'rc_starter') {
+          if (productId === 'rg_starter') {
             return 'starter';
-          } else if (productId === 'rc_growth_monthly' || productId === 'rc_growth_annual') {
+          } else if (productId === 'rg_growth_monthly' || 
+                     productId === 'rg_growth_annual') {
             return 'growth';
-          } else if (productId === 'rc_professional_monthly' || productId === 'rc_professional_annual') {
+          } else if (productId === 'rg_professional_monthly' || 
+                     productId === 'rg_professional_annual') {
             return 'professional';
+          } else if (productId === '$rc_monthly' ||
+                     productId === '$rc_annual') {
+            return 'growth'; // Default legacy IDs to growth tier
           } else {
-            console.log(`⚠️ Unknown product ID in fallback: ${productId}`);
+            console.log(`⚠️ Unknown product ID in fallback: ${productId}, defaulting to growth`);
+            return 'growth'; // Default to growth for unknown product IDs
           }
         }
-        return 'starter';
+        return 'growth'; // Changed from starter to growth as default
       }
-      return 'free';
+      return 'trial'; // No active subscription - should trigger trial or paywall
     } catch (error) {
-      return 'free';
+      return 'trial'; // Error - should trigger trial or paywall
     }
   }
 
@@ -359,13 +390,15 @@ class RevenueCatService {
 
           // Determine billing period from product ID
           if (mostRecentProductId) {
-            if (mostRecentProductId.includes('_monthly')) {
+            if (mostRecentProductId === 'rg_starter' ||
+                mostRecentProductId === 'rg_growth_monthly' || 
+                mostRecentProductId === 'rg_professional_monthly' ||
+                mostRecentProductId === '$rc_monthly') {
               return 'monthly';
-            } else if (mostRecentProductId.includes('_annual')) {
+            } else if (mostRecentProductId === 'rg_growth_annual' || 
+                       mostRecentProductId === 'rg_professional_annual' ||
+                       mostRecentProductId === '$rc_annual') {
               return 'annual';
-            } else if (mostRecentProductId === 'rc_starter') {
-              // Starter is monthly only
-              return 'monthly';
             }
           }
         }
@@ -413,7 +446,7 @@ class RevenueCatService {
 
         console.error(`❌ Product ${productId} not found in any offering`);
         console.error('💡 Available products:', allAvailableProducts);
-        console.error('💡 Expected product IDs:', ['rc_starter', 'rc_growth_monthly', 'rc_growth_annual', 'rc_professional_monthly', 'rc_professional_annual']);
+        console.error('💡 Expected product IDs:', ['rg_starter', 'rg_growth_monthly', 'rg_growth_annual', 'rg_professional_monthly', 'rg_professional_annual']);
 
         throw new Error(
           `Product "${productId}" not found. This usually means the product isn't configured in your RevenueCat dashboard or App Store Connect. Available products: ${allAvailableProducts.join(', ')}`
@@ -500,9 +533,50 @@ class RevenueCatService {
   }
 
   // Get product ID based on tier and billing period
-  getProductId(tierId: SubscriptionTierKey, billingPeriod: 'monthly' | 'annual'): string | null {
+  async getProductId(tierId: SubscriptionTierKey, billingPeriod: 'monthly' | 'annual'): Promise<string | null> {
     const tier = this.getSubscriptionTier(tierId);
-    return tier.productIds[billingPeriod];
+    
+    // First try the new product IDs
+    const preferredProductId = tier.productIds[billingPeriod];
+    
+    // Check if this product ID exists in our offerings
+    if (preferredProductId && await this.isProductAvailable(preferredProductId)) {
+      return preferredProductId;
+    }
+    
+    // Fallback to legacy product IDs if they exist
+    const legacyProductId = (tier as any).legacyProductIds?.[billingPeriod];
+    if (legacyProductId && await this.isProductAvailable(legacyProductId)) {
+      console.log(`📋 Using legacy product ID: ${legacyProductId} for ${tierId} ${billingPeriod}`);
+      return legacyProductId;
+    }
+    
+    // If neither work, try to find any package with the right billing period
+    const allPackages = await this.getAllAvailablePackages();
+    const matchingPackage = allPackages.find(pkg => {
+      if (billingPeriod === 'monthly') {
+        return pkg.packageType === 'MONTHLY' || pkg.product.identifier.includes('monthly');
+      } else {
+        return pkg.packageType === 'ANNUAL' || pkg.product.identifier.includes('annual');
+      }
+    });
+    
+    if (matchingPackage) {
+      console.log(`📋 Auto-detected product ID: ${matchingPackage.product.identifier} for ${tierId} ${billingPeriod}`);
+      return matchingPackage.product.identifier;
+    }
+    
+    return null;
+  }
+
+  // Check if a product ID is available in current offerings
+  private async isProductAvailable(productId: string): Promise<boolean> {
+    try {
+      const allPackages = await this.getAllAvailablePackages();
+      return allPackages.some(pkg => pkg.product.identifier === productId);
+    } catch (error) {
+      return false;
+    }
   }
 
   // Format price for display
@@ -600,37 +674,55 @@ class RevenueCatService {
           const productId = pkg.product.identifier;
           const priceString = pkg.product.priceString;
 
-          // Map product IDs to tiers
-          if (productId === 'rc_starter') {
+          // Map product IDs to tiers (new and legacy)
+          if (productId === 'rg_starter') {
             pricing.starter = pricing.starter || {};
             pricing.starter.monthly = {
               price: priceString,
               pricePerMonth: priceString
             };
-          } else if (productId === 'rc_growth_monthly') {
+          } else if (productId === 'rg_growth_monthly') {
             pricing.growth = pricing.growth || {};
             pricing.growth.monthly = {
               price: priceString,
               pricePerMonth: priceString
             };
-          } else if (productId === 'rc_growth_annual') {
+          } else if (productId === 'rg_growth_annual') {
             pricing.growth = pricing.growth || {};
             pricing.growth.annual = {
               price: priceString,
               pricePerMonth: pkg.product.pricePerMonth ? `$${(pkg.product.pricePerMonth / 100).toFixed(2)}` : 'N/A'
             };
-          } else if (productId === 'rc_professional_monthly') {
+          } else if (productId === 'rg_professional_monthly') {
             pricing.professional = pricing.professional || {};
             pricing.professional.monthly = {
               price: priceString,
               pricePerMonth: priceString
             };
-          } else if (productId === 'rc_professional_annual') {
+          } else if (productId === 'rg_professional_annual') {
             pricing.professional = pricing.professional || {};
             pricing.professional.annual = {
               price: priceString,
               pricePerMonth: pkg.product.pricePerMonth ? `$${(pkg.product.pricePerMonth / 100).toFixed(2)}` : 'N/A'
             };
+          } else if (productId === '$rc_monthly') {
+            // Legacy monthly product - map to growth tier by default
+            pricing.growth = pricing.growth || {};
+            pricing.growth.monthly = {
+              price: priceString,
+              pricePerMonth: priceString
+            };
+            console.log('📋 Mapped legacy $rc_monthly to growth tier');
+          } else if (productId === '$rc_annual') {
+            // Legacy annual product - map to growth tier by default
+            pricing.growth = pricing.growth || {};
+            pricing.growth.annual = {
+              price: priceString,
+              pricePerMonth: pkg.product.pricePerMonth ? `$${(pkg.product.pricePerMonth / 100).toFixed(2)}` : 'N/A'
+            };
+            console.log('📋 Mapped legacy $rc_annual to growth tier');
+          } else {
+            console.log(`⚠️ Unknown product ID for pricing: ${productId}`);
           }
         }
       }
@@ -668,11 +760,11 @@ RevenueCat Configuration Required:
 
 1. **App Store Connect Setup**:
    - Create these subscription products in App Store Connect:
-     • rc_starter (Monthly subscription - $9/month)
-     • rc_growth_monthly (Monthly subscription - $19/month)  
-     • rc_growth_annual (Annual subscription - $190/year)
-     • rc_professional_monthly (Monthly subscription - $39/month)
-     • rc_professional_annual (Annual subscription - $390/year)
+     • rg_starter (Monthly subscription - $5.99/month)
+     • rg_growth_monthly (Monthly subscription - $9.99/month)  
+     • rg_growth_annual (Annual subscription - $39.99/year)
+     • rg_professional_monthly (Monthly subscription - $12.99/month)
+     • rg_professional_annual (Annual subscription - $89.99/year)
 
 2. **RevenueCat Dashboard Setup**:
    - Go to https://app.revenuecat.com/
@@ -694,7 +786,7 @@ Once configured, the subscription buttons will work properly.
         };
       }
 
-      const productId = this.getProductId(tierId, billingPeriod);
+      const productId = await this.getProductId(tierId, billingPeriod);
 
       if (!productId) {
         throw new Error('Invalid subscription tier - no product ID');

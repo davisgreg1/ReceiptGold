@@ -50,7 +50,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
     <Animated.View
       style={[
         {
-          width,
+          width: width as any,
           height,
           borderRadius,
           backgroundColor,

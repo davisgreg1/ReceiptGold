@@ -205,7 +205,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentMembership(null);
       setAccountHolderId(user.uid);
 
-      const hasTeamFeature = subscription?.tier !== 'free' && subscription?.tier !== 'starter';
+      const hasTeamFeature = subscription?.currentTier !== 'starter';
       
       if (hasTeamFeature) {
         const [members, invitations, stats] = await Promise.all([
@@ -275,7 +275,7 @@ export const TeamProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setCurrentMembership(null);
       setAccountHolderId(user.uid);
 
-      const hasTeamFeature = subscription?.tier !== 'free' && subscription?.tier !== 'starter';
+      const hasTeamFeature = subscription?.currentTier !== 'starter';
       
       if (hasTeamFeature) {
         const [members, invitations, stats] = await Promise.all([

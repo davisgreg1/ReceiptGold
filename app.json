@@ -77,7 +77,7 @@
       "description": "Premium receipt management for LLCs"
     },
     "extra": {
-      "FREE_TIER_MAX_RECEIPTS": "10",
+      "TRIAL_TIER_MAX_RECEIPTS": "-1",
       "STARTER_TIER_MAX_RECEIPTS": "50",
       "GROWTH_TIER_MAX_RECEIPTS": "150",
       "PROFESSIONAL_TIER_MAX_RECEIPTS": "-1",

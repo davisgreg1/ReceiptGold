@@ -76,7 +76,7 @@ export const TrialBanner: React.FC = () => {
       };
     } else {
       return {
-        background: `linear-gradient(135deg, ${theme.gold.primary} 0%, ${theme.gold.secondary || '#B8860B'} 100%)`,
+        background: `linear-gradient(135deg, ${theme.gold.primary} 0%, ${theme.gold.rich || '#B8860B'} 100%)`,
         backgroundColor: theme.gold.primary,
         textColor: '#FFFFFF',
         buttonBg: 'rgba(255, 255, 255, 0.25)',

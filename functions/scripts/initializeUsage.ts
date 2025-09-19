@@ -23,7 +23,7 @@ const db = admin.firestore();
 // Get receipt limits from environment variables
 const getReceiptLimits = () => {
   return {
-    free: parseInt(process.env.FREE_TIER_MAX_RECEIPTS || "10", 10),
+    trial: parseInt(process.env.TRIAL_TIER_MAX_RECEIPTS || "10", 10),
     starter: parseInt(process.env.STARTER_TIER_MAX_RECEIPTS || "50", 10),
     growth: parseInt(process.env.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
     professional: parseInt(process.env.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
@@ -31,7 +31,7 @@ const getReceiptLimits = () => {
   };
 };
 
-type SubscriptionTier = 'free' | 'starter' | 'growth' | 'professional' | 'teammate';
+type SubscriptionTier = 'trial' | 'starter' | 'growth' | 'professional' | 'teammate';
 
 interface SubscriptionLimits {
   maxReceipts: number;
@@ -83,10 +83,10 @@ interface SubscriptionDocument {
 }
 
 const subscriptionTiers: Record<SubscriptionTier, TierConfig & { features: SubscriptionDocument['features'] }> = {
-  free: {
-    name: "Free",
+  trial: {
+    name: "Trial",
     limits: {
-      maxReceipts: getReceiptLimits().free,
+      maxReceipts: getReceiptLimits().trial,
       maxBusinesses: 1,
       apiCallsPerMonth: 0,
       maxReports: 3,
@@ -159,6 +159,25 @@ const subscriptionTiers: Record<SubscriptionTier, TierConfig & { features: Subsc
       dedicatedManager: true,
     }
   },
+  teammate: {
+    name: "Teammate",
+    limits: {
+      maxReceipts: getReceiptLimits().teammate,
+      maxBusinesses: 1,
+      apiCallsPerMonth: 0,
+      maxReports: -1,
+    },
+    features: {
+      advancedReporting: true,
+      taxPreparation: true,
+      accountingIntegrations: true,
+      prioritySupport: true,
+      multiBusinessManagement: false,
+      whiteLabel: false,
+      apiAccess: false,
+      dedicatedManager: false,
+    }
+  },
 };
 
 async function initializeUsageCollection() {
@@ -188,7 +207,7 @@ async function initializeUsageCollection() {
       const subscriptionRef = db.collection('subscriptions').doc(userId);
       const subscriptionDoc = await subscriptionRef.get();
       
-    let currentTier: SubscriptionTier = 'free';
+    let currentTier: SubscriptionTier = 'trial';
     
     if (!subscriptionDoc.exists) {
       console.log(`Creating subscription for user ${userId}...`);

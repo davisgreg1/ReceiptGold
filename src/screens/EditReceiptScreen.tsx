@@ -18,6 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../theme/ThemeProvider';
 import { Text } from '../components/Text';
 import { PDFViewer } from '../components/PDFViewer';
+import { ReceiptsStackParamList } from '../navigation/AppNavigator';
 import { ImageViewer } from '../components/ImageViewer';
 import { receiptService } from '../services/firebaseService';
 import { format } from 'date-fns';
@@ -44,11 +45,7 @@ interface FormItem {
   tax: number;
 }
 
-type RootStackParamList = {
-  EditReceipt: { receipt: Receipt };
-};
-
-type EditReceiptScreenProps = NativeStackScreenProps<RootStackParamList, 'EditReceipt'>;
+type EditReceiptScreenProps = NativeStackScreenProps<ReceiptsStackParamList, 'EditReceipt'>;
 
 const styles = StyleSheet.create({
   container: {
@@ -497,7 +494,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
                 updatedAt: safeParseDate(latestReceipt.updatedAt),
               };
               
-              setReceipt(refreshedReceipt);
+              setReceipt(refreshedReceipt as any);
               setFormData(prevFormData => ({
                 ...prevFormData,
                 vendor: refreshedReceipt.vendor || '',
@@ -687,7 +684,7 @@ export const EditReceiptScreen: React.FC<EditReceiptScreenProps> = ({ route, nav
         };
         
         
-        return newReceipt;
+        return newReceipt as any;
       });
 
       

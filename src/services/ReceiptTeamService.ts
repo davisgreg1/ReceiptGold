@@ -61,8 +61,6 @@ export class ReceiptTeamService {
           createdByUserId: userId,
           createdByEmail: teamMember.email,
           createdByName: teamMember.displayName,
-          businessId: teamMember.businessId,
-          businessName: teamMember.businessName,
           isTeamReceipt: true,
         };
         
@@ -75,7 +73,7 @@ export class ReceiptTeamService {
       // Create the receipt with team attribution
       const receiptRef = await createReceiptDocument(
         effectiveUserId,
-        receiptData,
+        receiptData as any,
         teamAttribution
       );
 

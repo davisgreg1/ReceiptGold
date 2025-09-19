@@ -635,7 +635,7 @@ export const HelpCenterScreen: React.FC<HelpCenterScreenProps> = ({
 
   const getSupportMessage = () => {
     switch (subscription.currentTier) {
-      case 'free':
+      case 'trial':
         return "We're here to help! Check our help center and community forums for answers to common questions.";
       case 'starter':
         return "We're here to help! Send us an email and we'll respond within 48 hours.";
@@ -950,7 +950,7 @@ Thanks!`;
               </View>
             </View>
             <View style={styles.supportActions}>
-              {subscription.currentTier !== 'free' && (
+              {subscription.currentTier !== 'trial' && (
                 <TouchableOpacity
                   style={[
                     styles.supportButton,
@@ -971,7 +971,7 @@ Thanks!`;
                     backgroundColor: "transparent",
                     borderColor: theme.gold.primary,
                     borderWidth: 1,
-                    flex: subscription.currentTier === 'free' ? 1 : 1,
+                    flex: subscription.currentTier === 'trial' ? 1 : 1,
                   },
                 ]}
                 onPress={handleEmailSupport}

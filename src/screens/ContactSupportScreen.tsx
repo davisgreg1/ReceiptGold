@@ -38,7 +38,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
 
   const getSupportMessage = () => {
     switch (subscription.currentTier) {
-      case 'free':
+      case 'trial':
         return "We're here to help! Check our help center and community forums for answers to common questions.";
       case 'starter':
         return "We're here to help! Send us an email and we'll respond within 48 hours.";
@@ -53,7 +53,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
 
   const getSuccessMessage = () => {
     switch (subscription.currentTier) {
-      case 'free':
+      case 'trial':
         return 'Thank you for contacting us. Please check our help center for immediate answers to common questions.';
       case 'starter':
         return 'Thank you for contacting us. We\'ll get back to you within 48 hours.';
@@ -68,7 +68,7 @@ export const ContactSupportScreen: React.FC<ContactSupportScreenProps> = ({
 
   const getFooterResponseTime = () => {
     switch (subscription.currentTier) {
-      case 'free':
+      case 'trial':
         return "Self-service via help center • Community support available";
       case 'starter':
         return "Response time: Within 48 hours • Available: Mon-Fri, 9 AM - 6 PM EST";

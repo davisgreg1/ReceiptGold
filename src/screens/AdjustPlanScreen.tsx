@@ -141,7 +141,7 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
     tier: keyof typeof SUBSCRIPTION_TIERS
   ): "upgrade" | "downgrade" | "switch" => {
     const currentTier = subscription.currentTier;
-    const tierHierarchy = { free: 0, starter: 1, growth: 2, professional: 3 };
+    const tierHierarchy = { trial: 0, starter: 1, growth: 2, professional: 3 };
 
     const currentLevel =
       tierHierarchy[currentTier as keyof typeof tierHierarchy] || 0;
