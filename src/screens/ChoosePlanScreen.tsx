@@ -320,7 +320,7 @@ const ChoosePlanScreen: React.FC = () => {
   const { showNotification } = useInAppNotifications();
   const { theme } = useTheme();
   const { subscription } = useSubscription();
-  const { user } = require("../context/AuthContext").useAuth();
+  const { user, logout } = require("../context/AuthContext").useAuth();
   const { handleSubscriptionWithRevenueCat, restorePurchases, getCurrentBillingPeriod } = useRevenueCatPayments();
 
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>('monthly');
@@ -507,10 +507,10 @@ const ChoosePlanScreen: React.FC = () => {
 
   const handleCancelSubscription = () => {
     // For iOS/Android app stores, users need to cancel through their platform settings
-    const cancelUrl = Platform.OS === 'ios' 
+    const cancelUrl = Platform.OS === 'ios'
       ? 'https://apps.apple.com/account/subscriptions'
       : 'https://play.google.com/store/account/subscriptions';
-    
+
     Linking.openURL(cancelUrl).catch(() => {
       showNotification({
         type: "error",
@@ -518,6 +518,24 @@ const ChoosePlanScreen: React.FC = () => {
         message: "Please visit your App Store account settings to manage subscriptions.",
       });
     });
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await logout();
+      showNotification({
+        type: "success",
+        title: "Signed Out",
+        message: "You have been signed out successfully.",
+      });
+    } catch (error) {
+      console.error('Sign out error:', error);
+      showNotification({
+        type: "error",
+        title: "Sign Out Failed",
+        message: "Unable to sign out. Please try again.",
+      });
+    }
   };
 
   return (
@@ -641,6 +659,16 @@ const ChoosePlanScreen: React.FC = () => {
             {" anytime • Secure payment"}
           </Text>
         </View>
+
+        {/* Sign Out Button */}
+        <Pressable
+          style={[styles.signOutButton, { borderColor: theme.status.error }]}
+          onPress={handleSignOut}
+        >
+          <Text style={[styles.signOutButtonText, { color: theme.status.error }]}>
+            Sign Out
+          </Text>
+        </Pressable>
       </View>
       </ScrollView>
       
@@ -919,6 +947,18 @@ const styles = StyleSheet.create({
   },
   restoreIcon: {
     marginRight: 8,
+  },
+  signOutButton: {
+    padding: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginHorizontal: 16,
+    marginVertical: 16,
+    alignItems: "center",
+  },
+  signOutButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
   },
 });
 

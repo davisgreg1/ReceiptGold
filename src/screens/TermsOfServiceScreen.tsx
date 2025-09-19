@@ -115,7 +115,6 @@ const termsSections: TermsSection[] = [
       {
         type: 'list',
         items: [
-          'Free: Limited receipts per month with basic features',
           'Starter: Enhanced features with increased receipt limits',
           'Growth: Advanced reporting, analytics, and integrations',
           'Professional: Unlimited features, advanced team management, and priority support',
@@ -275,7 +274,6 @@ const termsSections: TermsSection[] = [
       {
         type: 'list',
         items: [
-          'Free: Limited receipts per month with basic features and email support',
           'Starter: Paid monthly subscription with unlimited storage, LLC categories, and educational content',
           'Growth: Paid monthly or annual subscription with advanced reporting, integrations, and priority support',
           'Professional: Paid monthly or annual subscription with multi-business management, advanced team features, and dedicated support',

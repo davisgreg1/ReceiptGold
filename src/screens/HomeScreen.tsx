@@ -585,24 +585,6 @@ export const HomeScreen: React.FC = () => {
           </View>
         )}
 
-
-        {/* Debug Migration Button - Only show in development */}
-        {(__DEV__) && (
-          <View style={[styles.debugSection, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
-            <BodyText size="small" color="secondary" style={{ marginBottom: 8 }}>
-              Debug Tools
-            </BodyText>
-            <TouchableOpacity
-              style={[styles.debugButton, { backgroundColor: theme.gold.primary }]}
-              onPress={handleMigrateToTrial}
-            >
-              <ButtonText size="small" color="inverse">
-                Migrate to Trial (Debug)
-              </ButtonText>
-            </TouchableOpacity>
-          </View>
-        )}
-
         {/* Signature */}
         <Signature variant="default" />
       </ScrollView>
