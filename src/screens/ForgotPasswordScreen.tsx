@@ -31,14 +31,15 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
   const [sent, setSent] = useState(false);
 
   const handleResetPassword = async () => {
-    if (!email) {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail) {
       showError('Error', 'Please enter your email address');
       return;
     }
 
     setLoading(true);
     try {
-      await resetPassword(email);
+      await resetPassword(trimmedEmail);
       setSent(true);
       showSuccess(
         'Reset Email Sent',
@@ -94,7 +95,7 @@ export const ForgotPasswordScreen: React.FC<ForgotPasswordScreenProps> = ({
                 placeholder="Enter your email"
                 placeholderTextColor={theme.text.tertiary}
                 value={email}
-                onChangeText={(text) => setEmail(text.trim())}
+                onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}

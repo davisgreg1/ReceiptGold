@@ -6,15 +6,10 @@ export async function getMonthlyReceiptCount(userId: string, accountHolderId?: s
     // Use accountHolderId if provided (for team members), otherwise use userId (for account holders)
     const effectiveUserId = accountHolderId || userId;
     
-    console.log("🚀 ~ getMonthlyReceiptCount ~ userId:", userId);
-    console.log("🚀 ~ getMonthlyReceiptCount ~ accountHolderId:", accountHolderId);
-    console.log("🚀 ~ getMonthlyReceiptCount ~ effectiveUserId:", effectiveUserId);
-
     // Get the subscription info - always use account holder's subscription
     // Team members don't have their own subscriptions, they use the account holder's
     const subscriptionDoc = await getDoc(doc(db, 'subscriptions', effectiveUserId));
     const subscriptionData = subscriptionDoc.data();
-    console.log("🚀 ~ getMonthlyReceiptCount ~ subscriptionData for effectiveUserId:", effectiveUserId, subscriptionData)
 
     // Get the most recent monthly count reset date
     const lastMonthlyCountResetAt = subscriptionData?.lastMonthlyCountResetAt?.toDate(); // July 1, 2025

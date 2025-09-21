@@ -96,11 +96,11 @@ const getPlaidConfig = (): { clientId: string; secret: string; environment: stri
   const environment = process.env.PLAID_ENVIRONMENT || 'sandbox';
 
   if (!clientId) {
-    throw new Error('Plaid client ID not found. Set PLAID_CLIENT_ID environment variable');
+    throw new Error('Plaid client ID not found. Set PLAID_CLIENT_ID environment variable in .env file');
   }
 
   if (!secret) {
-    throw new Error('Plaid secret not found. Set PLAID_SECRET environment variable');
+    throw new Error('Plaid secret not found. Set PLAID_SECRET environment variable in .env file');
   }
 
   return { clientId, secret, environment };
@@ -4325,6 +4325,55 @@ async function handleRevenueCatSubscriptionUpdated(event: any): Promise<void> {
   }
 }
 
+// Helper function to send notifications for subscription events
+async function sendSubscriptionEventNotification(userId: string, eventType: string): Promise<void> {
+  try {
+    let notificationData;
+
+    switch (eventType) {
+      case 'CANCELLATION':
+        notificationData = {
+          title: "Thank you for trying ReceiptGold! 💝",
+          body: "We hope to see you again soon. Your receipts will be saved if you decide to return.",
+          data: {
+            type: "subscription_cancellation"
+          }
+        };
+        break;
+
+      case 'EXPIRATION':
+        notificationData = {
+          title: "Your ReceiptGold subscription has expired",
+          body: "Your account has been moved to our free tier. Upgrade to continue accessing premium features.",
+          data: {
+            type: "subscription_expiration"
+          }
+        };
+        break;
+
+      default:
+        Logger.warn(`No notification configured for event type: ${eventType}`);
+        return;
+    }
+
+    // Create notification document that the app monitors
+    await db.collection("user_notifications").add({
+      userId: userId,
+      title: notificationData.title,
+      body: notificationData.body,
+      data: notificationData.data,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      read: false,
+      source: 'revenuecat_webhook',
+      sourceId: `${eventType}_${Date.now()}`
+    });
+
+    Logger.info(`Sent ${eventType} notification to user ${userId}`);
+  } catch (error) {
+    Logger.error(`Error sending ${eventType} notification:`, { error: (error as Error), userId });
+  }
+}
+
 // RevenueCat handler for CANCELLATION/EXPIRATION (equivalent to Stripe subscription.deleted)
 async function handleRevenueCatSubscriptionDeleted(event: any): Promise<void> {
   try {
@@ -4386,6 +4435,9 @@ async function handleRevenueCatSubscriptionDeleted(event: any): Promise<void> {
         console.log(`Created new trial tier subscription for user ${userId}`);
       }
     });
+
+    // Send appropriate notification based on event type
+    await sendSubscriptionEventNotification(userId, event.type);
 
     Logger.info('Successfully processed RevenueCat subscription deletion for user ${userId}', {});
   } catch (error) {

@@ -93,10 +93,10 @@ const getPlaidConfig = () => {
     const secret = process.env.PLAID_SECRET;
     const environment = process.env.PLAID_ENVIRONMENT || 'sandbox';
     if (!clientId) {
-        throw new Error('Plaid client ID not found. Set PLAID_CLIENT_ID environment variable');
+        throw new Error('Plaid client ID not found. Set PLAID_CLIENT_ID environment variable in .env file');
     }
     if (!secret) {
-        throw new Error('Plaid secret not found. Set PLAID_SECRET environment variable');
+        throw new Error('Plaid secret not found. Set PLAID_SECRET environment variable in .env file');
     }
     return { clientId, secret, environment };
 };
@@ -199,25 +199,6 @@ const subscriptionTiers = {
             whiteLabel: false,
             apiAccess: false,
             dedicatedManager: false,
-        },
-    },
-    trial: {
-        name: "Trial",
-        limits: {
-            maxReceipts: getReceiptLimits().trial,
-            maxBusinesses: -1,
-            apiCallsPerMonth: 1000,
-            maxReports: -1, // unlimited during trial
-        },
-        features: {
-            advancedReporting: true,
-            taxPreparation: true,
-            accountingIntegrations: true,
-            prioritySupport: true,
-            multiBusinessManagement: true,
-            whiteLabel: true,
-            apiAccess: true,
-            dedicatedManager: true, // No dedicated manager during trial
         },
     },
 };
@@ -718,7 +699,7 @@ async function handleRevenueCatSubscriptionChange(userId, eventData, eventType) 
         const entitlements = subscriber.entitlements || {};
         const subscriptions = subscriber.subscriptions || {};
         // Determine the current tier based on active entitlements
-        let currentTier = 'trial'; // Default to trial if no active subscription
+        let currentTier = 'starter'; // Default to starter if no active subscription
         let isActive = false;
         let subscriptionDetails = null;
         // Check for active entitlements (RevenueCat's recommended approach)
@@ -745,7 +726,7 @@ async function handleRevenueCatSubscriptionChange(userId, eventData, eventType) 
         }
         // Handle expiration and cancellation events
         if (eventType === 'expiration' || eventType === 'cancellation') {
-            currentTier = 'trial';
+            currentTier = 'starter';
             isActive = false;
         }
         // Handle billing issues
@@ -1124,8 +1105,8 @@ function mapEntitlementToTier(entitlementId) {
     if (tier) {
         return tier;
     }
-    Logger.warn(`Unknown entitlement ID: ${entitlementId}, defaulting to trial tier`);
-    return 'trial'; // Default to trial if unknown
+    Logger.warn(`Unknown entitlement ID: ${entitlementId}, defaulting to starter tier`);
+    return 'starter'; // Default to starter if unknown
 }
 // REMOVED: Manual recovery function - no longer needed with immediate hard deletion
 // REMOVED: Scheduled cleanup function - now using immediate hard deletion
@@ -1426,324 +1407,6 @@ async function processReceiptOCR(receiptRef, receiptData) {
         throw error;
     }
 }
-// OPTIMIZATION: onSubscriptionChange trigger removed - subscription logic now handled by RevenueCat webhook
-// This eliminates redundant Cloud Function triggers and improves performance by using direct webhook automation
-/* COMMENTED OUT - Using RevenueCat instead of Stripe
-
-// Interface to handle Firebase Functions v2 rawBody
-interface RequestWithRawBody extends Request {
-  rawBody: Buffer;
-}
-
-// UPDATED Stripe Webhook Handler with proper raw body handling
-export const stripeWebhook = onRequest(
-  {
-    // Explicitly disable body parsing to get raw body
-    cors: false,
-    // Set memory and timeout if needed
-    memory: "1GiB",
-    timeoutSeconds: 540,
-  },
-  async (req: Request, res: Response) => {
-    Logger.info('Stripe webhook received');
-    Logger.debug('Stripe webhook request details', {
-      method: req.method,
-      contentType: req.headers["content-type"],
-      hasStripeSignature: !!req.headers["stripe-signature"]
-    });
-
-    // Only allow POST requests
-    if (req.method !== "POST") {
-      Logger.error('Invalid method for Stripe webhook', { method: req.method });
-      res.status(405).send("Method not allowed");
-      return;
-    }
-
-    const sig = req.headers["stripe-signature"] as string;
-
-    if (!sig) {
-      Logger.error('No Stripe signature found in request headers', {});
-      res.status(400).send("No Stripe signature found");
-      return;
-    }
-
-    // Get webhook secret using environment-aware approach
-    let webhookSecret: string;
-    try {
-      const config = getStripeConfig();
-      webhookSecret = config.webhookSecret;
-      Logger.debug('Webhook secret loaded successfully', {});
-    } catch (error) {
-      Logger.error('Stripe configuration error', { error: (error as Error) });
-      res.status(500).send("Stripe configuration error");
-      return;
-    }
-
-    let event: Stripe.Event;
-    let payload: string | Buffer = ""; // Initialize payload to avoid use-before-assignment
-
-    try {
-      // Firebase Functions v2 provides rawBody on the request object
-      const requestWithRawBody = req as RequestWithRawBody;
-
-      if (requestWithRawBody.rawBody) {
-        // Use the raw body provided by Firebase
-        payload = requestWithRawBody.rawBody;
-        Logger.debug('Using rawBody from Firebase Functions', {});
-      } else if (typeof req.body === "string") {
-        // If body is already a string, use it directly
-        payload = req.body;
-        Logger.debug('Using string body', {});
-      } else if (Buffer.isBuffer(req.body)) {
-        // If body is a Buffer, use it directly
-        payload = req.body;
-        Logger.debug('Using Buffer body', {});
-      } else {
-        // Last resort: stringify the body (not ideal for signatures)
-        payload = JSON.stringify(req.body);
-        Logger.warn('Using stringified body (may cause signature issues)', {});
-      }
-
-      Logger.debug('Payload details', { payloadType: typeof payload, payloadLength: payload.length });
-
-      // Construct the Stripe event
-      event = getStripe().webhooks.constructEvent(payload, sig, webhookSecret);
-      Logger.info('Webhook signature verified', { eventType: event.type, eventId: event.id });
-    } catch (err) {
-      const error = err as Error;
-      // Ensure payload is defined for error logging
-      const safePayload = typeof payload !== "undefined" ? payload : "";
-      Logger.error('Webhook signature verification failed', { error: (error as Error) });
-      Logger.error('Webhook error details', {
-        message: error.message,
-        payloadType: typeof safePayload,
-        payloadPreview: safePayload?.toString().substring(0, 100),
-        signature: sig.substring(0, 20) + "...",
-      });
-      res.status(400).send(`Webhook Error: ${error.message}`);
-      return;
-    }
-
-    try {
-      Logger.info('Processing Stripe event', { eventType: event.type });
-
-      switch (event.type) {
-        case "customer.subscription.created":
-          await handleSubscriptionCreated(event.data.object as Stripe.Subscription);
-          Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: (event.data.object as Stripe.Subscription).id });
-          break;
-
-        case "checkout.session.completed":
-          const session = event.data.object as Stripe.Checkout.Session;
-          Logger.info('Processing checkout completion', { sessionId: session.id });
-
-          if (session.subscription) {
-            // Retrieve the full subscription object
-            const subscription = await getStripe().subscriptions.retrieve(session.subscription as string);
-            await handleSubscriptionCreated(subscription);
-            Logger.info('Handled checkout completion', { subscriptionId: subscription.id });
-          } else {
-            Logger.info('Checkout session completed but no subscription found', {});
-          }
-          break;
-
-        case "payment_intent.succeeded":
-
-          Logger.info('Payment succeeded for PaymentIntent: ${paymentIntent.id}', {});
-          // Handle one-time payments here if needed
-          break;
-
-        case "customer.subscription.updated":
-          await handleSubscriptionUpdated(event.data.object as Stripe.Subscription);
-          Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: (event.data.object as Stripe.Subscription).id });
-          break;
-
-        case "customer.subscription.deleted":
-          await handleSubscriptionDeleted(event.data.object as Stripe.Subscription);
-          Logger.info('Handled subscription event', { eventType: event.type, subscriptionId: (event.data.object as Stripe.Subscription).id });
-          break;
-
-        case "invoice.payment_succeeded":
-          await handlePaymentSucceeded(event.data.object as Stripe.Invoice);
-          Logger.info('Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}', {});
-          break;
-
-        case "invoice.payment_failed":
-          await handlePaymentFailed(event.data.object as Stripe.Invoice);
-          Logger.info('Handled ${event.type} for invoice: ${(event.data.object as Stripe.Invoice).id}', {});
-          break;
-
-        case "customer.subscription.trial_will_end":
-          // Handle trial ending warning
-
-          Logger.info('Trial ending soon for subscription: ${trialSub.id}', {});
-          // You can add email notifications here
-          break;
-
-        default:
-          Logger.info('Unhandled event type: ${event.type}', {});
-      }
-
-      // Always respond with 200 to acknowledge receipt
-      res.status(200).json({
-        received: true,
-        eventType: event.type,
-        eventId: event.id,
-        timestamp: new Date().toISOString()
-      });
-
-    } catch (error) {
-      Logger.error('❌ Error processing webhook:', { error: (error as Error) });
-
-      // Log the full error for debugging
-      if (error instanceof Error) {
-        Logger.error('Error details', {
-          name: error.name,
-          message: error.message,
-          stack: error.stack
-        });
-      }
-
-      // Still respond with 200 to prevent Stripe retries for application errors
-      // unless it's a critical error that should be retried
-      res.status(200).json({
-        received: true,
-        error: "Processing failed",
-        eventType: event.type,
-        eventId: event.id,
-        timestamp: new Date().toISOString()
-      });
-    }
-  }
-);
-
-// Enhanced subscription created handler with better error handling
-async function handleSubscriptionCreated(subscription: Stripe.Subscription): Promise<void> {
-  try {
-    const customerId: string = subscription.customer as string;
-    console.log(`Processing subscription created: ${subscription.id} for customer: ${customerId}`);
-
-    // Retrieve customer with error handling
-    let customer: Stripe.Customer;
-    try {
-      const customerObject = await getStripe().customers.retrieve(customerId);
-      if ('deleted' in customerObject && customerObject.deleted) {
-        throw new Error(`Customer ${customerId} has been deleted`);
-      }
-      customer = customerObject as Stripe.Customer;
-    } catch (error) {
-      console.error(`Failed to retrieve customer ${customerId}:`, error);
-      throw new Error(`Customer retrieval failed: ${error}`);
-    }
-
-    const userId: string | undefined = customer.metadata?.userId;
-
-    if (!userId) {
-      Logger.error('No userId found in customer metadata for customer:', { error: customerId });
-      Logger.error('Customer metadata:', { error: customer.metadata.message });
-      throw new Error(`No userId in customer metadata for ${customerId}`);
-    }
-
-    console.log(`Processing subscription for user: ${userId}`);
-
-    // Validate subscription has items
-    if (!subscription.items || !subscription.items.data || subscription.items.data.length === 0) {
-      throw new Error(`Subscription ${subscription.id} has no items`);
-    }
-
-    // Get the price ID
-    const priceId = subscription.items.data[0].price.id;
-    console.log(`Subscription price ID: ${priceId}`);
-
-    // Determine tier from price ID with validation
-    const tier: string = getTierFromPriceId(priceId);
-
-    if (!subscriptionTiers[tier]) {
-      console.error(`Invalid tier determined: ${tier} for price ID: ${priceId}`);
-      throw new Error(`Invalid subscription tier: ${tier}`);
-    }
-
-    console.log(`Determined subscription tier: ${tier}`);
-
-    // Prepare subscription update
-    const subscriptionUpdate = {
-      userId,
-      currentTier: tier,
-      status: subscription.status,
-      billing: {
-        customerId: customerId,
-        subscriptionId: subscription.id,
-        priceId: priceId,
-        currentPeriodStart: new Date(subscription.current_period_start * 1000),
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-        cancelAtPeriodEnd: subscription.cancel_at_period_end,
-        trialEnd: subscription.trial_end
-          ? new Date(subscription.trial_end * 1000)
-          : null,
-      },
-      limits: subscriptionTiers[tier].limits,
-      features: subscriptionTiers[tier].features,
-      history: admin.firestore.FieldValue.arrayUnion({
-        tier: tier,
-        startDate: new Date(),
-        endDate: null,
-        reason: "subscription_created"
-      }),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
-
-    Logger.info('Saving subscription data for user', { value: userId });
-
-    // Save to Firestore with transaction for consistency
-    await db.runTransaction(async (transaction) => {
-      const subscriptionRef = db.collection("subscriptions").doc(userId);
-      const doc = await transaction.get(subscriptionRef);
-
-      if (doc.exists) {
-        // Update existing subscription
-        transaction.update(subscriptionRef, subscriptionUpdate);
-        console.log(`Updated existing subscription for user ${userId}`);
-      } else {
-        // Create new subscription document
-        transaction.set(subscriptionRef, {
-          ...subscriptionUpdate,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        });
-        console.log(`Created new subscription for user ${userId}`);
-      }
-
-      // Also create/update the user's usage document for current month
-      const currentMonth: string = new Date().toISOString().slice(0, 7);
-      const usageRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
-
-      // Use set with merge to create document if it doesn't exist
-      transaction.set(usageRef, {
-        userId,
-        month: currentMonth,
-        receiptsUploaded: 0,
-        apiCalls: 0,
-        reportsGenerated: 0,
-        limits: subscriptionTiers[tier].limits,
-        resetDate: new Date(
-          new Date().getFullYear(),
-          new Date().getMonth() + 1,
-          1
-        ).toISOString(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
-    });
-
-    Logger.info('Successfully processed subscription creation for user ${userId}', {});
-
-  } catch (error) {
-    Logger.error('Error in handleSubscriptionCreated:', { error: (error as Error) });
-    // Re-throw to trigger webhook retry if it's a transient error
-    throw error;
-  }
-}
-
-*/
 // PLAID WEBHOOK HANDLER
 exports.plaidWebhook = (0, https_1.onRequest)({
     cors: false,
@@ -3838,7 +3501,7 @@ async function handleRevenueCatSubscriptionCreated(event) {
 }
 // RevenueCat handler for PRODUCT_CHANGE (equivalent to Stripe subscription.updated)
 async function handleRevenueCatSubscriptionUpdated(event) {
-    var _a, _b, _c;
+    var _a, _b;
     try {
         const { product_id, new_product_id, event_timestamp_ms } = event;
         const userId = getFirebaseUserIdFromRevenueCatEvent(event);
@@ -3858,7 +3521,7 @@ async function handleRevenueCatSubscriptionUpdated(event) {
         // Get current tier for comparison
         const subscriptionRef = db.collection("subscriptions").doc(userId);
         const currentSub = await subscriptionRef.get();
-        const currentTier = ((_a = currentSub.data()) === null || _a === void 0 ? void 0 : _a.currentTier) || 'trial';
+        const currentTier = ((_a = currentSub.data()) === null || _a === void 0 ? void 0 : _a.currentTier) || 'starter';
         // Prepare subscription update data
         const subscriptionUpdateData = {
             currentTier: tier,
@@ -3888,13 +3551,13 @@ async function handleRevenueCatSubscriptionUpdated(event) {
             },
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
-        // End trial when confirming subscription (if trial is still active) and tier is not trial
+        // End trial when confirming subscription (if trial is still active)
         const currentData = currentSub.data();
         const trialData = currentData === null || currentData === void 0 ? void 0 : currentData.trial;
         const currentTrialActive = (trialData === null || trialData === void 0 ? void 0 : trialData.isActive) !== false && // if isActive is undefined or true
             (trialData === null || trialData === void 0 ? void 0 : trialData.expiresAt) &&
             trialData.expiresAt.toDate() > new Date(); // and not expired
-        if (currentTrialActive && tier !== 'trial') {
+        if (currentTrialActive) {
             console.log(`🏁 Ending trial for user upgrading to paid subscription: ${tier}`);
             subscriptionUpdateData.trial = {
                 isActive: false,
@@ -3904,30 +3567,78 @@ async function handleRevenueCatSubscriptionUpdated(event) {
                 endReason: 'upgraded_to_paid'
             };
         }
-        // Update subscription document (ported from Stripe logic)
-        await subscriptionRef.update(subscriptionUpdateData);
-        // CRITICAL: Also update the user document with currentTier for app compatibility
-        const userRef = db.collection("users").doc(userId);
-        await userRef.update({
-            currentTier: tier,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        // Use transaction for atomic updates
+        await db.runTransaction(async (transaction) => {
+            var _a;
+            // Update subscription document
+            transaction.update(subscriptionRef, subscriptionUpdateData);
+            // CRITICAL: Also update the user document with currentTier for app compatibility
+            const userRef = db.collection("users").doc(userId);
+            transaction.update(userRef, {
+                currentTier: tier,
+                updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            // Update usage limits if downgrading
+            if (shouldUpdateUsageLimits(currentTier, tier)) {
+                const currentMonth = new Date().toISOString().slice(0, 7);
+                const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
+                transaction.set(usageRef, {
+                    limits: ((_a = subscriptionTiers[tier]) === null || _a === void 0 ? void 0 : _a.limits) || subscriptionTiers.starter.limits,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+                Logger.info(`Updated usage limits for ${currentMonth} due to tier change`, {});
+            }
         });
         console.log(`Updated user document currentTier to ${tier} for user ${userId}`);
-        // Update usage limits if downgrading (ported from Stripe logic)
-        if (shouldUpdateUsageLimits(currentTier, tier)) {
-            const currentMonth = new Date().toISOString().slice(0, 7);
-            const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
-            await usageRef.set({
-                limits: ((_c = subscriptionTiers[tier]) === null || _c === void 0 ? void 0 : _c.limits) || subscriptionTiers.trial.limits,
-                updatedAt: admin.firestore.FieldValue.serverTimestamp()
-            }, { merge: true });
-            Logger.info('Updated usage limits for ${currentMonth} due to tier change', {});
-        }
-        Logger.info('Successfully processed RevenueCat subscription update for user ${userId}', {});
+        Logger.info(`Successfully processed RevenueCat subscription update for user ${userId}`, {});
     }
     catch (error) {
         Logger.error('Error in handleRevenueCatSubscriptionUpdated:', { error: error });
         throw error;
+    }
+}
+// Helper function to send notifications for subscription events
+async function sendSubscriptionEventNotification(userId, eventType) {
+    try {
+        let notificationData;
+        switch (eventType) {
+            case 'CANCELLATION':
+                notificationData = {
+                    title: "Thank you for trying ReceiptGold! 💝",
+                    body: "We hope to see you again soon. Your receipts will be saved if you decide to return.",
+                    data: {
+                        type: "subscription_cancellation"
+                    }
+                };
+                break;
+            case 'EXPIRATION':
+                notificationData = {
+                    title: "Your ReceiptGold subscription has expired",
+                    body: "Your account has been moved to our free tier. Upgrade to continue accessing premium features.",
+                    data: {
+                        type: "subscription_expiration"
+                    }
+                };
+                break;
+            default:
+                Logger.warn(`No notification configured for event type: ${eventType}`);
+                return;
+        }
+        // Create notification document that the app monitors
+        await db.collection("user_notifications").add({
+            userId: userId,
+            title: notificationData.title,
+            body: notificationData.body,
+            data: notificationData.data,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            read: false,
+            source: 'revenuecat_webhook',
+            sourceId: `${eventType}_${Date.now()}`
+        });
+        Logger.info(`Sent ${eventType} notification to user ${userId}`);
+    }
+    catch (error) {
+        Logger.error(`Error sending ${eventType} notification:`, { error: error, userId });
     }
 }
 // RevenueCat handler for CANCELLATION/EXPIRATION (equivalent to Stripe subscription.deleted)
@@ -3947,17 +3658,17 @@ async function handleRevenueCatSubscriptionDeleted(event) {
         await db.runTransaction(async (transaction) => {
             const doc = await transaction.get(subscriptionRef);
             const updateData = {
-                currentTier: "trial",
+                currentTier: "starter",
                 status: event.type === 'CANCELLATION' ? "canceled" : "expired",
                 billing: {
                     isActive: false,
                     willRenew: false,
                     unsubscribeDetectedAt: new Date(event_timestamp_ms),
                 },
-                limits: subscriptionTiers.trial.limits,
-                features: subscriptionTiers.trial.features,
+                limits: subscriptionTiers.starter.limits,
+                features: subscriptionTiers.starter.features,
                 history: admin.firestore.FieldValue.arrayUnion({
-                    tier: "trial",
+                    tier: "starter",
                     startDate: new Date(event_timestamp_ms),
                     endDate: null,
                     reason: event.type === 'CANCELLATION' ? "cancellation" : "expiration"
@@ -3985,6 +3696,8 @@ async function handleRevenueCatSubscriptionDeleted(event) {
                 console.log(`Created new trial tier subscription for user ${userId}`);
             }
         });
+        // Send appropriate notification based on event type
+        await sendSubscriptionEventNotification(userId, event.type);
         Logger.info('Successfully processed RevenueCat subscription deletion for user ${userId}', {});
     }
     catch (error) {
@@ -4046,8 +3759,8 @@ async function handleRevenueCatPaymentSucceeded(event) {
                     ...updateData,
                     userId: userId,
                     currentTier: tier,
-                    limits: ((_a = subscriptionTiers[tier]) === null || _a === void 0 ? void 0 : _a.limits) || subscriptionTiers.trial.limits,
-                    features: ((_b = subscriptionTiers[tier]) === null || _b === void 0 ? void 0 : _b.features) || subscriptionTiers.trial.features,
+                    limits: ((_a = subscriptionTiers[tier]) === null || _a === void 0 ? void 0 : _a.limits) || subscriptionTiers.starter.limits,
+                    features: ((_b = subscriptionTiers[tier]) === null || _b === void 0 ? void 0 : _b.features) || subscriptionTiers.starter.features,
                     history: [{
                             tier: tier,
                             startDate: new Date(event_timestamp_ms),
@@ -4325,7 +4038,7 @@ function mapProductIdToTier(productId) {
         'rg_professional_monthly': 'professional',
         'rg_professional_annual': 'professional'
     };
-    return productToTierMap[productId] || 'trial';
+    return productToTierMap[productId] || 'starter';
 }
 // Check if usage limits should be updated (when downgrading)
 function shouldUpdateUsageLimits(currentTier, newTier) {
@@ -4390,10 +4103,8 @@ exports.onSubscriptionStatusChange = functionsV1.firestore
         const beforeSubscription = beforeData;
         const afterSubscription = afterData;
         // Check if subscription status changed from active to inactive
-        const wasActive = (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.status) === 'active' &&
-            (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.currentTier) !== 'trial';
-        const isNowInactive = (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.status) !== 'active' ||
-            (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.currentTier) === 'trial';
+        const wasActive = (beforeSubscription === null || beforeSubscription === void 0 ? void 0 : beforeSubscription.status) === 'active';
+        const isNowInactive = (afterSubscription === null || afterSubscription === void 0 ? void 0 : afterSubscription.status) !== 'active';
         if (wasActive && isNowInactive) {
             Logger.info('Account holder subscription became inactive, revoking teammate access', {
                 accountHolderId: userId,

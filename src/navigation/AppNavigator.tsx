@@ -412,7 +412,7 @@ const BaseAppNavigator: React.FC = () => {
   const { theme } = useTheme();
   const { isTeamMember } = useTeam();
   const { logout, user } = useAuth();
-  const { subscription } = useSubscription();
+  const { subscription, loading } = useSubscription();
   const { showError, showSuccess } = useCustomAlert();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [deletePassword, setDeletePassword] = useState("");
@@ -481,6 +481,27 @@ const BaseAppNavigator: React.FC = () => {
     setDeletePassword("");
     setShowPassword(false);
   };
+
+  // Show loading spinner while subscription data is loading
+  if (loading) {
+    return (
+      <View style={{
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: theme.background.primary
+      }}>
+        <ActivityIndicator size="large" color={theme.gold.primary} />
+        <Text style={{
+          marginTop: 16,
+          color: theme.text.primary,
+          fontSize: 16
+        }}>
+          Loading...
+        </Text>
+      </View>
+    );
+  }
 
   // Show paywall if user needs subscription (new user or trial expired)
   if (needsSubscription) {

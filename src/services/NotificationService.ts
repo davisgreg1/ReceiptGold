@@ -234,13 +234,39 @@ export class NotificationService {
           break;
           
         case 'subscription_reminder':
+        case 'subscription_cancellation':
+        case 'subscription_expiration':
           // Navigate to pricing/subscription page
-          console.log('Navigate to subscription page');
+          this.handleSubscriptionAction();
           break;
-          
+
         default:
           console.log('Unknown notification type:', data.type);
       }
+    }
+  }
+
+  /**
+   * Handle subscription notification actions
+   */
+  private handleSubscriptionAction(): void {
+    try {
+      import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+        const navigationData = {
+          screen: 'Subscription', // Navigate to Subscription screen
+          params: {
+            fromNotification: true,
+            timestamp: Date.now()
+          }
+        };
+
+        AsyncStorage.setItem('navigationIntent', JSON.stringify(navigationData));
+        console.log('💳 Subscription navigation intent stored:', navigationData);
+      }).catch(error => {
+        console.error('Error storing subscription navigation intent:', error);
+      });
+    } catch (error) {
+      console.error('Error handling subscription action:', error);
     }
   }
 

@@ -88,7 +88,8 @@ import Constants from "expo-constants";
 const getReceiptLimits = () => {
   const extra = Constants.expoConfig?.extra || {};
   return {
-    starter: parseInt(extra.STARTER_TIER_MAX_RECEIPTS || "50", 10),
+    starter: 2,
+    // starter: parseInt(extra.STARTER_TIER_MAX_RECEIPTS || "50", 10),
     growth: parseInt(extra.GROWTH_TIER_MAX_RECEIPTS || "150", 10),
     professional: parseInt(extra.PROFESSIONAL_TIER_MAX_RECEIPTS || "-1", 10),
     teammate: parseInt(extra.TEAMMATE_TIER_MAX_RECEIPTS || "-1", 10),
@@ -336,8 +337,12 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
         }
 
 
-        // Update state
-        setCurrentReceiptCount(count);
+        // Update state - use functional update to ensure we get the latest state
+        console.log('🔄 Updating currentReceiptCount from', currentReceiptCount, 'to', count);
+        setCurrentReceiptCount(prevCount => {
+          console.log('📊 State transition:', prevCount, '->', count);
+          return count;
+        });
 
         // Note: Tier synchronization is handled by updateSubscriptionAfterPayment Cloud Function
         // No additional sync needed here since we rely on the onSnapshot listener for real-time updates
