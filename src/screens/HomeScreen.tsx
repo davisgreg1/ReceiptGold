@@ -399,7 +399,7 @@ export const HomeScreen: React.FC = () => {
           <View style={styles.actionButtons}>
             <TouchableOpacity
               style={[styles.actionButton, styles.primaryAction, { backgroundColor: theme.gold.primary }]}
-              onPress={() => navigationHelpers.switchToReceiptsTab(tabNavigation)}
+              onPress={() => navigationHelpers.navigateToScanReceipt(tabNavigation)}
             >
               <Ionicons name="camera" size={28} color="white" />
               <ButtonText size="medium" color="inverse" style={styles.actionButtonText}>

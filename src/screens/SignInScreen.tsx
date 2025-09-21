@@ -165,7 +165,7 @@ export const SignInScreen: React.FC<SignInScreenProps> = ({
                 placeholder="Enter your email"
                 placeholderTextColor={theme.text.tertiary}
                 value={email}
-                onChangeText={(text) => setEmail(text.trim())}
+                onChangeText={setEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 autoCorrect={false}

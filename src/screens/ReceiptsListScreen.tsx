@@ -38,27 +38,39 @@ import { useTeam } from "../context/TeamContext";
 import { useReceiptSync } from "../services/ReceiptSyncService";
 import { db } from "../config/firebase";
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
-import { useReceiptsNavigation } from "../navigation/navigationHelpers";
+import { useReceiptsNavigation, useTabNavigation, navigationHelpers } from "../navigation/navigationHelpers";
 import { useFocusEffect } from "@react-navigation/native";
 import { ReceiptCategoryService } from "../services/ReceiptCategoryService";
-import { CustomCategoryService, CustomCategory } from "../services/CustomCategoryService";
+import {
+  CustomCategoryService,
+  CustomCategory,
+} from "../services/CustomCategoryService";
 import { useCustomAlert } from "../hooks/useCustomAlert";
 import { FirebaseErrorScenarios } from "../utils/firebaseErrorHandler";
 import { ReceiptsLoadingAnimation } from "../components/ReceiptsLoadingAnimation";
 import CollapsibleFilterSection from "../components/CollapsibleFilterSection";
 import { Receipt as FirebaseReceipt } from "../services/firebaseService";
+import { setMonth } from "date-fns";
 
 export const ReceiptsListScreen: React.FC = () => {
   const { theme } = useTheme();
   const navigation = useReceiptsNavigation();
-  const { subscription, getRemainingReceipts, currentReceiptCount, refreshReceiptCount } =
-    useSubscription();
+  const tabNavigation = useTabNavigation();
+  const {
+    subscription,
+    getRemainingReceipts,
+    currentReceiptCount,
+    refreshReceiptCount,
+  } = useSubscription();
+    console.log("🚀 ~ ReceiptsListScreen ~ subscription:", subscription)
   const { handleSubscriptionWithRevenueCat } = useRevenueCatPayments();
   const { user } = useAuth();
-  const { isTeamMember, currentMembership, accountHolderId, teamMembers } = useTeam();
+  const { isTeamMember, currentMembership, accountHolderId, teamMembers } =
+    useTeam();
   const { showError, showSuccess, showWarning, showFirebaseError, hideAlert } =
     useCustomAlert();
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [monthlyCountValue, setMonthlyCountValue] = useState(0); // Renamed to avoid conflict
 
   // Sync status from global sync hook
   const { syncing, syncError } = useReceiptSync();
@@ -101,10 +113,14 @@ export const ReceiptsListScreen: React.FC = () => {
     "start"
   );
   const [tempSelectedDate, setTempSelectedDate] = useState<Date | null>(null);
-  const [customCategories, setCustomCategories] = useState<CustomCategory[]>([]);
-  const [expandedFilterSection, setExpandedFilterSection] = useState<string | null>(null);
+  const [customCategories, setCustomCategories] = useState<CustomCategory[]>(
+    []
+  );
+  const [expandedFilterSection, setExpandedFilterSection] = useState<
+    string | null
+  >(null);
   const [quickFilters, setQuickFilters] = useState<string[]>([]);
-  
+
   // Animation for camera FAB pulse effect
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -115,21 +131,25 @@ export const ReceiptsListScreen: React.FC = () => {
         setQuickFilters([]);
         return;
       }
-      
+
       try {
         // Get all available categories from the service
-        const baseCategories = await ReceiptCategoryService.getAvailableCategories(user.uid);
-        
+        const baseCategories =
+          await ReceiptCategoryService.getAvailableCategories(user.uid);
+
         // Convert to display names for the filter chips
-        const categoryDisplayNames = baseCategories.map(category => 
-          ReceiptCategoryService.getCategoryDisplayName(category, customCategories)
+        const categoryDisplayNames = baseCategories.map((category) =>
+          ReceiptCategoryService.getCategoryDisplayName(
+            category,
+            customCategories
+          )
         );
-        
+
         // Remove duplicates and sort
         const uniqueDisplayNames = [...new Set(categoryDisplayNames)].sort();
         setQuickFilters(uniqueDisplayNames);
       } catch (error) {
-        console.error('Error loading categories for filters:', error);
+        console.error("Error loading categories for filters:", error);
         setQuickFilters([]);
       }
     };
@@ -168,7 +188,7 @@ export const ReceiptsListScreen: React.FC = () => {
         ])
       ).start();
     };
-    
+
     startPulsing();
   }, [pulseAnim]);
 
@@ -176,15 +196,15 @@ export const ReceiptsListScreen: React.FC = () => {
   const handleQuickFilter = useCallback(
     (category: string) => {
       let newSelectedFilters: string[];
-      
+
       if (selectedFilters.includes(category)) {
         // Deselect filter if already selected
-        newSelectedFilters = selectedFilters.filter(f => f !== category);
+        newSelectedFilters = selectedFilters.filter((f) => f !== category);
       } else {
         // Add filter to selection
         newSelectedFilters = [...selectedFilters, category];
       }
-      
+
       setSelectedFilters(newSelectedFilters);
       // Don't clear other filters - allow combining category filters with search/date filters
       // The applyAllFilters useEffect will handle updating the filtered results
@@ -211,11 +231,12 @@ export const ReceiptsListScreen: React.FC = () => {
   // Handle custom date range for Android
   const handleDatePickerChange = useCallback(
     (event: any, selectedDate?: Date) => {
-      if (Platform.OS === 'android') {
+      if (Platform.OS === "android") {
         if (selectedDate) {
           const newDateFilter = {
             ...dateRangeFilter,
-            [datePickerMode === "start" ? "startDate" : "endDate"]: selectedDate,
+            [datePickerMode === "start" ? "startDate" : "endDate"]:
+              selectedDate,
             active: true,
           };
           setDateRangeFilter(newDateFilter);
@@ -246,7 +267,8 @@ export const ReceiptsListScreen: React.FC = () => {
     if (tempSelectedDate) {
       const newDateFilter = {
         ...dateRangeFilter,
-        [datePickerMode === "start" ? "startDate" : "endDate"]: tempSelectedDate,
+        [datePickerMode === "start" ? "startDate" : "endDate"]:
+          tempSelectedDate,
         active: true,
       };
       setDateRangeFilter(newDateFilter);
@@ -460,13 +482,19 @@ export const ReceiptsListScreen: React.FC = () => {
   // Fetch custom categories
   const fetchCustomCategories = useCallback(async () => {
     if (!user?.uid || !accountHolderId) return;
-    
+
     try {
-      const categories = await CustomCategoryService.getCustomCategories(accountHolderId, user.uid);
+      const categories = await CustomCategoryService.getCustomCategories(
+        accountHolderId,
+        user.uid
+      );
       setCustomCategories(categories);
-      console.log('✅ Fetched custom categories for filters:', categories.length);
+      console.log(
+        "✅ Fetched custom categories for filters:",
+        categories.length
+      );
     } catch (error) {
-      console.error('❌ Error fetching custom categories for filters:', error);
+      console.error("❌ Error fetching custom categories for filters:", error);
       setCustomCategories([]);
     }
   }, [user?.uid, accountHolderId]);
@@ -485,40 +513,41 @@ export const ReceiptsListScreen: React.FC = () => {
 
       // Implement receipt viewing hierarchy
       // 1. Account holder (not a team member) - sees ALL receipts for their account
-      // 2. Admin team member - sees ALL receipts for the account they belong to  
+      // 2. Admin team member - sees ALL receipts for the account they belong to
       // 3. Regular team member - sees only their own receipts
 
-      console.log('🔍 Receipt visibility check:', {
+      console.log("🔍 Receipt visibility check:", {
         userId: user.uid,
         isTeamMember,
         currentMembership: currentMembership?.role,
         accountHolderId,
-        effectiveAccountHolderId
+        effectiveAccountHolderId,
       });
 
-      console.log('🔍 Team member status details:', {
+      console.log("🔍 Team member status details:", {
         isTeamMember,
         membershipRole: currentMembership?.role,
-        isRegularTeamMember: isTeamMember && currentMembership?.role !== 'admin',
-        willFilterReceipts: isTeamMember && currentMembership?.role !== 'admin'
+        isRegularTeamMember:
+          isTeamMember && currentMembership?.role !== "admin",
+        willFilterReceipts: isTeamMember && currentMembership?.role !== "admin",
       });
 
       // First try the optimized query with indexes
       try {
         let receiptsQuery;
-        
+
         if (!isTeamMember) {
           // Account holder - sees ALL receipts for their account (userId = their ID)
-          console.log('📊 Fetching receipts for account holder');
+          console.log("📊 Fetching receipts for account holder");
           receiptsQuery = query(
             collection(db, "receipts"),
             where("userId", "==", user.uid),
             where("status", "!=", "deleted"),
             orderBy("createdAt", "desc")
           );
-        } else if (currentMembership?.role === 'admin') {
+        } else if (currentMembership?.role === "admin") {
           // Admin team member - sees ALL receipts for the account they belong to
-          console.log('📊 Fetching receipts for admin team member');
+          console.log("📊 Fetching receipts for admin team member");
           receiptsQuery = query(
             collection(db, "receipts"),
             where("userId", "==", effectiveAccountHolderId),
@@ -527,7 +556,9 @@ export const ReceiptsListScreen: React.FC = () => {
           );
         } else {
           // Regular team member - sees only receipts they created
-          console.log('📊 Fetching receipts for regular team member (own receipts only)');
+          console.log(
+            "📊 Fetching receipts for regular team member (own receipts only)"
+          );
           receiptsQuery = query(
             collection(db, "receipts"),
             where("userId", "==", effectiveAccountHolderId),
@@ -540,18 +571,22 @@ export const ReceiptsListScreen: React.FC = () => {
         receiptDocs = receiptsSnapshot.docs;
 
         // Filter for regular team members (only their own receipts)
-        if (isTeamMember && currentMembership?.role !== 'admin') {
-          console.log('🔍 Before filtering - total receiptDocs:', receiptDocs.length);
-          receiptDocs = receiptDocs.filter(doc => {
+        if (isTeamMember && currentMembership?.role !== "admin") {
+          console.log(
+            "🔍 Before filtering - total receiptDocs:",
+            receiptDocs.length
+          );
+          receiptDocs = receiptDocs.filter((doc) => {
             const data = doc.data();
             const hasTeamAttribution = !!data.teamAttribution;
             const createdByUserId = data.teamAttribution?.createdByUserId;
             const storedUserId = data.userId;
             const matchesTeamAttribution = createdByUserId === user.uid;
-            const matchesDirectUserId = !data.teamAttribution && data.userId === user.uid;
+            const matchesDirectUserId =
+              !data.teamAttribution && data.userId === user.uid;
             const shouldInclude = matchesTeamAttribution || matchesDirectUserId;
-            
-            console.log('🔍 Receipt filter check:', {
+
+            console.log("🔍 Receipt filter check:", {
               receiptId: data.receiptId || doc.id,
               vendor: data.vendor,
               hasTeamAttribution,
@@ -560,17 +595,19 @@ export const ReceiptsListScreen: React.FC = () => {
               currentUserId: user.uid,
               matchesTeamAttribution,
               matchesDirectUserId,
-              shouldInclude
+              shouldInclude,
             });
-            
+
             // Show receipts they created in two ways:
             // 1. Receipts with teamAttribution.createdByUserId matching their userId (preferred)
             // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
             return shouldInclude;
           });
-          console.log('🔍 After filtering - receipts for team member:', receiptDocs.length);
+          console.log(
+            "🔍 After filtering - receipts for team member:",
+            receiptDocs.length
+          );
         }
-
       } catch (error: any) {
         // If we get an index error, fall back to the basic query
         if (error?.message?.includes("requires an index")) {
@@ -582,8 +619,8 @@ export const ReceiptsListScreen: React.FC = () => {
 
           // Get all receipts and sort them in memory
           let basicQuery;
-          
-          if (!isTeamMember || currentMembership?.role === 'admin') {
+
+          if (!isTeamMember || currentMembership?.role === "admin") {
             // Account holder or admin team member - get all receipts for the account
             basicQuery = query(
               collection(db, "receipts"),
@@ -598,22 +635,27 @@ export const ReceiptsListScreen: React.FC = () => {
           }
 
           const basicSnapshot = await getDocs(basicQuery);
-          console.log('🔍 Fallback query - total docs before filtering:', basicSnapshot.docs.length);
+          console.log(
+            "🔍 Fallback query - total docs before filtering:",
+            basicSnapshot.docs.length
+          );
           receiptDocs = basicSnapshot.docs
             .filter((doc) => {
               const data = doc.data();
               if (data.status === "deleted") return false;
-              
+
               // For regular team members, only show receipts they created
-              if (isTeamMember && currentMembership?.role !== 'admin') {
+              if (isTeamMember && currentMembership?.role !== "admin") {
                 const hasTeamAttribution = !!data.teamAttribution;
                 const createdByUserId = data.teamAttribution?.createdByUserId;
                 const storedUserId = data.userId;
                 const matchesTeamAttribution = createdByUserId === user.uid;
-                const matchesDirectUserId = !data.teamAttribution && data.userId === user.uid;
-                const shouldInclude = matchesTeamAttribution || matchesDirectUserId;
-                
-                console.log('🔍 Fallback receipt filter check:', {
+                const matchesDirectUserId =
+                  !data.teamAttribution && data.userId === user.uid;
+                const shouldInclude =
+                  matchesTeamAttribution || matchesDirectUserId;
+
+                console.log("🔍 Fallback receipt filter check:", {
                   receiptId: data.receiptId || doc.id,
                   vendor: data.vendor,
                   hasTeamAttribution,
@@ -622,15 +664,15 @@ export const ReceiptsListScreen: React.FC = () => {
                   currentUserId: user.uid,
                   matchesTeamAttribution,
                   matchesDirectUserId,
-                  shouldInclude
+                  shouldInclude,
                 });
-                
+
                 // Show receipts they created in two ways:
                 // 1. Receipts with teamAttribution.createdByUserId matching their userId (preferred)
                 // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
                 return shouldInclude;
               }
-              
+
               return true;
             })
             .sort((a, b) => {
@@ -644,7 +686,7 @@ export const ReceiptsListScreen: React.FC = () => {
       }
 
       // Convert the docs to receipt data
-      console.log('📦 Fetched', receiptDocs.length, 'receipts from Firestore');
+      console.log("📦 Fetched", receiptDocs.length, "receipts from Firestore");
       const receiptData = receiptDocs.map((doc) => {
         const data = doc.data();
         // Normalize Firestore Timestamp to JS Date
@@ -671,14 +713,15 @@ export const ReceiptsListScreen: React.FC = () => {
 
       // Get monthly usage count using our utility function
       // For team members, count receipts under the account holder's ID
-      console.log('🔍 Monthly count parameters:', {
+      console.log("🔍 Monthly count parameters:", {
         userId: user.uid,
         isTeamMember,
-        effectiveAccountHolderId: accountHolderId || user.uid
+        effectiveAccountHolderId: accountHolderId || user.uid,
       });
-      const monthlyCount = await getMonthlyReceiptCount(user.uid, accountHolderId || undefined);
-      console.log("🚀 ~ ReceiptsListScreen ~ monthlyCount:", monthlyCount);
-      console.log("Monthly usage count (including deleted):", monthlyCount);
+      const monthlyCount = await getMonthlyReceiptCount(
+        user.uid,
+        accountHolderId || undefined
+      );
 
       // Get historical usage (last 6 months) - follow same hierarchy
       let historicalDocs;
@@ -688,8 +731,8 @@ export const ReceiptsListScreen: React.FC = () => {
 
         // Try optimized historical query first with proper hierarchy
         let historicalQuery;
-        
-        if (!isTeamMember || currentMembership?.role === 'admin') {
+
+        if (!isTeamMember || currentMembership?.role === "admin") {
           // Account holder or admin team member - get all historical receipts for the account
           historicalQuery = query(
             collection(db, "receipts"),
@@ -706,18 +749,17 @@ export const ReceiptsListScreen: React.FC = () => {
             orderBy("createdAt", "desc")
           );
         }
-        
+
         const historicalSnapshot = await getDocs(historicalQuery);
         historicalDocs = historicalSnapshot.docs;
 
         // Filter for regular team members (only their own receipts)
-        if (isTeamMember && currentMembership?.role !== 'admin') {
-          historicalDocs = historicalDocs.filter(doc => {
+        if (isTeamMember && currentMembership?.role !== "admin") {
+          historicalDocs = historicalDocs.filter((doc) => {
             const data = doc.data();
             return data.teamAttribution?.createdByUserId === user.uid;
           });
         }
-        
       } catch (error: any) {
         if (error?.message?.includes("requires an index")) {
           console.log("Historical index not ready, using basic query...");
@@ -734,19 +776,21 @@ export const ReceiptsListScreen: React.FC = () => {
             .filter((doc) => {
               const data = doc.data();
               const createdAt = data.createdAt?.toDate?.();
-              
+
               // Check date range
               if (!createdAt || createdAt < sixMonthsAgo) return false;
-              
+
               // For regular team members, only show receipts they created
-              if (isTeamMember && currentMembership?.role !== 'admin') {
+              if (isTeamMember && currentMembership?.role !== "admin") {
                 // Show receipts they created in two ways:
                 // 1. Receipts with teamAttribution.createdByUserId matching their userId (preferred)
                 // 2. Receipts stored directly under their userId (fallback for receipts without teamAttribution)
-                return data.teamAttribution?.createdByUserId === user.uid || 
-                       (!data.teamAttribution && data.userId === user.uid);
+                return (
+                  data.teamAttribution?.createdByUserId === user.uid ||
+                  (!data.teamAttribution && data.userId === user.uid)
+                );
               }
-              
+
               return true;
             })
             .sort((a, b) => {
@@ -782,7 +826,7 @@ export const ReceiptsListScreen: React.FC = () => {
 
       console.log("📝 Receipt Data:", {
         activeCount: receiptData.length,
-        monthlyUsageCount: monthlyCount,
+        monthlyUsageCount: monthlyCountValue,
         historical: historicalUsageData,
         receipts: receiptData.map((r) => ({
           receiptId: r.receiptId,
@@ -794,11 +838,9 @@ export const ReceiptsListScreen: React.FC = () => {
         })),
       });
 
-      // Update all states
-      console.log('🔄 Setting receipts state with', receiptData.length, 'receipts');
-      console.log('🏪 Vendor names in fetched receipts:', receiptData.map(r => `${r.receiptId}: "${r.vendor}"`));
       setReceipts(receiptData);
       // Don't reset filteredReceipts here - let applyAllFilters handle it
+      setMonthlyCountValue(monthlyCount);
       setActiveReceiptCount(receiptData.length);
       setHistoricalUsage(historicalUsageData);
     } catch (error) {
@@ -814,11 +856,13 @@ export const ReceiptsListScreen: React.FC = () => {
   // Refresh subscription context receipt count when team membership is established
   useEffect(() => {
     if (user?.uid && isTeamMember && accountHolderId) {
-      console.log("🔄 Refreshing subscription receipt count for team member context");
+      console.log(
+        "🔄 Refreshing subscription receipt count for team member context"
+      );
       const timeoutId = setTimeout(() => {
         refreshReceiptCount(accountHolderId);
       }, 100); // Small delay to avoid immediate re-renders
-      
+
       return () => clearTimeout(timeoutId);
     }
   }, [user?.uid, isTeamMember, accountHolderId]); // Only depend on stable values
@@ -863,8 +907,12 @@ export const ReceiptsListScreen: React.FC = () => {
     if (selectedFilters.length > 0) {
       filtered = filtered.filter((receipt) => {
         const receiptCategory = receipt.category as string;
-        const receiptCategoryDisplayName = ReceiptCategoryService.getCategoryDisplayName(receiptCategory as any, customCategories);
-        
+        const receiptCategoryDisplayName =
+          ReceiptCategoryService.getCategoryDisplayName(
+            receiptCategory as any,
+            customCategories
+          );
+
         // Match by display name (what the user sees in the filter chips)
         return selectedFilters.includes(receiptCategoryDisplayName);
       });
@@ -896,7 +944,13 @@ export const ReceiptsListScreen: React.FC = () => {
     }
 
     setFilteredReceipts(filtered);
-  }, [receipts, searchQuery, selectedFilters, dateRangeFilter, customCategories]);
+  }, [
+    receipts,
+    searchQuery,
+    selectedFilters,
+    dateRangeFilter,
+    customCategories,
+  ]);
 
   // Filter receipts based on search query
   const filterReceipts = useCallback(
@@ -933,13 +987,10 @@ export const ReceiptsListScreen: React.FC = () => {
   );
 
   // Handle search query changes
-  const handleSearchChange = useCallback(
-    (query: string) => {
-      setSearchQuery(query);
-      // Don't clear other filters - allow combining search with category/date filters
-    },
-    []
-  );
+  const handleSearchChange = useCallback((query: string) => {
+    setSearchQuery(query);
+    // Don't clear other filters - allow combining search with category/date filters
+  }, []);
 
   // Apply all filters when any filter changes
   useEffect(() => {
@@ -949,10 +1000,7 @@ export const ReceiptsListScreen: React.FC = () => {
   // Pull to refresh handler
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([
-      fetchReceipts(),
-      fetchCustomCategories()
-    ]);
+    await Promise.all([fetchReceipts(), fetchCustomCategories()]);
   }, [fetchReceipts, fetchCustomCategories]);
 
   // Apply filters when receipts update (but don't reset filters)
@@ -1128,8 +1176,8 @@ export const ReceiptsListScreen: React.FC = () => {
                   style={[styles.usageValue, { color: theme.text.primary }]}
                 >
                   {maxReceipts === -1 || isTeamMember
-                    ? currentReceiptCount
-                    : `${currentReceiptCount} / ${maxReceipts}`}
+                    ? monthlyCountValue
+                    : `${monthlyCountValue} / ${maxReceipts}`}
                 </Text>
               </View>
             </View>
@@ -1147,15 +1195,20 @@ export const ReceiptsListScreen: React.FC = () => {
                 </Text>
               )}
 
-              {maxReceipts !== -1 && remainingReceipts <= 2 && !isTeamMember && (
-                <Text
-                  style={[styles.warningText, { color: theme.status.warning }]}
-                >
-                  {remainingReceipts}{" "}
-                  {remainingReceipts === 1 ? "receipt" : "receipts"} remaining
-                  this month
-                </Text>
-              )}
+              {maxReceipts !== -1 &&
+                remainingReceipts <= 2 &&
+                !isTeamMember && (
+                  <Text
+                    style={[
+                      styles.warningText,
+                      { color: theme.status.warning },
+                    ]}
+                  >
+                    {remainingReceipts}{" "}
+                    {remainingReceipts === 1 ? "receipt" : "receipts"} remaining
+                    this month
+                  </Text>
+                )}
             </View>
 
             {historicalUsage.filter(
@@ -1238,14 +1291,14 @@ export const ReceiptsListScreen: React.FC = () => {
             {searchQuery && `No receipts match "${searchQuery}"`}
             {selectedFilters.length > 0 &&
               !searchQuery &&
-              `No ${selectedFilters.join(', ').toLowerCase()} receipts found`}
+              `No ${selectedFilters.join(", ").toLowerCase()} receipts found`}
             {dateRangeFilter.active &&
               !searchQuery &&
               selectedFilters.length === 0 &&
               `No receipts found for selected date range`}
             {searchQuery &&
               selectedFilters.length > 0 &&
-              ` in ${selectedFilters.join(', ').toLowerCase()} categories`}
+              ` in ${selectedFilters.join(", ").toLowerCase()} categories`}
             {searchQuery && dateRangeFilter.active && ` in selected date range`}
           </Text>
           <Text
@@ -1281,23 +1334,14 @@ export const ReceiptsListScreen: React.FC = () => {
   const handleUpgrade = async () => {
     if (!user) return;
 
-    setIsUpgrading(true);
     try {
-      const success = await handleSubscriptionWithRevenueCat(
-        "starter",
-        'monthly', // Default to monthly
-        user.email || "",
-        user.displayName || "User"
-      );
-
-      if (!success) {
-        showError("Error", "Failed to process payment. Please try again.");
-      }
+      // Navigate to the Subscription screen to let user choose their plan
+      navigationHelpers.navigateToSubscription(tabNavigation);
     } catch (error) {
-      console.error("Failed to upgrade subscription:", error);
+      console.error("Failed to navigate to subscription:", error);
       showError(
         "Error",
-        "Failed to process payment. Please check your payment details and try again."
+        "Failed to open subscription screen. Please try again."
       );
     } finally {
       setIsUpgrading(false);
@@ -1397,7 +1441,9 @@ export const ReceiptsListScreen: React.FC = () => {
               </Text>
               {/* Active Filter Badges */}
               {!showSearch &&
-                (selectedFilters.length > 0 || searchQuery || dateRangeFilter.active) && (
+                (selectedFilters.length > 0 ||
+                  searchQuery ||
+                  dateRangeFilter.active) && (
                   <View style={styles.activeFilterBadges}>
                     {selectedFilters.map((filter, index) => (
                       <TouchableOpacity
@@ -1406,11 +1452,13 @@ export const ReceiptsListScreen: React.FC = () => {
                           styles.filterBadge,
                           { backgroundColor: theme.gold.primary },
                         ]}
-                        onPress={() => setSelectedFilters(prev => prev.filter(f => f !== filter))}
+                        onPress={() =>
+                          setSelectedFilters((prev) =>
+                            prev.filter((f) => f !== filter)
+                          )
+                        }
                       >
-                        <Text style={styles.filterBadgeText}>
-                          {filter}
-                        </Text>
+                        <Text style={styles.filterBadgeText}>{filter}</Text>
                         <View style={styles.filterBadgeClose}>
                           <Ionicons name="close" size={18} color="white" />
                         </View>
@@ -1560,9 +1608,9 @@ export const ReceiptsListScreen: React.FC = () => {
 
                 <CollapsibleFilterSection
                   title="Date Range"
-                  expanded={expandedFilterSection === 'dateRange'}
+                  expanded={expandedFilterSection === "dateRange"}
                   onToggle={(isExpanded) => {
-                    setExpandedFilterSection(isExpanded ? 'dateRange' : null);
+                    setExpandedFilterSection(isExpanded ? "dateRange" : null);
                   }}
                   iconColor={theme.text.primary}
                   headerBackgroundColor={theme.background.secondary}
@@ -1613,7 +1661,9 @@ export const ReceiptsListScreen: React.FC = () => {
                       ]}
                       onPress={() => {
                         setDatePickerMode("start");
-                        setTempSelectedDate(dateRangeFilter.startDate || new Date());
+                        setTempSelectedDate(
+                          dateRangeFilter.startDate || new Date()
+                        );
                         setShowDatePicker(true);
                       }}
                     >
@@ -1644,7 +1694,9 @@ export const ReceiptsListScreen: React.FC = () => {
                       ]}
                       onPress={() => {
                         setDatePickerMode("end");
-                        setTempSelectedDate(dateRangeFilter.endDate || new Date());
+                        setTempSelectedDate(
+                          dateRangeFilter.endDate || new Date()
+                        );
                         setShowDatePicker(true);
                       }}
                     >
@@ -1682,9 +1734,11 @@ export const ReceiptsListScreen: React.FC = () => {
                 {/* Filter Sections */}
                 <CollapsibleFilterSection
                   title="Category Filters"
-                  expanded={expandedFilterSection === 'categoryFilters'}
+                  expanded={expandedFilterSection === "categoryFilters"}
                   onToggle={(isExpanded) => {
-                    setExpandedFilterSection(isExpanded ? 'categoryFilters' : null);
+                    setExpandedFilterSection(
+                      isExpanded ? "categoryFilters" : null
+                    );
                   }}
                   iconColor={theme.text.primary}
                   headerBackgroundColor={theme.background.secondary}
@@ -1692,55 +1746,57 @@ export const ReceiptsListScreen: React.FC = () => {
                   titleColor={theme.text.primary}
                   shadowColor={theme.text.primary}
                 >
-                  <View 
+                  <View
                     style={styles.categoryScrollContainer}
                     onStartShouldSetResponder={() => true}
                   >
-                    <ScrollView 
+                    <ScrollView
                       horizontal={false}
                       showsVerticalScrollIndicator={false}
-                      contentContainerStyle={[styles.categoryChips, { paddingBottom: 10 }]}
+                      contentContainerStyle={[
+                        styles.categoryChips,
+                        { paddingBottom: 10 },
+                      ]}
                       nestedScrollEnabled={true}
                     >
                       {quickFilters.map((filter) => (
-                      <TouchableOpacity
-                        key={filter}
-                        style={[
-                          styles.categoryChip,
-                          {
-                            backgroundColor:
-                              selectedFilters.includes(filter)
+                        <TouchableOpacity
+                          key={filter}
+                          style={[
+                            styles.categoryChip,
+                            {
+                              backgroundColor: selectedFilters.includes(filter)
                                 ? theme.gold.primary
                                 : theme.background.primary,
-                            borderColor:
-                              selectedFilters.includes(filter)
+                              borderColor: selectedFilters.includes(filter)
                                 ? theme.gold.primary
                                 : theme.border.primary,
-                          },
-                        ]}
-                        onPress={() => handleQuickFilter(filter)}
-                      >
-                        <Text
-                          style={[
-                            styles.categoryChipText,
-                            {
-                              color:
-                                selectedFilters.includes(filter)
-                                  ? "white"
-                                  : theme.text.secondary,
                             },
                           ]}
+                          onPress={() => handleQuickFilter(filter)}
                         >
-                          {filter}
-                        </Text>
-                      </TouchableOpacity>
+                          <Text
+                            style={[
+                              styles.categoryChipText,
+                              {
+                                color: selectedFilters.includes(filter)
+                                  ? "white"
+                                  : theme.text.secondary,
+                              },
+                            ]}
+                          >
+                            {filter}
+                          </Text>
+                        </TouchableOpacity>
                       ))}
                     </ScrollView>
                   </View>
                 </CollapsibleFilterSection>
 
                 {/* Results Summary */}
-                {(searchQuery || selectedFilters.length > 0 || dateRangeFilter.active) && (
+                {(searchQuery ||
+                  selectedFilters.length > 0 ||
+                  dateRangeFilter.active) && (
                   <View
                     style={[
                       styles.resultsSummary,
@@ -1769,7 +1825,7 @@ export const ReceiptsListScreen: React.FC = () => {
           )}
 
           {/* Date Picker Modal */}
-          {showDatePicker && Platform.OS === 'ios' && (
+          {showDatePicker && Platform.OS === "ios" && (
             <Modal
               transparent={true}
               animationType="slide"
@@ -1777,16 +1833,40 @@ export const ReceiptsListScreen: React.FC = () => {
               onRequestClose={() => setShowDatePicker(false)}
             >
               <View style={styles.modalOverlay}>
-                <View style={[styles.datePickerModal, { backgroundColor: theme.background.secondary }]}>
+                <View
+                  style={[
+                    styles.datePickerModal,
+                    { backgroundColor: theme.background.secondary },
+                  ]}
+                >
                   <View style={styles.datePickerHeader}>
                     <TouchableOpacity onPress={handleIOSDatePickerCancel}>
-                      <Text style={[styles.datePickerCancel, { color: theme.text.secondary }]}>Cancel</Text>
+                      <Text
+                        style={[
+                          styles.datePickerCancel,
+                          { color: theme.text.secondary },
+                        ]}
+                      >
+                        Cancel
+                      </Text>
                     </TouchableOpacity>
-                    <Text style={[styles.datePickerTitle, { color: theme.text.primary }]}>
-                      Select {datePickerMode === 'start' ? 'Start' : 'End'} Date
+                    <Text
+                      style={[
+                        styles.datePickerTitle,
+                        { color: theme.text.primary },
+                      ]}
+                    >
+                      Select {datePickerMode === "start" ? "Start" : "End"} Date
                     </Text>
                     <TouchableOpacity onPress={handleIOSDatePickerDone}>
-                      <Text style={[styles.datePickerDone, { color: theme.gold.primary }]}>Done</Text>
+                      <Text
+                        style={[
+                          styles.datePickerDone,
+                          { color: theme.gold.primary },
+                        ]}
+                      >
+                        Done
+                      </Text>
                     </TouchableOpacity>
                   </View>
                   <DateTimePicker
@@ -1800,9 +1880,9 @@ export const ReceiptsListScreen: React.FC = () => {
               </View>
             </Modal>
           )}
-          
+
           {/* Android Date Picker */}
-          {showDatePicker && Platform.OS === 'android' && (
+          {showDatePicker && Platform.OS === "android" && (
             <DateTimePicker
               value={
                 (datePickerMode === "start"
@@ -2034,7 +2114,8 @@ export const ReceiptsListScreen: React.FC = () => {
                         try {
                           const success =
                             await handleSubscriptionWithRevenueCat(
-                              "growth", "monthly",
+                              "growth",
+                              "monthly",
                               user?.email || "",
                               user?.displayName || "User"
                             );
@@ -2201,7 +2282,7 @@ export const ReceiptsListScreen: React.FC = () => {
             data={[
               ...filteredReceipts,
               // Add limit reached prompt for users who have reached their limit (not for team members)
-              ...(remainingReceipts === 0 && 
+              ...(remainingReceipts === 0 &&
               !isLimitReachedPromptDismissed &&
               !isTeamMember
                 ? [{ isLimitReachedPrompt: true }]
@@ -2269,7 +2350,8 @@ export const ReceiptsListScreen: React.FC = () => {
                         try {
                           const success =
                             await handleSubscriptionWithRevenueCat(
-                              "growth", "monthly",
+                              "growth",
+                              "monthly",
                               user?.email || "",
                               user?.displayName || "User"
                             );
@@ -3085,8 +3167,8 @@ const styles = StyleSheet.create({
   // iOS Date Picker Modal Styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
   },
   datePickerModal: {
     borderTopLeftRadius: 20,
@@ -3094,24 +3176,24 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   datePickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+    borderBottomColor: "rgba(0, 0, 0, 0.1)",
   },
   datePickerCancel: {
     fontSize: 16,
-    fontWeight: '400',
+    fontWeight: "400",
   },
   datePickerTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   datePickerDone: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: "600",
   },
 });

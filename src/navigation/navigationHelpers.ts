@@ -1,4 +1,4 @@
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, CommonActions } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { 
@@ -29,6 +29,10 @@ export const useAppNavigation = () => useNavigation();
 // Cross-stack navigation helper
 export const navigateToHomeStackScreen = (tabNavigation: TabNavigation, screen: keyof HomeStackParamList) => {
   (tabNavigation as any).navigate('HomeTab', { screen });
+};
+
+export const navigateToReceiptsStackScreen = (tabNavigation: TabNavigation, screen: keyof ReceiptsStackParamList, params?: any) => {
+  (tabNavigation as any).navigate('ReceiptsTab', { screen, params });
 };
 
 // Navigation helpers
@@ -70,5 +74,20 @@ export const navigationHelpers = {
   // Cross-stack navigation
   navigateToSubscription: (tabNavigation: TabNavigation) => {
     navigateToHomeStackScreen(tabNavigation, 'Subscription');
+  },
+
+  navigateToScanReceipt: (tabNavigation: TabNavigation) => {
+    // First ensure we're on the ReceiptsTab, then navigate to ScanReceipt
+    // This creates the proper navigation stack: ReceiptsList -> ScanReceipt
+    tabNavigation.navigate('ReceiptsTab');
+
+    // Use CommonActions to navigate to ScanReceipt while maintaining the back stack
+    setTimeout(() => {
+      tabNavigation.dispatch(
+        CommonActions.navigate('ReceiptsTab', {
+          screen: 'ScanReceipt'
+        })
+      );
+    }, 10); // Very small delay to ensure ReceiptsTab is loaded
   },
 };
