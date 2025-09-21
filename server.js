@@ -50,14 +50,14 @@ app.get('/health', (req, res) => {
 
 // Initialize Plaid client
 console.log('🔍 Debug - Plaid Client ID:', process.env.PLAID_CLIENT_ID ? 'loaded' : 'MISSING');
-console.log('🔍 Debug - Plaid Secret:', process.env.PLAID_SANDBOX_SECRET ? 'loaded' : 'MISSING');
+console.log('🔍 Debug - Plaid Secret:', process.env.PLAID_PRODUCTION_SECRET ? 'loaded' : 'MISSING');
 
 const configuration = new Configuration({
-  basePath: PlaidEnvironments.sandbox,
+  basePath: PlaidEnvironments.production,
   baseOptions: {
     headers: {
       'PLAID-CLIENT-ID': process.env.PLAID_CLIENT_ID,
-      'PLAID-SECRET': process.env.PLAID_SANDBOX_SECRET,
+      'PLAID-SECRET': process.env.PLAID_PRODUCTION_SECRET,
     },
   },
 });
@@ -85,6 +85,7 @@ app.post("/api/plaid", async (req, res) => {
           products: ['transactions'],
           country_codes: ['US'],
           language: 'en',
+          webhook: 'https://us-central1-receiptgold.cloudfunctions.net/plaidWebhook',
         });
         
         res.json({ link_token: linkTokenResponse.data.link_token });
@@ -191,6 +192,7 @@ app.post("/api/plaid/create-link-token", async (req, res) => {
       products: ["transactions"],
       country_codes: ["US"],
       language: "en",
+      webhook: "https://us-central1-receiptgold.cloudfunctions.net/plaidWebhook",
     };
 
     const response = await plaidClient.linkTokenCreate(request);
@@ -203,8 +205,21 @@ app.post("/api/plaid/create-link-token", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error creating link token:", error);
+
+    // Handle specific webhook-related errors
+    let errorMessage = "Failed to create link token";
+    if (error.response?.data?.error_code === 'INVALID_PRODUCT') {
+      errorMessage = "Product configuration error. Please check webhook setup.";
+    } else if (error.response?.data?.error_code === 'INVALID_WEBHOOK') {
+      errorMessage = "Webhook URL is invalid or unreachable. Please verify webhook configuration.";
+    } else if (error.response?.data?.error_message?.includes('webhook')) {
+      errorMessage = "Webhook configuration issue detected.";
+    }
+
     res.status(500).json({
-      error: "Failed to create link token",
+      error: errorMessage,
+      error_code: error.response?.data?.error_code,
+      error_type: error.response?.data?.error_type,
       details: error.response?.data || error.message,
     });
   }
@@ -241,40 +256,70 @@ app.post("/api/plaid/exchange-public-token", async (req, res) => {
   }
 });
 
-// Get transactions endpoint
+// Get transactions endpoint with retry mechanism
 app.post("/api/plaid/transactions", async (req, res) => {
-  try {
-    const { access_token, start_date, end_date } = req.body;
+  const MAX_RETRIES = 3;
+  const RETRY_DELAY = 2000; // 2 seconds
 
-    if (!access_token || !start_date || !end_date) {
-      return res.status(400).json({
-        error: "access_token, start_date, and end_date are required",
+  const fetchWithRetry = async (attempt = 1) => {
+    try {
+      const { access_token, start_date, end_date } = req.body;
+
+      if (!access_token || !start_date || !end_date) {
+        return res.status(400).json({
+          error: "access_token, start_date, and end_date are required",
+        });
+      }
+
+      const request = {
+        access_token: access_token,
+        start_date: start_date,
+        end_date: end_date,
+      };
+
+      console.log(`🔄 Attempting to fetch transactions (attempt ${attempt}/${MAX_RETRIES})`);
+      const response = await plaidClient.transactionsGet(request);
+      console.log(util.inspect(response.data, { depth: null, colors: true }));
+
+      console.log(`✅ Fetched ${response.data.transactions.length} transactions`);
+
+      res.json({
+        transactions: response.data.transactions,
+        total_transactions: response.data.total_transactions,
+        accounts: response.data.accounts,
+      });
+    } catch (error) {
+      console.error(`❌ Error fetching transactions (attempt ${attempt}):`, error.response?.data || error);
+
+      // Check if this is a PRODUCT_NOT_READY error and we haven't exceeded max retries
+      if (error.response?.data?.error_code === 'PRODUCT_NOT_READY' && attempt < MAX_RETRIES) {
+        console.log(`⏳ PRODUCT_NOT_READY error detected. Retrying in ${RETRY_DELAY}ms...`);
+        setTimeout(() => {
+          fetchWithRetry(attempt + 1);
+        }, RETRY_DELAY);
+        return;
+      }
+
+      // Handle specific error types
+      let errorMessage = "Failed to fetch transactions";
+      if (error.response?.data?.error_code === 'PRODUCT_NOT_READY') {
+        errorMessage = `Transactions are not yet ready. This is normal for new accounts - please try again in a few minutes. (Attempted ${attempt} times)`;
+      } else if (error.response?.data?.error_code === 'INVALID_ACCESS_TOKEN') {
+        errorMessage = "Access token is invalid. Please reconnect your bank account.";
+      }
+
+      res.status(500).json({
+        error: errorMessage,
+        error_code: error.response?.data?.error_code,
+        error_type: error.response?.data?.error_type,
+        details: error.response?.data || error.message,
+        attempts_made: attempt,
       });
     }
+  };
 
-    const request = {
-      access_token: access_token,
-      start_date: start_date,
-      end_date: end_date,
-    };
-
-    const response = await plaidClient.transactionsGet(request);
-    console.log(util.inspect(response.data, { depth: null, colors: true }));
-
-    console.log(`✅ Fetched ${response.data.transactions.length} transactions`);
-
-    res.json({
-      transactions: response.data.transactions,
-      total_transactions: response.data.total_transactions,
-      accounts: response.data.accounts,
-    });
-  } catch (error) {
-    console.error("❌ server Error fetching transactions:", error);
-    res.status(500).json({
-      error: "Failed to fetch transactions",
-      details: error.response?.data || error.message,
-    });
-  }
+  // Start the retry process
+  await fetchWithRetry();
 });
 
 // Get accounts endpoint
@@ -330,6 +375,7 @@ app.post("/api/plaid/create-update-link-token", async (req, res) => {
       products: ["transactions"],
       country_codes: ["US"],
       language: "en",
+      webhook: "https://us-central1-receiptgold.cloudfunctions.net/plaidWebhook",
       access_token: access_token, // Required for update mode
       update: {
         account_selection_enabled: true, // Allow user to select accounts to update
@@ -355,11 +401,22 @@ app.post("/api/plaid/create-update-link-token", async (req, res) => {
     });
   } catch (error) {
     console.error("❌ Error creating update link token:", error);
+
+    // Handle specific webhook-related errors for update mode
+    let errorMessage = "Failed to create update link token";
+    if (error.response?.data?.error_code === 'INVALID_PRODUCT') {
+      errorMessage = "Product configuration error in update mode. Please check webhook setup.";
+    } else if (error.response?.data?.error_code === 'INVALID_WEBHOOK') {
+      errorMessage = "Webhook URL is invalid or unreachable in update mode.";
+    } else if (error.response?.data?.error_message?.includes('webhook')) {
+      errorMessage = "Webhook configuration issue detected in update mode.";
+    }
+
     res.status(500).json({
-      error: "Failed to create update link token",
+      error: errorMessage,
+      error_code: error.response?.data?.error_code || error.error_code,
+      error_type: error.response?.data?.error_type || error.error_type,
       details: error.response?.data || error.message,
-      error_code: error.error_code,
-      error_type: error.error_type,
     });
   }
 });
@@ -378,14 +435,14 @@ app.post("/api/plaid/remove-item", async (req, res) => {
     // Based on Plaid documentation, include client_id and secret in the request
     const request = {
       client_id: process.env.PLAID_CLIENT_ID,
-      secret: process.env.PLAID_SANDBOX_SECRET,
+      secret: process.env.PLAID_PRODUCTION_SECRET,
       access_token: access_token,
     };
 
     console.log('🔍 Debug - Request payload for Plaid:', {
       access_token: access_token.substring(0, 20) + '...',
       client_id_configured: process.env.PLAID_CLIENT_ID ? 'yes' : 'no',
-      secret_configured: process.env.PLAID_SANDBOX_SECRET ? 'yes' : 'no',
+      secret_configured: process.env.PLAID_PRODUCTION_SECRET ? 'yes' : 'no',
     });
 
     const response = await plaidClient.itemRemove(request);
@@ -410,7 +467,7 @@ app.post("/api/plaid/remove-item", async (req, res) => {
 });
 
 // Health check
-app.get("/health", (req, res) => {
+app.get("/health", (_, res) => {
   res.json({ status: "OK", message: "Plaid API server is running" });
 });
 

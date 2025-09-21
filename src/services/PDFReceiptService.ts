@@ -55,7 +55,7 @@ export class PDFReceiptService {
       : '123 Main St, San Francisco, CA 94102';
 
     // Generate realistic items based on transaction amount
-    const items = this.generateItemsFromAmount(transaction.amount, businessName);
+    const items = this.generateItemsFromAmount(transaction.amount, businessName, transaction.name);
     const subtotal = Math.round((transaction.amount * 0.925) * 100) / 100;
     const tax = Math.round((transaction.amount * 0.075) * 100) / 100;
 
@@ -83,49 +83,50 @@ export class PDFReceiptService {
   /**
    * Generate realistic items based on transaction amount and merchant
    */
-  private generateItemsFromAmount(amount: number, businessName: string): Array<{ description: string; amount: number }> {
+  private generateItemsFromAmount(amount: number, businessName: string, transactionName?: string): Array<{ description: string; amount: number }> {
     const items: Array<{ description: string; amount: number }> = [];
     const category = this.categorizeBusinessName(businessName);
-    
-    if (amount <= 10) {
-      // Single small item
+
+    // For small amounts or when we have a specific transaction name, use it directly
+    if (amount <= 15 || (transactionName && transactionName !== businessName)) {
       items.push({
-        description: category.items[0] || 'Item',
+        description: transactionName || category.items[0] || businessName,
         amount: amount
       });
     } else if (amount <= 50) {
-      // 2-3 items
+      // 2-3 items for medium amounts
       const itemCount = Math.floor(Math.random() * 2) + 2;
       let remainingAmount = amount;
-      
+
       for (let i = 0; i < itemCount - 1; i++) {
-        const itemAmount = Math.round((remainingAmount * (0.2 + Math.random() * 0.4)) * 100) / 100;
+        const itemAmount = Math.round((remainingAmount * (0.3 + Math.random() * 0.4)) * 100) / 100;
         items.push({
           description: category.items[i % category.items.length],
           amount: itemAmount
         });
         remainingAmount -= itemAmount;
       }
-      
+
       // Last item gets remaining amount
       items.push({
         description: category.items[(itemCount - 1) % category.items.length],
         amount: Math.round(remainingAmount * 100) / 100
       });
     } else {
-      // Multiple items for larger amounts
-      const itemCount = Math.min(Math.floor(Math.random() * 4) + 3, category.items.length);
+      // Multiple items for larger amounts, but limit to available items
+      const maxItems = Math.min(category.items.length, 4);
+      const itemCount = Math.floor(Math.random() * (maxItems - 1)) + 2;
       let remainingAmount = amount;
-      
+
       for (let i = 0; i < itemCount - 1; i++) {
-        const itemAmount = Math.round((remainingAmount * (0.1 + Math.random() * 0.3)) * 100) / 100;
+        const itemAmount = Math.round((remainingAmount * (0.15 + Math.random() * 0.25)) * 100) / 100;
         items.push({
           description: category.items[i],
           amount: itemAmount
         });
         remainingAmount -= itemAmount;
       }
-      
+
       // Last item gets remaining amount
       items.push({
         description: category.items[itemCount - 1],
@@ -167,10 +168,32 @@ export class PDFReceiptService {
         category: 'pharmacy',
         items: ['Prescription', 'Vitamins', 'Hand Sanitizer', 'Tissues']
       };
+    } else if (name.includes('hotel') || name.includes('inn') || name.includes('resort')) {
+      return {
+        category: 'hotel',
+        items: ['Room Charge', 'Resort Fee', 'Parking', 'Wi-Fi Access']
+      };
+    } else if (name.includes('uber') || name.includes('lyft') || name.includes('taxi')) {
+      return {
+        category: 'rideshare',
+        items: ['Trip Fare', 'Service Fee', 'Tip']
+      };
+    } else if (name.includes('amazon') || name.includes('online') || name.includes('shipping')) {
+      return {
+        category: 'online',
+        items: ['Product Purchase', 'Shipping Fee', 'Tax']
+      };
+    } else if (name.includes('office') || name.includes('supply') || name.includes('depot')) {
+      return {
+        category: 'office',
+        items: ['Office Supplies', 'Paper', 'Printing Services', 'Ink Cartridge']
+      };
     } else {
+      // For unknown merchants, use the actual transaction name if available
+      const transactionName = businessName || 'Business Expense';
       return {
         category: 'general',
-        items: ['Purchase', 'Service Fee', 'Product', 'Item', 'Transaction']
+        items: [transactionName, 'Service Charge', 'Business Expense']
       };
     }
   }
@@ -179,9 +202,6 @@ export class PDFReceiptService {
    * Generate HTML for PDF receipt
    */
   private generateReceiptHTML(receiptData: any): string {
-    const currentDate = new Date().toLocaleDateString();
-    const currentTime = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-
     return `
     <!DOCTYPE html>
     <html lang="en">
@@ -307,19 +327,18 @@ export class PDFReceiptService {
             <div class="receipt-header">
                 <div class="store-name">${receiptData.businessName}</div>
                 <div class="store-info">${receiptData.address}</div>
-                <div class="store-info">(555) 123-4567</div>
             </div>
 
             <div class="receipt-body">
                 <div class="receipt-info">
                     <div>
                         <div>Receipt #: ${receiptData.transactionId.substr(-8)}</div>
-                        <div>Register: 3</div>
-                        <div>Cashier: Sarah M.</div>
+                        <div>Date: ${receiptData.date}</div>
+                        <div>Time: ${receiptData.time}</div>
                     </div>
                     <div>
-                        <div>${currentDate}</div>
-                        <div>${currentTime}</div>
+                        <div>Transaction ID:</div>
+                        <div>${receiptData.transactionId.substr(-12)}</div>
                     </div>
                 </div>
 
@@ -376,11 +395,9 @@ export class PDFReceiptService {
             </div>
 
             <div class="receipt-footer">
-                <div>Thank you for shopping with us!</div>
-                <div>Customer Service: (555) 123-4567</div>
-                <div style="margin-top: 10px;">**** 4023 APPROVED</div>
-                <div>AUTH: 123456</div>
+                <div>Thank you for your business!</div>
                 <div style="margin-top: 10px;">Generated by ReceiptGold</div>
+                <div style="margin-top: 5px;">Transaction recorded: ${receiptData.date}</div>
             </div>
         </div>
     </body>

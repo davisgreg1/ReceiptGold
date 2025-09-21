@@ -928,7 +928,8 @@ export const BankTransactionsScreen: React.FC = () => {
         user.uid,
         generatedReceiptPDF,
         candidateId,
-        selectedBusiness
+        selectedBusiness,
+        candidate.transaction // Pass the original transaction for categorization
       );
 
       // Remove from candidates list by Firestore doc id

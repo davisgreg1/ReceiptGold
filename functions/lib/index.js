@@ -25,7 +25,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.deleteUserAccount = exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.onRevenueCatTransfer = exports.onRevenueCatProductChange = exports.onRevenueCatBillingIssue = exports.onRevenueCatExpiration = exports.onRevenueCatCancellation = exports.onRevenueCatRenewal = exports.onRevenueCatPurchase = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
+exports.cleanupSandboxPlaidConnections = exports.deleteUserAccount = exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.onRevenueCatTransfer = exports.onRevenueCatProductChange = exports.onRevenueCatBillingIssue = exports.onRevenueCatExpiration = exports.onRevenueCatCancellation = exports.onRevenueCatRenewal = exports.onRevenueCatPurchase = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
 // REMOVED: Unused functions import
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -4643,6 +4643,53 @@ exports.deleteUserAccount = (0, https_1.onCall)({
             throw error;
         }
         throw new https_1.HttpsError('internal', 'Failed to delete account. Please try again.');
+    }
+});
+// Clean up sandbox Plaid connections when switching to production
+exports.cleanupSandboxPlaidConnections = (0, https_1.onCall)({
+    cors: true
+}, async (request) => {
+    var _a;
+    try {
+        // Verify the user is authenticated (optional - you might want to require admin access)
+        if (!((_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid)) {
+            throw new https_1.HttpsError('unauthenticated', 'User must be authenticated to clean up connections');
+        }
+        const userId = request.data.userId || request.auth.uid;
+        Logger.info(`🧹 Starting cleanup of sandbox Plaid connections for user: ${userId}`);
+        // Query all bank connections for the user
+        const bankConnectionsQuery = db.collection('bank_connections').where('userId', '==', userId);
+        const bankConnectionsSnapshot = await bankConnectionsQuery.get();
+        let connectionsRemoved = 0;
+        // Delete each bank connection document
+        const batch = db.batch();
+        bankConnectionsSnapshot.forEach((doc) => {
+            batch.delete(doc.ref);
+            connectionsRemoved++;
+            Logger.info(`📄 Queued for deletion: bank_connection ${doc.id}`);
+        });
+        // Also clean up plaid_items collection if it exists
+        const plaidItemsQuery = db.collection('plaid_items').where('userId', '==', userId);
+        const plaidItemsSnapshot = await plaidItemsQuery.get();
+        plaidItemsSnapshot.forEach((doc) => {
+            batch.delete(doc.ref);
+            Logger.info(`📄 Queued for deletion: plaid_item ${doc.id}`);
+        });
+        // Execute the batch delete
+        await batch.commit();
+        Logger.info(`✅ Successfully cleaned up ${connectionsRemoved} sandbox Plaid connections for user ${userId}`);
+        return {
+            success: true,
+            message: `Successfully removed ${connectionsRemoved} sandbox bank connections. You can now connect your real bank accounts.`,
+            connectionsRemoved
+        };
+    }
+    catch (error) {
+        Logger.error('❌ Error cleaning up sandbox Plaid connections:', { error: error });
+        if (error instanceof https_1.HttpsError) {
+            throw error;
+        }
+        throw new https_1.HttpsError('internal', `Failed to cleanup connections: ${error.message}`);
     }
 });
 //# sourceMappingURL=index.js.map
