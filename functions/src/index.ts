@@ -5528,4 +5528,64 @@ export const deleteUserAccount = onCall(
   }
 );
 
+// Clean up sandbox Plaid connections when switching to production
+export const cleanupSandboxPlaidConnections = onCall<{ userId?: string }, Promise<{ success: boolean; message: string; connectionsRemoved: number }>>({
+  cors: true
+}, async (request) => {
+  try {
+    // Verify the user is authenticated (optional - you might want to require admin access)
+    if (!request.auth?.uid) {
+      throw new HttpsError('unauthenticated', 'User must be authenticated to clean up connections');
+    }
+
+    const userId = request.data.userId || request.auth.uid;
+
+    Logger.info(`🧹 Starting cleanup of sandbox Plaid connections for user: ${userId}`);
+
+    // Query all bank connections for the user
+    const bankConnectionsQuery = db.collection('bank_connections').where('userId', '==', userId);
+    const bankConnectionsSnapshot = await bankConnectionsQuery.get();
+
+    let connectionsRemoved = 0;
+
+    // Delete each bank connection document
+    const batch = db.batch();
+
+    bankConnectionsSnapshot.forEach((doc) => {
+      batch.delete(doc.ref);
+      connectionsRemoved++;
+      Logger.info(`📄 Queued for deletion: bank_connection ${doc.id}`);
+    });
+
+    // Also clean up plaid_items collection if it exists
+    const plaidItemsQuery = db.collection('plaid_items').where('userId', '==', userId);
+    const plaidItemsSnapshot = await plaidItemsQuery.get();
+
+    plaidItemsSnapshot.forEach((doc) => {
+      batch.delete(doc.ref);
+      Logger.info(`📄 Queued for deletion: plaid_item ${doc.id}`);
+    });
+
+    // Execute the batch delete
+    await batch.commit();
+
+    Logger.info(`✅ Successfully cleaned up ${connectionsRemoved} sandbox Plaid connections for user ${userId}`);
+
+    return {
+      success: true,
+      message: `Successfully removed ${connectionsRemoved} sandbox bank connections. You can now connect your real bank accounts.`,
+      connectionsRemoved
+    };
+
+  } catch (error) {
+    Logger.error('❌ Error cleaning up sandbox Plaid connections:', { error: (error as Error) });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError('internal', `Failed to cleanup connections: ${(error as Error).message}`);
+  }
+});
+
 

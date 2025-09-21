@@ -345,42 +345,196 @@ export class PlaidService {
   }
 
   /**
-   * Filter transactions that could be receipt candidates
+   * Filter transactions that could be receipt candidates (business expenses only)
    */
   public filterReceiptCandidates(transactions: PlaidTransaction[]): PlaidTransaction[] {
     return transactions.filter(transaction => {
-      // Filter for purchases (negative amounts for spending)
+      // Filter for purchases (positive amounts in Plaid represent money going out/spending)
       if (transaction.amount <= 0) return false;
-      
-      // Filter out transfers, deposits, etc.
-      if (transaction.transaction_type !== 'place') return false;
-      
-      // Filter by categories that typically generate receipts
-      const receiptCategories = [
+
+      // Exclude transfers - these are not business expenses
+      if (this.isTransferTransaction(transaction)) return false;
+
+      // Exclude deposits and credits
+      if (this.isDepositOrCredit(transaction)) return false;
+
+      // Filter by categories that are typically business expenses
+      const businessExpenseCategories = [
         'Food and Drink',
         'General Merchandise',
         'Shops',
-        'Recreation',
         'Service',
         'Healthcare',
         'Transportation',
         'Travel',
         'Professional Services',
-        'Mortgage',
-        'Rent'
+        'Technology',
+        'Office Supplies',
+        'Software',
+        'Automotive',
+        'Gas Stations',
+        'Internet and Cable',
+        'Phone',
+        'Utilities',
+        'Insurance',
+        'Legal',
+        'Accounting',
+        'Consulting',
+        'Marketing',
+        'Advertising'
       ];
-      
-      if (transaction.category) {
-        const hasReceiptCategory = transaction.category.some(cat => 
-          receiptCategories.some(receiptCat => cat.includes(receiptCat))
+
+      // Check if transaction has business-related categories
+      if (transaction.category && transaction.category.length > 0) {
+        const hasBusinessCategory = transaction.category.some(cat =>
+          businessExpenseCategories.some(businessCat =>
+            cat.toLowerCase().includes(businessCat.toLowerCase())
+          )
         );
-        if (!hasReceiptCategory) return false;
+        if (!hasBusinessCategory) return false;
       }
-      
+
       // Filter out very small amounts (likely fees, tips, etc.)
-  // Relaxed filter: accept all transactions
-  return true;
+      if (transaction.amount < 1.00) return false;
+
+      // Filter out ATM withdrawals and cash advances
+      if (this.isATMOrCashAdvance(transaction)) return false;
+
+      return true;
     });
+  }
+
+  /**
+   * Check if transaction is a transfer between accounts
+   */
+  private isTransferTransaction(transaction: PlaidTransaction): boolean {
+    // Check transaction type
+    if (transaction.transaction_type === 'transfer') return true;
+
+    // Check payment channel
+    if (transaction.payment_channel === 'other' || transaction.payment_channel === 'transfer') return true;
+
+    // Check categories for transfer-related terms
+    if (transaction.category) {
+      const transferCategories = [
+        'Transfer',
+        'Transfers',
+        'Bank Transfer',
+        'Wire Transfer',
+        'ACH',
+        'Internal Transfer',
+        'Account Transfer',
+        'Savings Transfer',
+        'Investment Transfer'
+      ];
+
+      const isTransferCategory = transaction.category.some(cat =>
+        transferCategories.some(transferCat =>
+          cat.toLowerCase().includes(transferCat.toLowerCase())
+        )
+      );
+
+      if (isTransferCategory) return true;
+    }
+
+    // Check transaction name for transfer keywords
+    if (transaction.name) {
+      const transferKeywords = [
+        'transfer to',
+        'transfer from',
+        'online transfer',
+        'mobile transfer',
+        'wire transfer',
+        'ach transfer',
+        'internal transfer',
+        'account transfer',
+        'savings transfer',
+        'checking transfer'
+      ];
+
+      const nameContainsTransfer = transferKeywords.some(keyword =>
+        transaction.name.toLowerCase().includes(keyword)
+      );
+
+      if (nameContainsTransfer) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if transaction is a deposit or credit
+   */
+  private isDepositOrCredit(transaction: PlaidTransaction): boolean {
+    // Negative amounts in Plaid represent money coming in (deposits/credits)
+    if (transaction.amount < 0) return true;
+
+    // Check categories for deposit/credit terms
+    if (transaction.category) {
+      const creditCategories = [
+        'Deposit',
+        'Deposits',
+        'Payroll',
+        'Direct Deposit',
+        'Refund',
+        'Credit',
+        'Interest',
+        'Dividend'
+      ];
+
+      const isCreditCategory = transaction.category.some(cat =>
+        creditCategories.some(creditCat =>
+          cat.toLowerCase().includes(creditCat.toLowerCase())
+        )
+      );
+
+      if (isCreditCategory) return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Check if transaction is ATM withdrawal or cash advance
+   */
+  private isATMOrCashAdvance(transaction: PlaidTransaction): boolean {
+    // Check categories for ATM/cash advance
+    if (transaction.category) {
+      const atmCategories = [
+        'ATM',
+        'Cash Advance',
+        'Cash Withdrawal',
+        'ATM Fee'
+      ];
+
+      const isATMCategory = transaction.category.some(cat =>
+        atmCategories.some(atmCat =>
+          cat.toLowerCase().includes(atmCat.toLowerCase())
+        )
+      );
+
+      if (isATMCategory) return true;
+    }
+
+    // Check transaction name for ATM keywords
+    if (transaction.name) {
+      const atmKeywords = [
+        'atm withdrawal',
+        'atm fee',
+        'cash advance',
+        'cash withdrawal',
+        'atm ',
+        'cash back'
+      ];
+
+      const nameContainsATM = atmKeywords.some(keyword =>
+        transaction.name.toLowerCase().includes(keyword)
+      );
+
+      if (nameContainsATM) return true;
+    }
+
+    return false;
   }
 
   /**

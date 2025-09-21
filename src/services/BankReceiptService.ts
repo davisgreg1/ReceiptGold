@@ -4,6 +4,7 @@ import { GeneratedReceipt } from './HTMLReceiptService'; // Using HTMLReceiptSer
 import { PDFReceiptService, GeneratedReceiptPDF } from './PDFReceiptService';
 import { NotificationService } from './NotificationService';
 import { TeamService } from './TeamService';
+import { ReceiptCategoryService, ReceiptCategory } from './ReceiptCategoryService';
 import { doc, collection, addDoc, updateDoc, getDoc, setDoc, query, where, getDocs } from 'firebase/firestore';
 import { db, auth } from '../config/firebase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -176,16 +177,10 @@ export class BankReceiptService {
             endDate.toISOString().split('T')[0]
           );
 
-          // Filter for potential receipt candidates (purchases, excluding transfers)
-          const receiptCandidates = transactions.filter((transaction: any) => {
-            return transaction.amount > 0 && // Purchases (positive amounts in Plaid)
-                   transaction.amount >= 1 && // Minimum $1
-                   transaction.amount <= 10000 && // Maximum $10,000
-                   !transaction.category?.includes('Transfer') &&
-                   !transaction.category?.includes('Deposit') &&
-                   !transaction.category?.includes('Payroll') &&
-                   !transaction.category?.includes('Interest');
-          });
+          // Filter for potential receipt candidates (business expenses only, no transfers)
+          const receiptCandidates = this.plaidService.filterReceiptCandidates(transactions);
+
+          console.log(`🔍 Filtered ${receiptCandidates.length} business expense transactions from ${transactions.length} total transactions`);
 
           // Convert to candidates
           receiptCandidates.forEach((transaction: any) => {
@@ -328,12 +323,13 @@ export class BankReceiptService {
 
         statusCallback?.(`Found ${transactions.length} transactions from ${connection.institutionName}`);
 
-        // Filter for receipt candidates
-        const receiptCandidates = transactions
-        // const receiptCandidates = this.plaidService.filterReceiptCandidates(transactions);
+        // Filter for receipt candidates (business expenses only, no transfers)
+        const receiptCandidates = this.plaidService.filterReceiptCandidates(transactions);
 
-        // Create transaction candidates for all transactions in the last 30 days
-        for (const transaction of transactions) {
+        console.log(`🔍 Filtered ${receiptCandidates.length} business expense transactions from ${transactions.length} total transactions`);
+
+        // Create transaction candidates only for filtered business expense transactions
+        for (const transaction of receiptCandidates) {
           // Avoid creating duplicates: check if a candidate already exists for this transaction and user
           try {
             const q = query(
@@ -640,13 +636,54 @@ export class BankReceiptService {
 
 
   /**
+   * Automatically categorize a bank transaction based on merchant name and transaction details
+   */
+  private async categorizeBankTransaction(
+    transaction: PlaidTransaction,
+    generatedReceiptPDF: GeneratedReceiptPDF
+  ): Promise<{ category: ReceiptCategory; confidence: number }> {
+    try {
+      // Create a receipt data object for categorization
+      const receiptDataForCategorization = {
+        merchantName: transaction.merchant_name || transaction.name || generatedReceiptPDF.receiptData.businessName,
+        items: generatedReceiptPDF.receiptData.items.map(item => ({
+          description: item.description,
+          amount: item.amount
+        })),
+        amount: transaction.amount,
+        date: transaction.date,
+        category: transaction.category, // Plaid categories
+        paymentChannel: transaction.payment_channel
+      };
+
+      console.log('🔍 Categorizing bank transaction:', {
+        merchantName: receiptDataForCategorization.merchantName,
+        amount: receiptDataForCategorization.amount,
+        plaidCategory: transaction.category,
+        paymentChannel: transaction.payment_channel
+      });
+
+      // Use the existing receipt categorization service
+      const categoryResult = await ReceiptCategoryService.determineCategory(receiptDataForCategorization);
+
+      console.log('✅ Categorization result:', categoryResult);
+      return categoryResult;
+    } catch (error) {
+      console.error('❌ Error categorizing bank transaction:', error);
+      // Return default category with low confidence
+      return { category: 'other', confidence: 0.1 };
+    }
+  }
+
+  /**
    * Save generated PDF receipt as a regular receipt in the system
    */
   public async saveGeneratedPDFReceiptAsReceipt(
     userId: string,
     generatedReceiptPDF: GeneratedReceiptPDF,
     candidateId: string,
-    business?: any
+    business?: any,
+    originalTransaction?: PlaidTransaction
   ): Promise<string> {
     try {
       // Check if the current user is a team member and get team attribution
@@ -663,6 +700,24 @@ export class BankReceiptService {
         };
       }
 
+      // Automatically categorize the transaction
+      let receiptCategory: ReceiptCategory = 'other';
+      let categoryConfidence = 0;
+
+      if (originalTransaction) {
+        const categoryResult = await this.categorizeBankTransaction(originalTransaction, generatedReceiptPDF);
+        receiptCategory = categoryResult.category;
+        categoryConfidence = categoryResult.confidence;
+
+        console.log('📊 Applied automatic categorization:', {
+          category: receiptCategory,
+          confidence: categoryConfidence,
+          merchantName: originalTransaction.merchant_name || originalTransaction.name
+        });
+      } else {
+        console.log('⚠️ No original transaction provided, using default category');
+      }
+
       // Create receipt document for Firebase with PDF data
       const receiptDoc = {
         userId: teamMember?.accountHolderId || userId, // Store under account holder's userId
@@ -672,7 +727,7 @@ export class BankReceiptService {
         amount: Number(generatedReceiptPDF.receiptData.total) || 0,
         date: generatedReceiptPDF.receiptData.date,
         description: generatedReceiptPDF.receiptData.description || '', // Add description from PDF receipt data
-        category: 'Generated from Bank Transaction',
+        category: receiptCategory, // Use automatically determined category
         items: generatedReceiptPDF.receiptData.items,
         tax: {
           deductible: true, // Bank receipts are typically business expenses, so default to deductible
@@ -690,6 +745,8 @@ export class BankReceiptService {
           originalTransactionId: generatedReceiptPDF.receiptData.transactionId,
           generatedAt: new Date(),
           type: 'pdf',
+          categoryConfidence: categoryConfidence, // Store confidence for future reference
+          autoCategorizationUsed: originalTransaction ? true : false,
         },
         ...(teamAttribution && { teamAttribution }), // Add team attribution if applicable
         type: 'pdf', // Mark as PDF receipt

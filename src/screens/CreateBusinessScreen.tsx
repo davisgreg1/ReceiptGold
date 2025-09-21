@@ -160,19 +160,19 @@ const CreateBusinessScreen: React.FC = () => {
     };
   }, []);
 
-  // Function to scroll to input when focused - simplified approach
+  // Function to scroll to input when focused - immediate response
   const scrollToInput = (inputKey: string) => {
     if (scrollViewRef.current) {
-      // Use a simple estimation approach to avoid native measurement issues
+      // Immediate scroll with minimal delay for layout
       setTimeout(() => {
         const estimatedInputPosition = getInputEstimatedPosition(inputKey);
-        const targetY = Math.max(0, estimatedInputPosition - 80); // 80px from top
-        
+        const targetY = Math.max(0, estimatedInputPosition - 100); // 100px from top for better visibility
+
         scrollViewRef.current?.scrollTo({
           y: targetY,
           animated: true,
         });
-      }, Platform.OS === 'ios' ? 200 : 150);
+      }, 50); // Reduced delay from 150-200ms to 50ms
     }
   };
 
@@ -357,11 +357,10 @@ const CreateBusinessScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background.primary }]}>
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
         <ScrollView
           ref={scrollViewRef}
           style={styles.scrollView}
@@ -372,12 +371,21 @@ const CreateBusinessScreen: React.FC = () => {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           scrollEventThrottle={16}
+          bounces={true}
+          alwaysBounceVertical={true}
+          decelerationRate="normal"
+          directionalLockEnabled={false}
+          automaticallyAdjustContentInsets={false}
+          contentInsetAdjustmentBehavior="never"
+          removeClippedSubviews={false}
         >
-          {/* Basic Information */}
-          <View style={[styles.section, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
-            <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
-              Business Information
-            </Text>
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View>
+              {/* Basic Information */}
+              <View style={[styles.section, { backgroundColor: theme.background.secondary, borderColor: theme.border.primary }]}>
+                <Text style={[styles.sectionTitle, { color: theme.text.primary }]}>
+                  Business Information
+                </Text>
 
             <View style={styles.inputGroup}>
               <Text style={[styles.inputLabel, { color: theme.text.secondary }]}>
@@ -681,9 +689,10 @@ const CreateBusinessScreen: React.FC = () => {
               </Text>
             )}
           </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
           </ScrollView>
         </KeyboardAvoidingView>
-      </TouchableWithoutFeedback>
 
       {/* iOS Business Type Picker Modal */}
       {showIOSPicker && Platform.OS === 'ios' && (
@@ -759,6 +768,7 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     flex: 1,
+    width: '100%',
   },
   scrollContent: {
     padding: 20,
