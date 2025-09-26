@@ -25,7 +25,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.cleanupSandboxPlaidConnections = exports.deleteUserAccount = exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.onRevenueCatTransfer = exports.onRevenueCatProductChange = exports.onRevenueCatBillingIssue = exports.onRevenueCatExpiration = exports.onRevenueCatCancellation = exports.onRevenueCatRenewal = exports.onRevenueCatPurchase = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
+exports.cleanupOrphanedUserData = exports.cleanupSandboxPlaidConnections = exports.deleteUserAccount = exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.onRevenueCatTransfer = exports.onRevenueCatProductChange = exports.onRevenueCatBillingIssue = exports.onRevenueCatExpiration = exports.onRevenueCatCancellation = exports.onRevenueCatRenewal = exports.onRevenueCatPurchase = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
 // REMOVED: Unused functions import
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -645,15 +645,25 @@ exports.onRevenueCatTransfer = (0, eventarc_1.onCustomEventPublished)("com.reven
     try {
         Logger.info('RevenueCat transfer event received', { eventId: event.id });
         const eventData = event.data;
-        const newUserId = eventData === null || eventData === void 0 ? void 0 : eventData.app_user_id;
-        const originalUserId = eventData === null || eventData === void 0 ? void 0 : eventData.origin_app_user_id;
         const transferredFrom = eventData === null || eventData === void 0 ? void 0 : eventData.transferred_from;
         const transferredTo = eventData === null || eventData === void 0 ? void 0 : eventData.transferred_to;
-        if (!newUserId || !originalUserId) {
-            Logger.error('Missing required user IDs in transfer event', {
-                newUserId,
-                originalUserId,
+        if (!transferredFrom || !transferredTo || !Array.isArray(transferredFrom) || !Array.isArray(transferredTo)) {
+            Logger.error('Missing or invalid transferred_from/transferred_to arrays in transfer event', {
+                transferredFrom,
+                transferredTo,
                 eventData
+            });
+            return;
+        }
+        // Extract Firebase user IDs (skip anonymous RevenueCat IDs)
+        const originalUserId = transferredFrom.find(id => id && !id.startsWith('$RCAnonymousID:'));
+        const newUserId = transferredTo.find(id => id && !id.startsWith('$RCAnonymousID:'));
+        if (!newUserId || !originalUserId) {
+            Logger.error('Could not find valid Firebase user IDs in transfer arrays', {
+                transferredFrom,
+                transferredTo,
+                originalUserId,
+                newUserId
             });
             return;
         }
@@ -709,7 +719,14 @@ async function handleRevenueCatSubscriptionChange(userId, eventData, eventType) 
                 if (expiresDate > new Date()) {
                     isActive = true;
                     // Map entitlement to tier (you'll need to configure this based on your RevenueCat setup)
-                    currentTier = mapEntitlementToTier(entitlementId);
+                    const mappedTier = mapEntitlementToTier(entitlementId);
+                    if (mappedTier) {
+                        currentTier = mappedTier;
+                    }
+                    else {
+                        Logger.warn(`Failed to map entitlement ${entitlementId}, subscription will be inactive`);
+                        isActive = false;
+                    }
                     break;
                 }
             }
@@ -1065,13 +1082,20 @@ async function handleAccountTransfer(originalUserId, newUserId, eventData) {
         }
         // Send notification to the new user about the successful transfer
         try {
-            await db.collection('notifications').add({
+            await db.collection('user_notifications').add({
                 userId: newUserId,
                 type: 'account_transfer_complete',
                 title: 'Account Transfer Complete',
-                message: 'Your subscription and data have been successfully transferred to your new account.',
+                body: 'Your subscription and data have been successfully transferred to your new account.',
+                data: {
+                    type: 'account_transfer_complete',
+                    originalUserId,
+                    transferErrors: transferErrors.length > 0 ? transferErrors : null
+                },
                 read: false,
-                createdAt: admin.firestore.FieldValue.serverTimestamp()
+                isRead: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                source: 'revenuecat_transfer'
             });
         }
         catch (error) {
@@ -1105,8 +1129,8 @@ function mapEntitlementToTier(entitlementId) {
     if (tier) {
         return tier;
     }
-    Logger.warn(`Unknown entitlement ID: ${entitlementId}, defaulting to starter tier`);
-    return 'starter'; // Default to starter if unknown
+    Logger.warn(`Unknown entitlement ID: ${entitlementId}, unable to determine tier`);
+    return null; // Return null for unknown entitlements
 }
 // REMOVED: Manual recovery function - no longer needed with immediate hard deletion
 // REMOVED: Scheduled cleanup function - now using immediate hard deletion
@@ -1114,38 +1138,59 @@ function mapEntitlementToTier(entitlementId) {
 async function permanentlyDeleteUserData(userId) {
     try {
         Logger.info(`Starting permanent deletion for user: ${userId}`);
+        // Comprehensive list of all possible collections that might contain user data
         const collectionsToDelete = [
-            'users', 'receipts', 'businesses', 'subscriptions', 'customCategories',
-            'bankConnections', 'teamMembers', 'notifications', 'userSettings',
-            'usage', 'reports', 'budgets', 'user_notifications', 'connection_notifications',
-            'teamInvitations', 'transactionCandidates', 'generatedReceipts',
-            'candidateStatus', 'plaid_items'
+            'users', 'subscriptions', 'receipts', 'businesses', 'customCategories',
+            'bankConnections', 'bank_connections', 'teamMembers', 'notifications',
+            'userSettings', 'userPreferences', 'usage', 'reports', 'budgets',
+            'user_notifications', 'connection_notifications', 'teamInvitations',
+            'transactionCandidates', 'generatedReceipts', 'candidateStatus',
+            'plaid_items', 'businessStats', 'notificationSettings', 'events',
+            'supportRequests', 'teamStats', 'oneTimePurchases', 'deviceChecks',
+            'device_tracking', 'transaction_updates'
         ];
-        const batch = db.batch();
-        let deletionCount = 0;
+        // Process in smaller batches to avoid hitting Firestore limits
+        const batchSize = 450; // Leave room for other operations
+        let totalDeletionCount = 0;
         for (const collectionName of collectionsToDelete) {
             try {
-                // Query for documents where userId matches
+                let currentBatch = db.batch();
+                let currentBatchSize = 0;
+                Logger.debug(`Processing collection: ${collectionName}`);
+                // Primary query: documents where userId field equals the target user
                 const userDocsQuery = db.collection(collectionName)
                     .where('userId', '==', userId)
                     .limit(500);
                 const userDocsSnapshot = await userDocsQuery.get();
                 userDocsSnapshot.forEach((doc) => {
-                    batch.delete(doc.ref);
-                    deletionCount++;
+                    if (currentBatchSize >= batchSize) {
+                        // Execute current batch and start a new one
+                        currentBatch.commit();
+                        currentBatch = db.batch();
+                        currentBatchSize = 0;
+                    }
+                    currentBatch.delete(doc.ref);
+                    currentBatchSize++;
+                    totalDeletionCount++;
                 });
-                // Also check for accountHolderId field (for team-related data)
-                if (['receipts', 'businesses', 'customCategories', 'teamMembers'].includes(collectionName)) {
+                // Secondary query: documents where accountHolderId field equals the target user
+                if (['receipts', 'businesses', 'customCategories', 'teamMembers', 'teamInvitations'].includes(collectionName)) {
                     const accountHolderDocsQuery = db.collection(collectionName)
                         .where('accountHolderId', '==', userId)
                         .limit(500);
                     const accountHolderDocsSnapshot = await accountHolderDocsQuery.get();
                     accountHolderDocsSnapshot.forEach((doc) => {
-                        batch.delete(doc.ref);
-                        deletionCount++;
+                        if (currentBatchSize >= batchSize) {
+                            currentBatch.commit();
+                            currentBatch = db.batch();
+                            currentBatchSize = 0;
+                        }
+                        currentBatch.delete(doc.ref);
+                        currentBatchSize++;
+                        totalDeletionCount++;
                     });
                 }
-                // Handle documents with specific patterns (like usage documents)
+                // Special handling for usage documents (document ID pattern)
                 if (collectionName === 'usage') {
                     const usageQuery = db.collection(collectionName)
                         .where(admin.firestore.FieldPath.documentId(), '>=', userId)
@@ -1153,22 +1198,59 @@ async function permanentlyDeleteUserData(userId) {
                         .limit(500);
                     const usageSnapshot = await usageQuery.get();
                     usageSnapshot.forEach((doc) => {
-                        batch.delete(doc.ref);
-                        deletionCount++;
+                        if (currentBatchSize >= batchSize) {
+                            currentBatch.commit();
+                            currentBatch = db.batch();
+                            currentBatchSize = 0;
+                        }
+                        currentBatch.delete(doc.ref);
+                        currentBatchSize++;
+                        totalDeletionCount++;
                     });
+                }
+                // Special handling for teamStats (document ID equals userId)
+                if (collectionName === 'teamStats') {
+                    const teamStatsDoc = await db.collection(collectionName).doc(userId).get();
+                    if (teamStatsDoc.exists) {
+                        if (currentBatchSize >= batchSize) {
+                            await currentBatch.commit();
+                            currentBatch = db.batch();
+                            currentBatchSize = 0;
+                        }
+                        currentBatch.delete(teamStatsDoc.ref);
+                        currentBatchSize++;
+                        totalDeletionCount++;
+                    }
+                }
+                // Special handling for userPreferences (document ID equals userId)
+                if (collectionName === 'userPreferences') {
+                    const userPrefsDoc = await db.collection(collectionName).doc(userId).get();
+                    if (userPrefsDoc.exists) {
+                        if (currentBatchSize >= batchSize) {
+                            await currentBatch.commit();
+                            currentBatch = db.batch();
+                            currentBatchSize = 0;
+                        }
+                        currentBatch.delete(userPrefsDoc.ref);
+                        currentBatchSize++;
+                        totalDeletionCount++;
+                    }
+                }
+                // Commit any remaining operations for this collection
+                if (currentBatchSize > 0) {
+                    await currentBatch.commit();
                 }
             }
             catch (error) {
                 Logger.warn(`Error querying collection ${collectionName} for permanent deletion`, {
                     error: error.message,
-                    userId
+                    userId,
+                    collectionName
                 });
+                // Continue with other collections even if one fails
             }
         }
-        if (deletionCount > 0) {
-            await batch.commit();
-            Logger.info(`Permanently deleted ${deletionCount} documents for user ${userId}`);
-        }
+        Logger.info(`Permanently deleted ${totalDeletionCount} documents for user ${userId}`);
     }
     catch (error) {
         Logger.error('Error permanently deleting user data', {
@@ -3337,6 +3419,9 @@ exports.revenueCatWebhookHandler = (0, https_1.onRequest)(async (req, res) => {
             case 'NON_RENEWING_PURCHASE':
                 await handleRevenueCatOneTimePurchase(event);
                 break;
+            case 'TRANSFER':
+                await handleRevenueCatTransferDirect(event);
+                break;
             default:
                 Logger.info('Unhandled RevenueCat event type: ${event.type}', {});
         }
@@ -3614,7 +3699,7 @@ async function sendSubscriptionEventNotification(userId, eventType) {
             case 'EXPIRATION':
                 notificationData = {
                     title: "Your ReceiptGold subscription has expired",
-                    body: "Your account has been moved to our free tier. Upgrade to continue accessing premium features.",
+                    body: "Upgrade to continue accessing premium features.",
                     data: {
                         type: "subscription_expiration"
                     }
@@ -3896,6 +3981,86 @@ async function handleRevenueCatSubscriberAlias(event) {
     }
     catch (error) {
         Logger.error('Error in handleRevenueCatSubscriberAlias:', { error: error });
+        throw error;
+    }
+}
+// RevenueCat handler for TRANSFER events (direct webhook format)
+async function handleRevenueCatTransferDirect(event) {
+    try {
+        Logger.info('RevenueCat direct transfer event received', { event });
+        const { transferred_from, transferred_to } = event;
+        if (!transferred_from || !transferred_to || !Array.isArray(transferred_from) || !Array.isArray(transferred_to)) {
+            Logger.error('Missing or invalid transferred_from/transferred_to arrays in direct transfer event', {
+                transferred_from,
+                transferred_to,
+                event
+            });
+            return;
+        }
+        // Extract Firebase user IDs (skip anonymous RevenueCat IDs)
+        const originalUserId = transferred_from.find((id) => id && !id.startsWith('$RCAnonymousID:'));
+        const newUserId = transferred_to.find((id) => id && !id.startsWith('$RCAnonymousID:'));
+        if (!newUserId || !originalUserId) {
+            Logger.error('Could not find valid Firebase user IDs in direct transfer arrays', {
+                transferred_from,
+                transferred_to,
+                originalUserId,
+                newUserId
+            });
+            return;
+        }
+        Logger.info('Processing direct account transfer', {
+            from: originalUserId,
+            to: newUserId,
+            transferred_from,
+            transferred_to
+        });
+        // Check if original user data still exists (account might have been deleted)
+        const originalUserDoc = await db.collection('users').doc(originalUserId).get();
+        if (!originalUserDoc.exists) {
+            Logger.warn('Original user data not found - account may have been deleted', {
+                originalUserId,
+                newUserId
+            });
+            // Still log the transfer attempt for auditing
+            await db.collection('events').add({
+                type: 'account_transfer_failed',
+                reason: 'original_user_deleted',
+                originalUserId,
+                newUserId,
+                eventData: event,
+                processedAt: admin.firestore.FieldValue.serverTimestamp(),
+                source: 'revenuecat_direct_webhook'
+            });
+            // Create a different notification for the new user
+            await db.collection('user_notifications').add({
+                userId: newUserId,
+                title: 'Account Transfer Notice',
+                body: 'Your subscription has been transferred, but the original account data was not available for transfer.',
+                data: {
+                    type: 'account_transfer_failed',
+                    reason: 'original_user_deleted'
+                },
+                read: false,
+                isRead: false,
+                createdAt: admin.firestore.FieldValue.serverTimestamp(),
+                source: 'revenuecat_transfer'
+            });
+            Logger.info('Created notification for new user about failed transfer', { newUserId });
+            return; // Exit early
+        }
+        // Proceed with full account transfer
+        await handleAccountTransfer(originalUserId, newUserId, event);
+        Logger.info('Successfully processed direct RevenueCat transfer event', {
+            originalUserId,
+            newUserId
+        });
+    }
+    catch (error) {
+        Logger.error('Error processing direct RevenueCat transfer event', {
+            error: error.message,
+            stack: error.stack
+        });
         throw error;
     }
 }
@@ -4690,6 +4855,191 @@ exports.cleanupSandboxPlaidConnections = (0, https_1.onCall)({
             throw error;
         }
         throw new https_1.HttpsError('internal', `Failed to cleanup connections: ${error.message}`);
+    }
+});
+// Manual cleanup function for orphaned user data (when account deletion didn't work properly)
+exports.cleanupOrphanedUserData = (0, https_1.onCall)({
+    cors: true
+}, async (request) => {
+    var _a, _b;
+    try {
+        if (!((_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid)) {
+            throw new https_1.HttpsError('unauthenticated', 'User must be authenticated');
+        }
+        const { userId, confirmDelete = false } = request.data;
+        if (!userId) {
+            throw new https_1.HttpsError('invalid-argument', 'userId is required');
+        }
+        Logger.info(`🧹 Starting orphaned data cleanup for user: ${userId}`, { confirmDelete });
+        // Check if user still exists in Firebase Auth (they shouldn't if account was deleted)
+        let userExists = false;
+        try {
+            await admin.auth().getUser(userId);
+            userExists = true;
+        }
+        catch (error) {
+            // User doesn't exist in Auth, which is expected for deleted accounts
+            userExists = false;
+        }
+        if (userExists && !confirmDelete) {
+            throw new https_1.HttpsError('failed-precondition', 'User still exists in Firebase Auth. Use confirmDelete=true if you really want to delete their data.');
+        }
+        // Comprehensive list of all possible collections that might contain user data
+        const allCollections = [
+            'users', 'subscriptions', 'receipts', 'businesses', 'customCategories',
+            'bankConnections', 'bank_connections', 'teamMembers', 'notifications',
+            'userSettings', 'userPreferences', 'usage', 'reports', 'budgets',
+            'user_notifications', 'connection_notifications', 'teamInvitations',
+            'transactionCandidates', 'generatedReceipts', 'candidateStatus',
+            'plaid_items', 'businessStats', 'notificationSettings', 'events',
+            'supportRequests', 'teamStats', 'oneTimePurchases', 'deviceChecks',
+            'device_tracking', 'transaction_updates'
+        ];
+        let totalDocumentsFound = 0;
+        let totalDocumentsDeleted = 0;
+        const collectionsWithData = [];
+        if (confirmDelete) {
+            Logger.info(`🗑️ CONFIRMED DELETION: Permanently deleting all data for user ${userId}`);
+        }
+        else {
+            Logger.info(`🔍 DRY RUN: Scanning for orphaned data for user ${userId}`);
+        }
+        // Process in batches to avoid hitting Firestore limits
+        const batchSize = 450; // Leave room for other operations in the batch
+        let currentBatch = db.batch();
+        let currentBatchSize = 0;
+        for (const collectionName of allCollections) {
+            try {
+                Logger.info(`Checking collection: ${collectionName}`);
+                // Primary query: documents where userId field equals the target user
+                const userDocsQuery = db.collection(collectionName)
+                    .where('userId', '==', userId)
+                    .limit(500);
+                const userDocsSnapshot = await userDocsQuery.get();
+                if (!userDocsSnapshot.empty) {
+                    collectionsWithData.push(`${collectionName} (userId)`);
+                    totalDocumentsFound += userDocsSnapshot.size;
+                    Logger.info(`Found ${userDocsSnapshot.size} documents in ${collectionName} with userId=${userId}`);
+                    if (confirmDelete) {
+                        userDocsSnapshot.forEach((doc) => {
+                            if (currentBatchSize >= batchSize) {
+                                // Execute current batch and start a new one
+                                currentBatch.commit();
+                                currentBatch = db.batch();
+                                currentBatchSize = 0;
+                            }
+                            currentBatch.delete(doc.ref);
+                            currentBatchSize++;
+                            totalDocumentsDeleted++;
+                        });
+                    }
+                }
+                // Secondary query: documents where accountHolderId field equals the target user
+                if (['receipts', 'businesses', 'customCategories', 'teamMembers', 'teamInvitations'].includes(collectionName)) {
+                    const accountHolderDocsQuery = db.collection(collectionName)
+                        .where('accountHolderId', '==', userId)
+                        .limit(500);
+                    const accountHolderDocsSnapshot = await accountHolderDocsQuery.get();
+                    if (!accountHolderDocsSnapshot.empty) {
+                        collectionsWithData.push(`${collectionName} (accountHolderId)`);
+                        totalDocumentsFound += accountHolderDocsSnapshot.size;
+                        Logger.info(`Found ${accountHolderDocsSnapshot.size} documents in ${collectionName} with accountHolderId=${userId}`);
+                        if (confirmDelete) {
+                            accountHolderDocsSnapshot.forEach((doc) => {
+                                if (currentBatchSize >= batchSize) {
+                                    currentBatch.commit();
+                                    currentBatch = db.batch();
+                                    currentBatchSize = 0;
+                                }
+                                currentBatch.delete(doc.ref);
+                                currentBatchSize++;
+                                totalDocumentsDeleted++;
+                            });
+                        }
+                    }
+                }
+                // Special handling for usage documents (document ID pattern)
+                if (collectionName === 'usage') {
+                    const usageQuery = db.collection(collectionName)
+                        .where(admin.firestore.FieldPath.documentId(), '>=', userId)
+                        .where(admin.firestore.FieldPath.documentId(), '<', userId + '\uf8ff')
+                        .limit(500);
+                    const usageSnapshot = await usageQuery.get();
+                    if (!usageSnapshot.empty) {
+                        collectionsWithData.push(`${collectionName} (docId pattern)`);
+                        totalDocumentsFound += usageSnapshot.size;
+                        Logger.info(`Found ${usageSnapshot.size} usage documents with ID pattern matching ${userId}`);
+                        if (confirmDelete) {
+                            usageSnapshot.forEach((doc) => {
+                                if (currentBatchSize >= batchSize) {
+                                    currentBatch.commit();
+                                    currentBatch = db.batch();
+                                    currentBatchSize = 0;
+                                }
+                                currentBatch.delete(doc.ref);
+                                currentBatchSize++;
+                                totalDocumentsDeleted++;
+                            });
+                        }
+                    }
+                }
+                // Special handling for teamStats (document ID equals userId)
+                if (collectionName === 'teamStats') {
+                    const teamStatsDoc = await db.collection(collectionName).doc(userId).get();
+                    if (teamStatsDoc.exists) {
+                        collectionsWithData.push(`${collectionName} (direct doc)`);
+                        totalDocumentsFound += 1;
+                        Logger.info(`Found teamStats document with ID ${userId}`);
+                        if (confirmDelete) {
+                            if (currentBatchSize >= batchSize) {
+                                await currentBatch.commit();
+                                currentBatch = db.batch();
+                                currentBatchSize = 0;
+                            }
+                            currentBatch.delete(teamStatsDoc.ref);
+                            currentBatchSize++;
+                            totalDocumentsDeleted++;
+                        }
+                    }
+                }
+            }
+            catch (error) {
+                Logger.warn(`Error checking collection ${collectionName}:`, {
+                    error: error.message,
+                    userId
+                });
+            }
+        }
+        // Commit any remaining batch operations
+        if (confirmDelete && currentBatchSize > 0) {
+            await currentBatch.commit();
+        }
+        const resultMessage = confirmDelete
+            ? `Successfully deleted ${totalDocumentsDeleted} orphaned documents for user ${userId}`
+            : `Found ${totalDocumentsFound} orphaned documents for user ${userId}. Use confirmDelete=true to delete them.`;
+        Logger.info(resultMessage, {
+            userId,
+            documentsFound: totalDocumentsFound,
+            documentsDeleted: totalDocumentsDeleted,
+            collectionsWithData
+        });
+        return {
+            success: true,
+            message: resultMessage,
+            documentsFound: totalDocumentsFound,
+            documentsDeleted: totalDocumentsDeleted,
+            collectionsSearched: allCollections
+        };
+    }
+    catch (error) {
+        Logger.error('❌ Error cleaning up orphaned user data:', {
+            error: error.message,
+            userId: (_b = request.data) === null || _b === void 0 ? void 0 : _b.userId
+        });
+        if (error instanceof https_1.HttpsError) {
+            throw error;
+        }
+        throw new https_1.HttpsError('internal', `Failed to cleanup orphaned data: ${error.message}`);
     }
 });
 //# sourceMappingURL=index.js.map
