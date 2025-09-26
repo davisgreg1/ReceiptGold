@@ -9,6 +9,9 @@ import {
   Platform,
   Animated,
   Linking,
+  TouchableOpacity,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
 import { PanGestureHandler, State, Directions } from "react-native-gesture-handler";
 import { LinearGradient } from "expo-linear-gradient";
@@ -21,6 +24,8 @@ import { useRevenueCatPayments } from "../hooks/useRevenueCatPayments";
 import { useInAppNotifications } from "../components/InAppNotificationProvider";
 import { SUBSCRIPTION_TIERS, revenueCatService } from "../services/revenuecatService";
 import { useConfettiContext } from "../context/ConfettiContext";
+import { httpsCallable } from 'firebase/functions';
+import { functions } from '../config/firebase';
 
 const { width } = Dimensions.get("window");
 
@@ -327,6 +332,7 @@ const ChoosePlanScreen: React.FC = () => {
   const [currentBillingPeriod, setCurrentBillingPeriod] = useState<BillingPeriod | null>(null);
   const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
   const [restoringPurchases, setRestoringPurchases] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const rotationValue = React.useRef(new Animated.Value(0)).current;
   const { triggerConfetti } = useConfettiContext();
 
@@ -505,6 +511,56 @@ const ChoosePlanScreen: React.FC = () => {
     }
   };
 
+  // Temporary sync function for testing
+  const handleSyncRevenueCat = async () => {
+    setIsSyncing(true);
+    try {
+      console.log('🔄 Starting manual sync...');
+      const syncFunction = httpsCallable(functions, 'syncRevenueCatSubscription');
+      const result = await syncFunction();
+
+      console.log('✅ Sync result:', result.data);
+
+      const syncData = result.data as any;
+      if (syncData.subscriptionFound) {
+        Alert.alert(
+          'Subscription Found!',
+          `Found existing ${syncData.tier} subscription. Refreshing your account...`,
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                // Trigger confetti for successful sync
+                triggerConfetti();
+                showNotification({
+                  type: "success",
+                  title: "Subscription Synced",
+                  message: `Your ${syncData.tier} subscription has been restored!`,
+                });
+                // The subscription context should automatically refresh
+              }
+            }
+          ]
+        );
+      } else {
+        Alert.alert(
+          'No Subscription Found',
+          'No existing subscription found in RevenueCat. You can proceed with selecting a plan.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error: any) {
+      console.error('❌ Sync failed:', error);
+      Alert.alert(
+        'Sync Failed',
+        `Failed to sync with RevenueCat: ${error.message}`,
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleCancelSubscription = () => {
     // For iOS/Android app stores, users need to cancel through their platform settings
     const cancelUrl = Platform.OS === 'ios'
@@ -553,6 +609,24 @@ const ChoosePlanScreen: React.FC = () => {
           <BodyText size="medium" color="secondary" align="center" style={styles.subtitle}>
             Unlock your business potential with powerful expense management tools
           </BodyText>
+        </View>
+
+        {/* Temporary Sync Button for Testing */}
+        <View style={styles.syncButtonContainer}>
+          <TouchableOpacity
+            style={[styles.syncButton, isSyncing && styles.syncButtonDisabled]}
+            onPress={handleSyncRevenueCat}
+            disabled={isSyncing}
+          >
+            {isSyncing ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Ionicons name="refresh" size={20} color="#FFFFFF" style={{ marginRight: 8 }} />
+                <Text style={styles.syncButtonText}>🔄 Check Existing Subscription</Text>
+              </>
+            )}
+          </TouchableOpacity>
         </View>
 
         {/* Billing Toggle with separate gesture handler */}
@@ -959,6 +1033,44 @@ const styles = StyleSheet.create({
   signOutButtonText: {
     fontSize: 16,
     fontWeight: "600",
+  },
+  // Sync button styles
+  syncButtonContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    marginBottom: 10,
+  },
+  syncButton: {
+    backgroundColor: '#10B981',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: {
+          width: 0,
+          height: 2,
+        },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+    }),
+  },
+  syncButtonDisabled: {
+    backgroundColor: '#6B7280',
+    opacity: 0.6,
+  },
+  syncButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

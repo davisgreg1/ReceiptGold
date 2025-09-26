@@ -715,6 +715,221 @@ export const completeAccountCreation = onRequest({ cors: true, invoker: 'public'
   }
 });
 
+// Sync subscription state from RevenueCat - callable function for mobile app
+export const syncRevenueCatSubscription = onCall(async (request: CallableRequest) => {
+  try {
+    const userId = request.auth?.uid;
+    if (!userId) {
+      throw new HttpsError('unauthenticated', 'User must be authenticated');
+    }
+
+    Logger.info('Syncing RevenueCat subscription state for user', { userId });
+
+    // Check RevenueCat for existing subscription using the same logic as onUserCreate
+    let existingCustomerInfo = null;
+    const revenueCatApiKey = process.env.REVENUECAT_API_KEY;
+
+    if (!revenueCatApiKey) {
+      throw new HttpsError('internal', 'RevenueCat API key not configured');
+    }
+
+    try {
+      const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${userId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${revenueCatApiKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const subscriberData = await response.json();
+        const subscriber = subscriberData.subscriber;
+
+        if (subscriber?.subscriptions) {
+          const subscriptions = subscriber.subscriptions;
+
+          // Find the most recent active subscription
+          let mostRecentSubscription = null;
+          let mostRecentDate = new Date(0);
+
+          for (const [productId, subscription] of Object.entries(subscriptions)) {
+            const sub = subscription as any;
+            const expiresDate = sub.expires_date ? new Date(sub.expires_date) : null;
+            const purchaseDate = sub.purchase_date ? new Date(sub.purchase_date) : new Date(0);
+            const isActive = !expiresDate || expiresDate > new Date();
+
+            if (isActive && purchaseDate > mostRecentDate) {
+              mostRecentDate = purchaseDate;
+              mostRecentSubscription = {
+                productId,
+                expiresAt: expiresDate,
+                originalPurchaseDate: sub.original_purchase_date ? new Date(sub.original_purchase_date) : null,
+                latestPurchaseDate: purchaseDate,
+                periodType: sub.period_type || 'NORMAL',
+                store: sub.store || 'UNKNOWN',
+                unsubscribeDetectedAt: sub.unsubscribe_detected_at ? new Date(sub.unsubscribe_detected_at) : null,
+                billingIssueDetectedAt: sub.billing_issue_detected_at ? new Date(sub.billing_issue_detected_at) : null,
+                willRenew: sub.will_renew !== false,
+                isSandbox: sub.is_sandbox === true,
+                storeUserId: sub.store_user_id || null
+              };
+            }
+          }
+
+          if (mostRecentSubscription) {
+            const tier = mapProductIdToTier(mostRecentSubscription.productId);
+            existingCustomerInfo = {
+              tier,
+              expiresAt: mostRecentSubscription.expiresAt,
+              productId: mostRecentSubscription.productId,
+              periodType: mostRecentSubscription.periodType,
+              store: mostRecentSubscription.store,
+              originalAppUserId: subscriber.original_app_user_id || userId,
+              originalApplicationVersion: subscriber.original_application_version || null,
+              firstSeen: subscriber.first_seen ? new Date(subscriber.first_seen) : null,
+              lastSeen: subscriber.last_seen ? new Date(subscriber.last_seen) : null,
+              managementUrl: subscriber.management_url || null,
+              originalPurchaseDate: mostRecentSubscription.originalPurchaseDate,
+              latestPurchaseDate: mostRecentSubscription.latestPurchaseDate,
+              billingIssueDetectedAt: mostRecentSubscription.billingIssueDetectedAt,
+              unsubscribeDetectedAt: mostRecentSubscription.unsubscribeDetectedAt,
+              willRenew: mostRecentSubscription.willRenew,
+              isActive: true,
+              isSandbox: mostRecentSubscription.isSandbox,
+              storeUserId: mostRecentSubscription.storeUserId,
+              entitlements: Object.keys(subscriber.entitlements || {})
+            };
+          }
+        }
+      }
+    } catch (apiError) {
+      Logger.error('RevenueCat API call failed during subscription sync', {
+        error: (apiError as Error).message,
+        userId
+      });
+      throw new HttpsError('internal', 'Failed to check RevenueCat subscription');
+    }
+
+    if (existingCustomerInfo) {
+      Logger.info('Found existing RevenueCat subscription - creating/updating subscription document', {
+        userId,
+        tier: existingCustomerInfo.tier,
+        productId: existingCustomerInfo.productId
+      });
+
+      // Create/update subscription document
+      const now = admin.firestore.Timestamp.now();
+      const subscriptionDoc = {
+        userId,
+        currentTier: existingCustomerInfo.tier,
+        status: 'active',
+        billing: {
+          revenueCatUserId: userId,
+          productId: existingCustomerInfo.productId,
+          originalPurchaseDate: existingCustomerInfo.originalPurchaseDate || new Date(),
+          latestPurchaseDate: existingCustomerInfo.latestPurchaseDate || new Date(),
+          expiresDate: existingCustomerInfo.expiresAt,
+          currentPeriodEnd: existingCustomerInfo.expiresAt,
+          isActive: existingCustomerInfo.isActive,
+          willRenew: existingCustomerInfo.willRenew,
+          unsubscribeDetectedAt: existingCustomerInfo.unsubscribeDetectedAt,
+          billingIssueDetectedAt: existingCustomerInfo.billingIssueDetectedAt,
+          store: existingCustomerInfo.store,
+          storeUserId: existingCustomerInfo.storeUserId,
+          isSandbox: existingCustomerInfo.isSandbox,
+          periodType: existingCustomerInfo.periodType,
+        },
+        revenueCatCustomer: {
+          originalAppUserId: existingCustomerInfo.originalAppUserId,
+          originalApplicationVersion: existingCustomerInfo.originalApplicationVersion,
+          firstSeen: existingCustomerInfo.firstSeen,
+          lastSeen: existingCustomerInfo.lastSeen,
+          managementUrl: existingCustomerInfo.managementUrl,
+          entitlements: existingCustomerInfo.entitlements,
+        },
+        limits: subscriptionTiers[existingCustomerInfo.tier]?.limits || subscriptionTiers.starter.limits,
+        features: subscriptionTiers[existingCustomerInfo.tier]?.features || subscriptionTiers.starter.features,
+        history: [{
+          tier: existingCustomerInfo.tier,
+          startDate: existingCustomerInfo.originalPurchaseDate || new Date(),
+          endDate: null,
+          reason: "manual_sync_detected"
+        }],
+        lastRevenueCatEvent: {
+          type: 'MANUAL_SYNC_DETECTED',
+          productId: existingCustomerInfo.productId,
+          timestamp: new Date(),
+          eventData: { source: 'manual_sync_call' }
+        },
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await db.collection("subscriptions").doc(userId).set(subscriptionDoc);
+
+      // Update user document with currentTier
+      await db.collection("users").doc(userId).update({
+        currentTier: existingCustomerInfo.tier,
+        updatedAt: now,
+      });
+
+      // Create/update usage document for current month
+      const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+      const usageDocRef = db.collection("usage").doc(`${userId}_${currentMonth}`);
+      const existingUsage = await usageDocRef.get();
+
+      if (!existingUsage.exists) {
+        const usageDoc = {
+          userId,
+          month: currentMonth,
+          receiptsUploaded: 0,
+          apiCalls: 0,
+          reportsGenerated: 0,
+          limits: subscriptionTiers[existingCustomerInfo.tier]?.limits || subscriptionTiers.starter.limits,
+          resetDate: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await usageDocRef.set(usageDoc);
+      }
+
+      Logger.info('Successfully synced subscription from RevenueCat', {
+        userId,
+        tier: existingCustomerInfo.tier
+      });
+
+      return {
+        success: true,
+        subscriptionFound: true,
+        tier: existingCustomerInfo.tier,
+        productId: existingCustomerInfo.productId,
+        expiresAt: existingCustomerInfo.expiresAt?.toISOString() || null
+      };
+    } else {
+      Logger.info('No active RevenueCat subscription found during manual sync', { userId });
+
+      return {
+        success: true,
+        subscriptionFound: false,
+        message: 'No active subscription found in RevenueCat'
+      };
+    }
+
+  } catch (error) {
+    Logger.error('Error in syncRevenueCatSubscription', {
+      error: (error as Error).message,
+      userId: request.auth?.uid
+    });
+
+    if (error instanceof HttpsError) {
+      throw error;
+    }
+
+    throw new HttpsError('internal', 'Failed to sync subscription');
+  }
+});
+
 // RevenueCat Event Handlers using Firebase Extensions EventArc
 // Handle subscription lifecycle events from RevenueCat
 
@@ -1750,11 +1965,220 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user: admin.
     }
 
     // Only create subscription documents for account holders (non-team members)
-    // No trial subscription - user will start trial via App Store
-    Logger.info('Account holder created - subscription will be created via RevenueCat webhook', { email }, userId);
+    // Check if user already has an active subscription in RevenueCat (e.g., after account deletion/recreation)
+    Logger.info('Checking RevenueCat for existing subscription', { userId, email });
 
-    // Note: No subscription document or usage document created here
-    // These will be created when user starts trial via RevenueCat webhook
+    try {
+      // Check RevenueCat for existing subscription
+      let existingCustomerInfo = null;
+      const revenueCatApiKey = process.env.REVENUECAT_API_KEY;
+
+      if (revenueCatApiKey) {
+        try {
+          const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${userId}`, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${revenueCatApiKey}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (response.ok) {
+            const subscriberData = await response.json();
+            const subscriber = subscriberData.subscriber;
+
+            if (subscriber?.subscriptions) {
+              const subscriptions = subscriber.subscriptions;
+
+              // Find the most recent active subscription
+              let mostRecentSubscription = null;
+              let mostRecentDate = new Date(0);
+
+              for (const [productId, subscription] of Object.entries(subscriptions)) {
+                const sub = subscription as any;
+                const expiresDate = sub.expires_date ? new Date(sub.expires_date) : null;
+                const purchaseDate = sub.purchase_date ? new Date(sub.purchase_date) : new Date(0);
+                const isActive = !expiresDate || expiresDate > new Date();
+
+                if (isActive && purchaseDate > mostRecentDate) {
+                  mostRecentDate = purchaseDate;
+                  mostRecentSubscription = {
+                    productId,
+                    expiresAt: expiresDate,
+                    originalPurchaseDate: sub.original_purchase_date ? new Date(sub.original_purchase_date) : null,
+                    latestPurchaseDate: purchaseDate,
+                    periodType: sub.period_type || 'NORMAL',
+                    store: sub.store || 'UNKNOWN',
+                    unsubscribeDetectedAt: sub.unsubscribe_detected_at ? new Date(sub.unsubscribe_detected_at) : null,
+                    billingIssueDetectedAt: sub.billing_issue_detected_at ? new Date(sub.billing_issue_detected_at) : null,
+                    willRenew: sub.will_renew !== false,
+                    isSandbox: sub.is_sandbox === true,
+                    storeUserId: sub.store_user_id || null
+                  };
+                }
+              }
+
+              if (mostRecentSubscription) {
+                const tier = mapProductIdToTier(mostRecentSubscription.productId);
+                existingCustomerInfo = {
+                  tier,
+                  expiresAt: mostRecentSubscription.expiresAt,
+                  productId: mostRecentSubscription.productId,
+                  periodType: mostRecentSubscription.periodType,
+                  store: mostRecentSubscription.store,
+                  originalAppUserId: subscriber.original_app_user_id || userId,
+                  originalApplicationVersion: subscriber.original_application_version || null,
+                  firstSeen: subscriber.first_seen ? new Date(subscriber.first_seen) : null,
+                  lastSeen: subscriber.last_seen ? new Date(subscriber.last_seen) : null,
+                  managementUrl: subscriber.management_url || null,
+                  originalPurchaseDate: mostRecentSubscription.originalPurchaseDate,
+                  latestPurchaseDate: mostRecentSubscription.latestPurchaseDate,
+                  billingIssueDetectedAt: mostRecentSubscription.billingIssueDetectedAt,
+                  unsubscribeDetectedAt: mostRecentSubscription.unsubscribeDetectedAt,
+                  willRenew: mostRecentSubscription.willRenew,
+                  isActive: true,
+                  isSandbox: mostRecentSubscription.isSandbox,
+                  storeUserId: mostRecentSubscription.storeUserId,
+                  entitlements: Object.keys(subscriber.entitlements || {})
+                };
+              }
+            }
+          }
+        } catch (apiError) {
+          Logger.warn('RevenueCat API call failed during user creation', {
+            error: (apiError as Error).message,
+            userId
+          });
+        }
+      }
+
+      if (existingCustomerInfo) {
+        Logger.info('Found existing RevenueCat subscription for new user - auto-creating subscription document', {
+          userId,
+          tier: existingCustomerInfo.tier,
+          productId: existingCustomerInfo.productId,
+          expiresAt: existingCustomerInfo.expiresAt
+        });
+
+        // Create subscription document based on existing RevenueCat data
+        const now = admin.firestore.Timestamp.now();
+        const subscriptionDoc = {
+          userId,
+          currentTier: existingCustomerInfo.tier,
+          status: 'active',
+          billing: {
+            revenueCatUserId: userId,
+            productId: existingCustomerInfo.productId,
+            originalPurchaseDate: existingCustomerInfo.originalPurchaseDate || new Date(),
+            latestPurchaseDate: existingCustomerInfo.latestPurchaseDate || new Date(),
+            expiresDate: existingCustomerInfo.expiresAt,
+            currentPeriodEnd: existingCustomerInfo.expiresAt,
+            isActive: existingCustomerInfo.isActive,
+            willRenew: existingCustomerInfo.willRenew,
+            unsubscribeDetectedAt: existingCustomerInfo.unsubscribeDetectedAt,
+            billingIssueDetectedAt: existingCustomerInfo.billingIssueDetectedAt,
+            store: existingCustomerInfo.store,
+            storeUserId: existingCustomerInfo.storeUserId,
+            isSandbox: existingCustomerInfo.isSandbox,
+            periodType: existingCustomerInfo.periodType,
+          },
+          revenueCatCustomer: {
+            originalAppUserId: existingCustomerInfo.originalAppUserId,
+            originalApplicationVersion: existingCustomerInfo.originalApplicationVersion,
+            firstSeen: existingCustomerInfo.firstSeen,
+            lastSeen: existingCustomerInfo.lastSeen,
+            managementUrl: existingCustomerInfo.managementUrl,
+            entitlements: existingCustomerInfo.entitlements,
+          },
+          limits: subscriptionTiers[existingCustomerInfo.tier]?.limits || subscriptionTiers.starter.limits,
+          features: subscriptionTiers[existingCustomerInfo.tier]?.features || subscriptionTiers.starter.features,
+          history: [{
+            tier: existingCustomerInfo.tier,
+            startDate: existingCustomerInfo.originalPurchaseDate || new Date(),
+            endDate: null,
+            reason: "existing_subscription_detected"
+          }],
+          lastRevenueCatEvent: {
+            type: 'EXISTING_SUBSCRIPTION_DETECTED',
+            productId: existingCustomerInfo.productId,
+            timestamp: new Date(),
+            eventData: { source: 'user_creation_check' }
+          },
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        await db.collection("subscriptions").doc(userId).set(subscriptionDoc);
+
+        // Also update user document with currentTier
+        await db.collection("users").doc(userId).update({
+          currentTier: existingCustomerInfo.tier,
+          updatedAt: now,
+        });
+
+        // Create usage document for the current month
+        const currentMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+        const usageDoc = {
+          userId,
+          month: currentMonth,
+          receiptsUploaded: 0,
+          apiCalls: 0,
+          reportsGenerated: 0,
+          limits: subscriptionTiers[existingCustomerInfo.tier]?.limits || subscriptionTiers.starter.limits,
+          resetDate: `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`,
+          createdAt: now,
+          updatedAt: now,
+        };
+        await db.collection("usage").doc(`${userId}_${currentMonth}`).set(usageDoc);
+
+        // Send updated user attributes to RevenueCat
+        const attributesToSend: Record<string, any> = {
+          firebase_user_id: { value: userId },
+          email: { value: email },
+          display_name: { value: displayName },
+          created_at: { value: new Date().toISOString() },
+          subscription_tier: { value: existingCustomerInfo.tier },
+          product_id: { value: existingCustomerInfo.productId },
+          account_recreated: { value: 'true' },
+        };
+        // Send attributes to RevenueCat (non-blocking)
+        try {
+          const revenueCatApiKey = process.env.REVENUECAT_API_KEY;
+          if (revenueCatApiKey) {
+            fetch(`https://api.revenuecat.com/v1/subscribers/${userId}/attributes`, {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${revenueCatApiKey}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ attributes: attributesToSend }),
+            }).catch((error) => {
+              Logger.warn('Failed to send attributes to RevenueCat during user creation', {
+                error: (error as Error).message,
+                userId
+              });
+            });
+          }
+        } catch (error) {
+          Logger.warn('Error setting up RevenueCat attribute sync', { userId });
+        }
+
+        Logger.info('Successfully created subscription and usage documents for existing RevenueCat subscriber', {
+          userId,
+          tier: existingCustomerInfo.tier,
+          email
+        });
+      } else {
+        Logger.info('No existing RevenueCat subscription found - user will start trial via App Store', { userId, email });
+      }
+    } catch (error) {
+      Logger.warn('Error checking RevenueCat for existing subscription - continuing with normal user creation', {
+        error: (error as Error).message,
+        userId,
+        email
+      });
+      // Don't fail user creation if RevenueCat check fails
+    }
 
     Logger.info('User account created successfully', { email }, userId);
   } catch (error) {

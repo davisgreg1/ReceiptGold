@@ -55,7 +55,7 @@ export const useRevenueCatPayments = () => {
       console.log('✅ Purchase successful - waiting for RevenueCat webhook to update subscription...');
 
       // Wait for RevenueCat webhook to process the subscription
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // await new Promise(resolve => setTimeout(resolve, 2000));
 
       // Refresh local state to pick up webhook-driven changes
       await refreshReceiptCount();
@@ -85,16 +85,27 @@ export const useRevenueCatPayments = () => {
   ): Promise<boolean> => {
     try {
       const result = await revenueCatService.restorePurchases();
-      
+
       if (result.success) {
         const currentTier = await revenueCatService.getCurrentTier(true); // Force refresh
 
-        // If we found a paid subscription, RevenueCat webhooks will handle Firestore sync
+        // If we found a paid subscription, manually sync with Firestore
         if (currentTier !== 'trial') {
-          console.log('✅ Purchases restored - waiting for RevenueCat webhook to sync...');
+          console.log('✅ Purchases restored - syncing subscription to Firestore...');
 
-          // Wait for RevenueCat webhook to process the restored subscription
-          await new Promise(resolve => setTimeout(resolve, 2000));
+          // Import Firebase Functions to call the sync function
+          const { httpsCallable } = await import('firebase/functions');
+          const { functions } = await import('../config/firebase');
+
+          try {
+            // Call the sync function to update Firestore
+            const syncFunction = httpsCallable(functions, 'syncRevenueCatSubscription');
+            await syncFunction();
+            console.log('✅ Subscription synced to Firestore');
+          } catch (syncError) {
+            console.warn('⚠️ Failed to sync subscription to Firestore:', syncError);
+            // Continue anyway - RevenueCat webhooks might still work
+          }
 
           // Refresh the receipt count to update the local state
           await refreshReceiptCount();
