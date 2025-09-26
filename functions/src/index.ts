@@ -2086,7 +2086,6 @@ export const testWebhookConfig = onRequest(async (req: Request, res: Response) =
 // LOCAL NOTIFICATION APPROACH
 // Using Firestore monitoring + local notifications instead of FCM
 
-
 // NOTIFICATION HANDLERS
 export const onConnectionNotificationCreate = functionsV1.firestore
   .document("connection_notifications/{notificationId}")
@@ -2964,267 +2963,6 @@ export const resetMonthlyUsage = functionsV1.pubsub
       Logger.error('Error resetting monthly usage:', { error: (error as Error) });
     }
   });
-
-// 6. Create Subscription for Mobile App
-// COMMENTED OUT - Using RevenueCat instead of Stripe
-/*
-interface CreateSubscriptionData {
-  priceId: string;
-  customerId: string;
-}
-export const createSubscription = onCall(async (request: CallableRequest<CreateSubscriptionData>) => {
-  Logger.info('createSubscription called with auth', { value: request.auth });
-  Logger.info('createSubscription request data', { value: request.data });
-
-  if (!request.auth) {
-    Logger.error('Authentication missing in createSubscription', {});
-    throw new HttpsError('unauthenticated', 'You must be logged in to create a subscription');
-  }
-
-  if (!request.auth.uid) {
-    Logger.error('User ID missing in auth object:', { error: request.auth });
-    throw new HttpsError('unauthenticated', 'Invalid authentication state');
-  }
-
-  try {
-    const { priceId, customerId } = request.data;
-
-    if (!priceId || !customerId) {
-      Logger.error('Missing required subscription data:', { error: { priceId, customerId } });
-      throw new HttpsError('invalid-argument', 'Price ID and customer ID are required');
-    }
-
-    console.log(`Creating subscription for user ${request.auth.uid}:`, { priceId, customerId });
-
-    // Validate Stripe configuration first
-    const stripeConfig = getStripeConfig();
-    if (!stripeConfig.secretKey) {
-      console.error("Missing Stripe secret key");
-      throw new HttpsError('failed-precondition', "Stripe configuration is incomplete");
-    }
-
-    // Initialize and validate Stripe instance
-    const stripe = getStripe();
-    if (!stripe) {
-      console.error("Failed to initialize Stripe");
-      throw new HttpsError('internal', "Stripe initialization failed");
-    }
-
-    // Verify the customer exists and belongs to this user
-    const customer = await stripe.customers.retrieve(customerId);
-    if (!customer || customer.deleted) {
-      Logger.error('Customer not found:', { error: customerId });
-      throw new HttpsError('not-found', 'Invalid customer ID');
-    }
-
-    if (customer.metadata?.userId !== request.auth.uid) {
-      Logger.error('Customer does not belong to user:', {
-        error: {
-          customerId,
-          customerUserId: customer.metadata?.userId,
-          requestUserId: request.auth.uid
-        }
-      });
-      throw new HttpsError('permission-denied', 'Customer does not belong to this user');
-    }
-
-    Logger.info('Customer verified, creating subscription...', {});
-
-    // Create the subscription
-    const subscription = await stripe.subscriptions.create({
-      customer: customerId,
-      items: [{ price: priceId }],
-      payment_behavior: 'default_incomplete',
-      payment_settings: {
-        save_default_payment_method: 'on_subscription',
-        payment_method_types: ['card']
-      },
-      metadata: {
-        userId: request.auth.uid
-      },
-      expand: ['latest_invoice.payment_intent', 'latest_invoice']
-    });
-
-    console.log('Created subscription:', JSON.stringify(subscription, null, 2));
-
-    Logger.info('Subscription created', { value: subscription.id });
-
-    // @ts-ignore - Stripe types don't properly capture the expanded fields
-    const clientSecret = subscription.latest_invoice?.payment_intent?.client_secret;
-
-    if (!clientSecret) {
-      Logger.error('No client secret in subscription response:', { error: subscription });
-      throw new HttpsError('internal', 'Failed to create subscription: No client secret returned');
-    }
-
-    Logger.info('Subscription created successfully with client secret', {});
-
-    return {
-      subscriptionId: subscription.id,
-      clientSecret: clientSecret,
-    };
-  } catch (error) {
-    Logger.error('Error creating subscription:', { error: (error as Error) });
-
-    if (error instanceof HttpsError) {
-      throw error;
-    }
-
-    if (error instanceof Error && error.message.includes('auth')) {
-      throw new HttpsError('unauthenticated', error.message);
-    }
-
-    throw new HttpsError(
-      'internal',
-      error instanceof Error ? error.message : 'Failed to create subscription'
-    );
-  }
-});
-*/
-
-// Create Stripe Customer (with environment-aware app URL)
-// COMMENTED OUT - Using RevenueCat instead of Stripe
-/*
-interface CreateCustomerData {
-  email: string;
-  name: string;
-}
-export const createStripeCustomer = onCall(async (request: CallableRequest<CreateCustomerData>) => {
-  Logger.info('createStripeCustomer called with auth', { value: request.auth });
-
-  if (!request.auth) {
-    Logger.error('Authentication missing in createStripeCustomer', {});
-    throw new HttpsError(
-      "unauthenticated",
-      "You must be logged in to create a customer"
-    );
-  }
-
-  if (!request.auth.uid) {
-    Logger.error('User ID missing in auth object:', { error: request.auth });
-    throw new HttpsError(
-      "unauthenticated",
-      "Invalid authentication state"
-    );
-  }
-
-  try {
-    const userId: string = request.auth.uid;
-    const { email, name }: CreateCustomerData = request.data;
-
-    if (!email || !name) {
-      Logger.error('Missing required customer data:', { error: { email, name } });
-      throw new HttpsError(
-        "invalid-argument",
-        "Email and name are required"
-      );
-    }
-
-    console.log(`Creating Stripe customer for user: ${userId}`, { email, name });
-
-    // Validate Stripe configuration
-    const stripeConfig = getStripeConfig();
-    if (!stripeConfig.secretKey) {
-      console.error("Missing Stripe secret key");
-      throw new Error("Stripe configuration is incomplete");
-    }
-
-    // Initialize and validate Stripe instance
-    const stripe = getStripe();
-    if (!stripe) {
-      console.error("Failed to initialize Stripe");
-      throw new Error("Stripe initialization failed");
-    }
-
-    // Create Stripe customer
-    const customer: Stripe.Customer = await getStripe().customers.create({
-      email: email,
-      name: name,
-      metadata: {
-        userId: userId,
-      },
-    });
-
-    Logger.info('Created Stripe customer ${customer.id} for user ${userId}', {});
-    return { customerId: customer.id };
-  } catch (error) {
-    Logger.error('Error creating Stripe customer:', { error: (error as Error) });
-    throw new HttpsError(
-      "internal",
-      error instanceof Error ? error.message : "Failed to create customer"
-    );
-  }
-});
-*/
-
-// 7. Create Checkout Session (with environment-aware URLs)
-// COMMENTED OUT - Using RevenueCat instead of Stripe
-/*
-interface CreateCheckoutSessionData {
-  priceId: string;
-  customerId: string;
-}
-export const createCheckoutSession = onCall(
-  async (request: CallableRequest<CreateCheckoutSessionData>) => {
-    if (!request.auth) {
-      throw new HttpsError(
-        "unauthenticated",
-        "User must be authenticated"
-      );
-    }
-
-    try {
-      const { priceId, customerId }: CreateCheckoutSessionData = request.data;
-
-      // Environment-aware app URL configuration
-      const getAppUrl = (): string => {
-        // Check if we're in development
-        if (process.env.NODE_ENV === 'development') {
-          return 'http://localhost:8081';
-        }
-
-        // Use configured app URL or fallback
-        return process.env.APP_URL || 'https://yourapp.com';
-      };
-
-      const appUrl = getAppUrl();
-
-      console.log(`Creating checkout session for user: ${request.auth.uid}, price: ${priceId}`);
-
-      const session: Stripe.Checkout.Session = await getStripe().checkout.sessions.create({
-        customer: customerId,
-        payment_method_types: ["card"],
-        line_items: [
-          {
-            price: priceId,
-            quantity: 1,
-          },
-        ],
-        mode: "subscription",
-        success_url: `${appUrl}/subscription/success?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${appUrl}/subscription/cancel`,
-        metadata: {
-          userId: request.auth.uid,
-        },
-      });
-
-      Logger.info('Created checkout session ${session.id} for user ${request.auth.uid}', {});
-      Logger.info('Checkout URL: ${session.url}', {});
-
-      return {
-        sessionId: session.id,
-        url: session.url
-      };
-    } catch (error) {
-      Logger.error('Error creating checkout session:', { error: (error as Error) });
-      throw new HttpsError(
-        "internal",
-        "Failed to create checkout session"
-      );
-    }
-  }
-);
-*/
 
 // 8. Business Stats Update Trigger (updated for Firebase Functions v6)
 export const updateBusinessStats = functionsV1.firestore
@@ -4258,6 +3996,60 @@ async function handleRevenueCatSubscriptionCreated(event: any): Promise<void> {
     const subscriptionData = subscriptions[product_id];
     const expiresDate = subscriptionData?.expires_date ? new Date(subscriptionData.expires_date) : null;
 
+    // Get comprehensive customer info from RevenueCat API
+    Logger.info('Fetching comprehensive customer info from RevenueCat API', { userId });
+    const customerInfo = await getRevenueCatCustomerInfo(userId);
+
+    // Fetch user data from Firestore to send as attributes to RevenueCat
+    try {
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+
+        // Prepare attributes to send to RevenueCat
+        const attributesToSend: Record<string, any> = {
+          // User profile info
+          firebase_user_id: { value: userId },
+          email: { value: userData?.email || '' },
+          display_name: { value: userData?.displayName || '' },
+          created_at: { value: userData?.createdAt?.toDate()?.toISOString() || new Date().toISOString() },
+
+          // Business profile info
+          business_name: { value: userData?.profile?.businessName || '' },
+          business_type: { value: userData?.profile?.businessType || 'Sole Proprietorship' },
+          first_name: { value: userData?.profile?.firstName || '' },
+          last_name: { value: userData?.profile?.lastName || '' },
+          phone: { value: userData?.profile?.phone || '' },
+
+          // Location info
+          city: { value: userData?.profile?.address?.city || '' },
+          state: { value: userData?.profile?.address?.state || '' },
+          country: { value: userData?.profile?.address?.country || 'US' },
+
+          // App settings
+          theme: { value: userData?.settings?.theme || 'light' },
+          default_currency: { value: userData?.settings?.defaultCurrency || 'USD' },
+          tax_year: { value: userData?.settings?.taxYear?.toString() || new Date().getFullYear().toString() },
+
+          // Subscription context
+          subscription_tier: { value: tier },
+          product_id: { value: product_id }
+        };
+
+        // Send attributes to RevenueCat
+        Logger.info('Sending user attributes to RevenueCat', { userId, attributeCount: Object.keys(attributesToSend).length });
+        await sendRevenueCatUserAttributes(userId, attributesToSend);
+      } else {
+        Logger.warn('User document not found, skipping RevenueCat attribute sync', { userId });
+      }
+    } catch (error) {
+      Logger.error('Error fetching user data for RevenueCat attributes', {
+        error: (error as Error).message,
+        userId
+      });
+      // Don't fail subscription creation if attribute sync fails
+    }
+
     // Prepare subscription update (ported from Stripe logic)
     const subscriptionUpdate: any = {
       userId,
@@ -4266,15 +4058,29 @@ async function handleRevenueCatSubscriptionCreated(event: any): Promise<void> {
       billing: {
         revenueCatUserId: userId,
         productId: product_id,
-        originalPurchaseDate: new Date(event_timestamp_ms),
-        latestPurchaseDate: new Date(event_timestamp_ms),
-        expiresDate: expiresDate, // Use actual expiration date from RevenueCat
-        currentPeriodEnd: expiresDate, // Set current period end to match expiration
-        isActive: true,
-        willRenew: true,
-        unsubscribeDetectedAt: null,
-        billingIssueDetectedAt: null,
+        originalPurchaseDate: customerInfo?.originalPurchaseDate || new Date(event_timestamp_ms),
+        latestPurchaseDate: customerInfo?.latestPurchaseDate || new Date(event_timestamp_ms),
+        expiresDate: customerInfo?.expiresAt || expiresDate, // Use API data if available
+        currentPeriodEnd: customerInfo?.expiresAt || expiresDate, // Set current period end to match expiration
+        isActive: customerInfo?.isActive ?? true,
+        willRenew: customerInfo?.willRenew ?? true,
+        unsubscribeDetectedAt: customerInfo?.unsubscribeDetectedAt || null,
+        billingIssueDetectedAt: customerInfo?.billingIssueDetectedAt || null,
+        // Store info
+        store: customerInfo?.store || 'UNKNOWN',
+        storeUserId: customerInfo?.storeUserId || null,
+        isSandbox: customerInfo?.isSandbox || false,
+        periodType: customerInfo?.periodType || 'NORMAL',
       },
+      // RevenueCat customer attributes
+      revenueCatCustomer: customerInfo ? {
+        originalAppUserId: customerInfo.originalAppUserId,
+        originalApplicationVersion: customerInfo.originalApplicationVersion,
+        firstSeen: customerInfo.firstSeen,
+        lastSeen: customerInfo.lastSeen,
+        managementUrl: customerInfo.managementUrl,
+        entitlements: customerInfo.entitlements,
+      } : null,
       limits: subscriptionTiers[tier].limits,
       features: subscriptionTiers[tier].features,
       history: admin.firestore.FieldValue.arrayUnion({
@@ -4822,6 +4628,294 @@ async function handleRevenueCatSubscriberAlias(event: any): Promise<void> {
   }
 }
 
+// Helper function to map RevenueCat product IDs to our subscription tiers
+function mapRevenueCatProductToTier(productId: string): string {
+  if (!productId) return 'none';
+
+  const productLower = productId.toLowerCase();
+
+  if (productLower.includes('professional') || productLower.includes('pro')) {
+    return 'professional';
+  } else if (productLower.includes('growth')) {
+    return 'growth';
+  } else if (productLower.includes('starter')) {
+    return 'starter';
+  } else if (productLower.includes('teammate')) {
+    return 'teammate';
+  }
+
+  // Default to 'none' for unknown products
+  Logger.warn('Unknown RevenueCat product ID, defaulting to none tier', { productId });
+  return 'none';
+}
+
+// Helper function to get comprehensive customer info from RevenueCat API
+async function getRevenueCatCustomerInfo(revenueCatUserId: string): Promise<{
+  // Subscription info
+  tier: string;
+  expiresAt: Date | null;
+  productId: string;
+  periodType: string;
+  store: string;
+  // Customer attributes
+  originalAppUserId: string;
+  originalApplicationVersion: string | null;
+  firstSeen: Date | null;
+  lastSeen: Date | null;
+  managementUrl: string | null;
+  // Subscription details
+  originalPurchaseDate: Date | null;
+  latestPurchaseDate: Date | null;
+  billingIssueDetectedAt: Date | null;
+  unsubscribeDetectedAt: Date | null;
+  willRenew: boolean;
+  isActive: boolean;
+  isSandbox: boolean;
+  // Store info
+  storeUserId: string | null;
+  entitlements: string[];
+} | null> {
+  try {
+    Logger.info('Calling RevenueCat API to get subscriber info', { revenueCatUserId });
+
+    const revenueCatApiKey = process.env.REVENUECAT_API_KEY;
+    if (!revenueCatApiKey) {
+      Logger.warn('RevenueCat API key not configured');
+      return null;
+    }
+
+    // Call RevenueCat REST API to get subscriber info
+    const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${revenueCatUserId}`, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${revenueCatApiKey}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      Logger.error('RevenueCat API call failed', {
+        status: response.status,
+        statusText: response.statusText,
+      });
+      return null;
+    }
+
+    const subscriberData = await response.json();
+    Logger.info('RevenueCat subscriber data received', { subscriberData });
+
+    const subscriber = subscriberData.subscriber;
+    if (!subscriber) {
+      Logger.warn('No subscriber data found in RevenueCat response', { revenueCatUserId });
+      return null;
+    }
+
+    // Extract customer attributes
+    const originalAppUserId = subscriber.original_app_user_id || revenueCatUserId;
+    const originalApplicationVersion = subscriber.original_application_version || null;
+    const firstSeen = subscriber.first_seen ? new Date(subscriber.first_seen) : null;
+    const lastSeen = subscriber.last_seen ? new Date(subscriber.last_seen) : null;
+    const managementUrl = subscriber.management_url || null;
+
+    // Get active subscriptions
+    const subscriptions = subscriber.subscriptions || {};
+    const entitlements = subscriber.entitlements || {};
+
+    // Find the most recent active subscription
+    let mostRecentSubscription = null;
+    let mostRecentDate = new Date(0);
+
+    for (const [productId, subscription] of Object.entries(subscriptions)) {
+      const sub = subscription as any;
+      const expiresDate = sub.expires_date ? new Date(sub.expires_date) : null;
+      const purchaseDate = sub.purchase_date ? new Date(sub.purchase_date) : new Date(0);
+      const originalPurchaseDate = sub.original_purchase_date ? new Date(sub.original_purchase_date) : null;
+
+      // Check if subscription is active (not expired or null expiry date for non-consumables)
+      const isActive = !expiresDate || expiresDate > new Date();
+
+      if (isActive && purchaseDate > mostRecentDate) {
+        mostRecentDate = purchaseDate;
+        mostRecentSubscription = {
+          productId,
+          expiresAt: expiresDate,
+          purchaseDate,
+          originalPurchaseDate,
+          periodType: sub.period_type || 'NORMAL',
+          store: sub.store || 'UNKNOWN',
+          unsubscribeDetectedAt: sub.unsubscribe_detected_at ? new Date(sub.unsubscribe_detected_at) : null,
+          billingIssueDetectedAt: sub.billing_issue_detected_at ? new Date(sub.billing_issue_detected_at) : null,
+          willRenew: sub.will_renew !== false, // Default to true unless explicitly false
+          isSandbox: sub.is_sandbox === true,
+          storeUserId: sub.store_user_id || null
+        };
+      }
+    }
+
+    if (!mostRecentSubscription) {
+      Logger.info('No active subscription found for user', { revenueCatUserId });
+      return null;
+    }
+
+    const tier = mapRevenueCatProductToTier(mostRecentSubscription.productId);
+
+    // Extract active entitlement names
+    const activeEntitlements = Object.keys(entitlements).filter(entitlementId => {
+      const entitlement = entitlements[entitlementId];
+      const expiresDate = entitlement.expires_date ? new Date(entitlement.expires_date) : null;
+      return !expiresDate || expiresDate > new Date();
+    });
+
+    return {
+      // Subscription info
+      tier,
+      expiresAt: mostRecentSubscription.expiresAt,
+      productId: mostRecentSubscription.productId,
+      periodType: mostRecentSubscription.periodType,
+      store: mostRecentSubscription.store,
+      // Customer attributes
+      originalAppUserId,
+      originalApplicationVersion,
+      firstSeen,
+      lastSeen,
+      managementUrl,
+      // Subscription details
+      originalPurchaseDate: mostRecentSubscription.originalPurchaseDate,
+      latestPurchaseDate: mostRecentSubscription.purchaseDate,
+      billingIssueDetectedAt: mostRecentSubscription.billingIssueDetectedAt,
+      unsubscribeDetectedAt: mostRecentSubscription.unsubscribeDetectedAt,
+      willRenew: mostRecentSubscription.willRenew,
+      isActive: true, // We only return active subscriptions
+      isSandbox: mostRecentSubscription.isSandbox,
+      // Store info
+      storeUserId: mostRecentSubscription.storeUserId,
+      entitlements: activeEntitlements
+    };
+
+  } catch (error) {
+    Logger.error('Error calling RevenueCat API', { error: (error as Error).message, revenueCatUserId });
+    return null;
+  }
+}
+
+// Helper function to send user attributes to RevenueCat API
+async function sendRevenueCatUserAttributes(revenueCatUserId: string, attributes: Record<string, any>): Promise<boolean> {
+  try {
+    Logger.info('Sending user attributes to RevenueCat API', { revenueCatUserId, attributes });
+
+    const revenueCatApiKey = process.env.REVENUECAT_API_KEY;
+    if (!revenueCatApiKey) {
+      Logger.warn('RevenueCat API key not configured, skipping attribute update');
+      return false;
+    }
+
+    // Call RevenueCat REST API to update subscriber attributes
+    const response = await fetch(`https://api.revenuecat.com/v1/subscribers/${revenueCatUserId}/attributes`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${revenueCatApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        attributes
+      }),
+    });
+
+    if (!response.ok) {
+      Logger.error('RevenueCat attributes API call failed', {
+        status: response.status,
+        statusText: response.statusText,
+        revenueCatUserId
+      });
+      return false;
+    }
+
+    const result = await response.json();
+    Logger.info('Successfully sent user attributes to RevenueCat', { revenueCatUserId, result });
+    return true;
+
+  } catch (error) {
+    Logger.error('Error sending attributes to RevenueCat API', {
+      error: (error as Error).message,
+      revenueCatUserId,
+      attributes
+    });
+    return false;
+  }
+}
+
+// Helper function to create subscription for new user from RevenueCat data
+async function createSubscriptionFromRevenueCat(
+  userId: string,
+  subscriptionData: {
+    tier: string;
+    expiresAt: Date | null;
+    productId: string;
+    periodType: string;
+    store: string;
+  },
+  revenueCatEvent: any
+): Promise<void> {
+  try {
+    // Get tier limits and features using existing functions
+    const tierKey = subscriptionData.tier as keyof typeof subscriptionTiers;
+    const limits = subscriptionTiers[tierKey] || subscriptionTiers.none;
+
+    // Create basic features object based on tier
+    const features = {
+      receiptProcessing: subscriptionData.tier !== 'none',
+      businessInsights: ['growth', 'professional'].includes(subscriptionData.tier),
+      bankConnection: ['growth', 'professional'].includes(subscriptionData.tier),
+      teamAccess: subscriptionData.tier === 'professional',
+      apiAccess: subscriptionData.tier === 'professional',
+      advancedReporting: ['growth', 'professional'].includes(subscriptionData.tier),
+      customCategories: subscriptionData.tier !== 'none',
+      exportData: subscriptionData.tier !== 'none',
+      prioritySupport: ['growth', 'professional'].includes(subscriptionData.tier),
+      unlimitedReceipts: subscriptionData.tier === 'professional'
+    };
+
+    const subscriptionDoc = {
+      userId,
+      currentTier: subscriptionData.tier,
+      isActive: true,
+      expiresAt: subscriptionData.expiresAt,
+      limits,
+      features,
+      revenueCatCustomerId: userId, // Use userId as RevenueCat customer ID
+      lastRevenueCatEvent: {
+        type: 'TRANSFER',
+        eventData: revenueCatEvent,
+        processedAt: new Date()
+      },
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      history: [{
+        tier: subscriptionData.tier,
+        startDate: new Date(),
+        endDate: null,
+        reason: 'transfer_from_deleted_account'
+      }]
+    };
+
+    await db.collection('subscriptions').doc(userId).set(subscriptionDoc);
+
+    Logger.info('Successfully created subscription from RevenueCat transfer data', {
+      userId,
+      tier: subscriptionData.tier,
+      productId: subscriptionData.productId,
+      expiresAt: subscriptionData.expiresAt
+    });
+  } catch (error) {
+    Logger.error('Error creating subscription from RevenueCat data', {
+      error: (error as Error).message,
+      userId,
+      subscriptionData
+    });
+    throw error;
+  }
+}
+
 // RevenueCat handler for TRANSFER events (direct webhook format)
 async function handleRevenueCatTransferDirect(event: any): Promise<void> {
   try {
@@ -4878,22 +4972,84 @@ async function handleRevenueCatTransferDirect(event: any): Promise<void> {
         source: 'revenuecat_direct_webhook'
       });
 
-      // Create a different notification for the new user
-      await db.collection('user_notifications').add({
-        userId: newUserId,
-        title: 'Account Transfer Notice',
-        body: 'Your subscription has been transferred, but the original account data was not available for transfer.',
-        data: {
-          type: 'account_transfer_failed',
-          reason: 'original_user_deleted'
-        },
-        read: false,
-        isRead: false,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        source: 'revenuecat_transfer'
-      });
+      // Get subscription info from RevenueCat API for the original user
+      const subscriptionData = await getRevenueCatCustomerInfo(originalUserId);
 
-      Logger.info('Created notification for new user about failed transfer', { newUserId });
+      Logger.info('Retrieved subscription data from RevenueCat API for deleted account transfer', { subscriptionData, newUserId, originalUserId });
+
+      if (subscriptionData) {
+        try {
+          // Create subscription for new user based on RevenueCat data
+          await createSubscriptionFromRevenueCat(newUserId, subscriptionData, event);
+
+          // Create success notification for the new user
+          await db.collection('user_notifications').add({
+            userId: newUserId,
+            title: 'Subscription Transferred',
+            body: `Your ${subscriptionData.tier} subscription has been successfully transferred to your new account.`,
+            data: {
+              type: 'account_transfer_success',
+              tier: subscriptionData.tier,
+              reason: 'original_user_deleted'
+            },
+            read: false,
+            isRead: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            source: 'revenuecat_transfer'
+          });
+
+          Logger.info('Successfully created subscription and notification for new user from deleted account transfer', {
+            newUserId,
+            tier: subscriptionData.tier,
+            productId: subscriptionData.productId,
+            expiresAt: subscriptionData.expiresAt
+          });
+        } catch (error) {
+          Logger.error('Failed to create subscription for new user from deleted account transfer', {
+            error: (error as Error).message,
+            newUserId,
+            subscriptionData
+          });
+
+          // Create failure notification
+          await db.collection('user_notifications').add({
+            userId: newUserId,
+            title: 'Account Transfer Notice',
+            body: 'Your subscription transfer encountered an issue. Please contact support.',
+            data: {
+              type: 'account_transfer_failed',
+              reason: 'subscription_creation_failed'
+            },
+            read: false,
+            isRead: false,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            source: 'revenuecat_transfer'
+          });
+        }
+      } else {
+        Logger.warn('Could not retrieve subscription data from RevenueCat API for deleted account transfer', {
+          originalUserId,
+          newUserId
+        });
+
+        // Create notification about failed data extraction
+        await db.collection('user_notifications').add({
+          userId: newUserId,
+          title: 'Account Transfer Notice',
+          body: 'Your subscription has been transferred, but the original account data was not available for transfer.',
+          data: {
+            type: 'account_transfer_failed',
+            reason: 'original_user_deleted'
+          },
+          read: false,
+          isRead: false,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          source: 'revenuecat_transfer'
+        });
+
+        Logger.info('Created notification for new user about failed transfer', { newUserId });
+      }
+
       return; // Exit early
     }
 
@@ -6218,5 +6374,3 @@ export const cleanupDuplicateBusinesses = onCall<{
     throw new HttpsError('internal', `Failed to cleanup duplicate businesses: ${(error as Error).message}`);
   }
 });
-
-
