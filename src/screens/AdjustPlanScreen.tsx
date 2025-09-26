@@ -50,6 +50,7 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
   >(null);
   const [userActualBillingPeriod, setUserActualBillingPeriod] =
     useState<BillingPeriod | null>(null);
+  console.log("🚀 ~ AdjustPlanScreen ~ userActualBillingPeriod:", userActualBillingPeriod)
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const shimmerValue = useRef(new Animated.Value(0)).current;
   const lastRequestTime = useRef(0);
@@ -124,6 +125,7 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
   const loadUserActualBillingPeriod = async () => {
     try {
       const period = await getCurrentBillingPeriod();
+      console.log("🚀 ~ loadUserActualBillingPeriod ~ period:", period)
       if (period) {
         setUserActualBillingPeriod(period);
       } else {
@@ -563,16 +565,6 @@ const AdjustPlanScreen: React.FC<AdjustPlanScreenProps> = ({ navigation }) => {
             </View>
 
             <View style={styles.headerBadges}>
-              {isCurrentPlan && (
-                <View
-                  style={[
-                    styles.currentBadge,
-                    { backgroundColor: actionColor },
-                  ]}
-                >
-                  <Text style={styles.currentBadgeText}>Current</Text>
-                </View>
-              )}
               <SavingsBadge
                 savings={calculateAnnualSavings(tier)}
                 tier={tier}

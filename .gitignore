@@ -141,7 +141,6 @@ serviceAccountKey.json
 !app.json
 !eas.json
 !tsconfig.json
-!google-services.json
 GoogleService-Info.plist
 
 # Environment files - keep secrets secure
@@ -155,5 +154,7 @@ GoogleService-Info.plist
 # Removed .env.development and .env.production from being tracked
 functions/.env.production
 google-services.json
-google-services.json
 android/app/google-services.json
+
+android
+ios

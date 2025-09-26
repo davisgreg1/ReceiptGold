@@ -310,14 +310,14 @@ class RevenueCatService {
           // Check against all possible product IDs for each tier (new and legacy)
           if (mostRecentProductId === 'rg_starter') {
             return 'starter';
-          } else if (mostRecentProductId === 'rg_growth_monthly' || 
-                     mostRecentProductId === 'rg_growth_annual') {
+          } else if (mostRecentProductId === 'rg_growth_monthly' ||
+            mostRecentProductId === 'rg_growth_annual') {
             return 'growth';
-          } else if (mostRecentProductId === 'rg_professional_monthly' || 
-                     mostRecentProductId === 'rg_professional_annual') {
+          } else if (mostRecentProductId === 'rg_professional_monthly' ||
+            mostRecentProductId === 'rg_professional_annual') {
             return 'professional';
           } else if (mostRecentProductId === '$rc_monthly' ||
-                     mostRecentProductId === '$rc_annual') {
+            mostRecentProductId === '$rc_annual') {
             return 'growth'; // Default legacy IDs to growth tier
           } else {
             console.log(`⚠️ Unknown product ID: ${mostRecentProductId}, defaulting to growth tier`);
@@ -332,14 +332,14 @@ class RevenueCatService {
 
           if (productId === 'rg_starter') {
             return 'starter';
-          } else if (productId === 'rg_growth_monthly' || 
-                     productId === 'rg_growth_annual') {
+          } else if (productId === 'rg_growth_monthly' ||
+            productId === 'rg_growth_annual') {
             return 'growth';
-          } else if (productId === 'rg_professional_monthly' || 
-                     productId === 'rg_professional_annual') {
+          } else if (productId === 'rg_professional_monthly' ||
+            productId === 'rg_professional_annual') {
             return 'professional';
           } else if (productId === '$rc_monthly' ||
-                     productId === '$rc_annual') {
+            productId === '$rc_annual') {
             return 'growth'; // Default legacy IDs to growth tier
           } else {
             console.log(`⚠️ Unknown product ID in fallback: ${productId}, defaulting to growth`);
@@ -358,10 +358,13 @@ class RevenueCatService {
   async getCurrentBillingPeriod(forceRefresh: boolean = false): Promise<'monthly' | 'annual' | null> {
     try {
       const customerInfo = await this.getCustomerInfo(forceRefresh);
+      console.log("🚀 ~ RevenueCatService ~ getCurrentBillingPeriod ~ customerInfo:", customerInfo)
       const activeEntitlements = customerInfo.entitlements.active;
+      console.log("🚀 ~ RevenueCatService ~ getCurrentBillingPeriod ~ activeEntitlements:", activeEntitlements)
 
-      if (activeEntitlements.pro) {
+      if (activeEntitlements.Premium) {
         const activeSubscriptions = customerInfo.activeSubscriptions;
+        console.log("🚀 ~ RevenueCatService ~ getCurrentBillingPeriod ~ activeSubscriptions:", activeSubscriptions)
 
         if (activeSubscriptions.length > 0) {
           // Get the most recent product ID
@@ -388,16 +391,24 @@ class RevenueCatService {
             }
           }
 
+          // If we couldn't find purchase dates, fall back to first active subscription
+          if (!mostRecentProductId && activeSubscriptions.length > 0) {
+            mostRecentProductId = activeSubscriptions[0];
+            console.log("🚀 ~ RevenueCatService ~ getCurrentBillingPeriod ~ fallback to first subscription:", mostRecentProductId)
+          }
+
+          console.log("🚀 ~ RevenueCatService ~ getCurrentBillingPeriod ~ mostRecentProductId:", mostRecentProductId)
+
           // Determine billing period from product ID
           if (mostRecentProductId) {
             if (mostRecentProductId === 'rg_starter' ||
-                mostRecentProductId === 'rg_growth_monthly' || 
-                mostRecentProductId === 'rg_professional_monthly' ||
-                mostRecentProductId === '$rc_monthly') {
+              mostRecentProductId === 'rg_growth_monthly' ||
+              mostRecentProductId === 'rg_professional_monthly' ||
+              mostRecentProductId === '$rc_monthly') {
               return 'monthly';
-            } else if (mostRecentProductId === 'rg_growth_annual' || 
-                       mostRecentProductId === 'rg_professional_annual' ||
-                       mostRecentProductId === '$rc_annual') {
+            } else if (mostRecentProductId === 'rg_growth_annual' ||
+              mostRecentProductId === 'rg_professional_annual' ||
+              mostRecentProductId === '$rc_annual') {
               return 'annual';
             }
           }
@@ -465,12 +476,12 @@ class RevenueCatService {
 
       if (error instanceof Error) {
         // Handle user cancellation gracefully
-        if (error.message.includes('user cancelled') || error.message.includes('cancelled')) {
-          return {
-            success: false,
-            error: 'Purchase was cancelled by user',
-          };
-        }
+        // if (error.message.includes('user cancelled') || error.message.includes('cancelled')) {
+        //   return {
+        //     success: false,
+        //     error: 'Purchase was cancelled by user',
+        //   };
+        // }
 
         return {
           success: false,
@@ -535,22 +546,22 @@ class RevenueCatService {
   // Get product ID based on tier and billing period
   async getProductId(tierId: SubscriptionTierKey, billingPeriod: 'monthly' | 'annual'): Promise<string | null> {
     const tier = this.getSubscriptionTier(tierId);
-    
+
     // First try the new product IDs
     const preferredProductId = tier.productIds[billingPeriod];
-    
+
     // Check if this product ID exists in our offerings
     if (preferredProductId && await this.isProductAvailable(preferredProductId)) {
       return preferredProductId;
     }
-    
+
     // Fallback to legacy product IDs if they exist
     const legacyProductId = (tier as any).legacyProductIds?.[billingPeriod];
     if (legacyProductId && await this.isProductAvailable(legacyProductId)) {
       console.log(`📋 Using legacy product ID: ${legacyProductId} for ${tierId} ${billingPeriod}`);
       return legacyProductId;
     }
-    
+
     // If neither work, try to find any package with the right billing period
     const allPackages = await this.getAllAvailablePackages();
     const matchingPackage = allPackages.find(pkg => {
@@ -560,12 +571,12 @@ class RevenueCatService {
         return pkg.packageType === 'ANNUAL' || pkg.product.identifier.includes('annual');
       }
     });
-    
+
     if (matchingPackage) {
       console.log(`📋 Auto-detected product ID: ${matchingPackage.product.identifier} for ${tierId} ${billingPeriod}`);
       return matchingPackage.product.identifier;
     }
-    
+
     return null;
   }
 

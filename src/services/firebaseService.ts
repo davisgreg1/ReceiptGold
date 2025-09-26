@@ -440,10 +440,10 @@ export const receiptService = {
               maxApiCalls = 0;
               maxReports = 0;
               break;
-            default: // unknown tier, default to starter
-              maxReceipts = parseInt(Constants.expoConfig?.extra?.STARTER_TIER_MAX_RECEIPTS || "50", 10);
+            default: // unknown tier, use minimal limits
+              maxReceipts = 0;
               maxApiCalls = 0;
-              maxReports = 10;
+              maxReports = 0;
               break;
           }
 

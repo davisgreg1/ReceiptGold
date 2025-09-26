@@ -724,10 +724,10 @@ export const onRevenueCatPurchase = onCustomEventPublished(
   async (event) => {
     try {
       Logger.info('RevenueCat purchase event received', { eventId: event.id });
-      
+
       const eventData = event.data;
       const userId = eventData?.app_user_id;
-      
+
       if (!userId) {
         Logger.error('No app_user_id found in purchase event', { eventData });
         return;
@@ -747,10 +747,10 @@ export const onRevenueCatRenewal = onCustomEventPublished(
   async (event) => {
     try {
       Logger.info('RevenueCat renewal event received', { eventId: event.id });
-      
+
       const eventData = event.data;
       const userId = eventData?.app_user_id;
-      
+
       if (!userId) {
         Logger.error('No app_user_id found in renewal event', { eventData });
         return;
@@ -770,10 +770,10 @@ export const onRevenueCatCancellation = onCustomEventPublished(
   async (event) => {
     try {
       Logger.info('RevenueCat cancellation event received', { eventId: event.id });
-      
+
       const eventData = event.data;
       const userId = eventData?.app_user_id;
-      
+
       if (!userId) {
         Logger.error('No app_user_id found in cancellation event', { eventData });
         return;
@@ -793,10 +793,10 @@ export const onRevenueCatExpiration = onCustomEventPublished(
   async (event) => {
     try {
       Logger.info('RevenueCat expiration event received', { eventId: event.id });
-      
+
       const eventData = event.data;
       const userId = eventData?.app_user_id;
-      
+
       if (!userId) {
         Logger.error('No app_user_id found in expiration event', { eventData });
         return;
@@ -816,10 +816,10 @@ export const onRevenueCatBillingIssue = onCustomEventPublished(
   async (event) => {
     try {
       Logger.info('RevenueCat billing issue event received', { eventId: event.id });
-      
+
       const eventData = event.data;
       const userId = eventData?.app_user_id;
-      
+
       if (!userId) {
         Logger.error('No app_user_id found in billing issue event', { eventData });
         return;
@@ -839,10 +839,10 @@ export const onRevenueCatProductChange = onCustomEventPublished(
   async (event) => {
     try {
       Logger.info('RevenueCat product change event received', { eventId: event.id });
-      
+
       const eventData = event.data;
       const userId = eventData?.app_user_id;
-      
+
       if (!userId) {
         Logger.error('No app_user_id found in product change event', { eventData });
         return;
@@ -862,18 +862,18 @@ export const onRevenueCatTransfer = onCustomEventPublished(
   async (event) => {
     try {
       Logger.info('RevenueCat transfer event received', { eventId: event.id });
-      
+
       const eventData = event.data;
       const newUserId = eventData?.app_user_id;
       const originalUserId = eventData?.origin_app_user_id;
       const transferredFrom = eventData?.transferred_from;
       const transferredTo = eventData?.transferred_to;
-      
+
       if (!newUserId || !originalUserId) {
-        Logger.error('Missing required user IDs in transfer event', { 
-          newUserId, 
-          originalUserId, 
-          eventData 
+        Logger.error('Missing required user IDs in transfer event', {
+          newUserId,
+          originalUserId,
+          eventData
         });
         return;
       }
@@ -886,12 +886,12 @@ export const onRevenueCatTransfer = onCustomEventPublished(
       });
 
       await handleAccountTransfer(originalUserId, newUserId, eventData);
-      Logger.info('Successfully processed RevenueCat transfer event', { 
-        originalUserId, 
-        newUserId 
+      Logger.info('Successfully processed RevenueCat transfer event', {
+        originalUserId,
+        newUserId
       });
     } catch (error) {
-      Logger.error('Error processing RevenueCat transfer event', { 
+      Logger.error('Error processing RevenueCat transfer event', {
         error: (error as Error).message,
         stack: (error as Error).stack
       });
@@ -901,8 +901,8 @@ export const onRevenueCatTransfer = onCustomEventPublished(
 
 // Helper function to handle all RevenueCat subscription changes
 async function handleRevenueCatSubscriptionChange(
-  userId: string, 
-  eventData: any, 
+  userId: string,
+  eventData: any,
   eventType: string
 ): Promise<void> {
   try {
@@ -941,7 +941,13 @@ async function handleRevenueCatSubscriptionChange(
         if (expiresDate > new Date()) {
           isActive = true;
           // Map entitlement to tier (you'll need to configure this based on your RevenueCat setup)
-          currentTier = mapEntitlementToTier(entitlementId);
+          const mappedTier = mapEntitlementToTier(entitlementId);
+          if (mappedTier) {
+            currentTier = mappedTier;
+          } else {
+            Logger.warn(`Failed to map entitlement ${entitlementId}, subscription will be inactive`);
+            isActive = false;
+          }
           break;
         }
       }
@@ -1043,24 +1049,24 @@ async function handleRevenueCatSubscriptionChange(
     // Update user's usage limits for the current month
     const currentMonth = new Date().toISOString().slice(0, 7);
     const usageRef = db.collection('usage').doc(`${userId}_${currentMonth}`);
-    
+
     await usageRef.set({
       limits: subscriptionTiers[currentTier].limits,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     }, { merge: true });
 
-    Logger.info('Successfully updated subscription from RevenueCat event', { 
-      userId, 
-      eventType, 
-      currentTier, 
-      isActive 
+    Logger.info('Successfully updated subscription from RevenueCat event', {
+      userId,
+      eventType,
+      currentTier,
+      isActive
     });
 
   } catch (error) {
-    Logger.error('Error handling RevenueCat subscription change', { 
-      error: (error as Error).message, 
-      userId, 
-      eventType 
+    Logger.error('Error handling RevenueCat subscription change', {
+      error: (error as Error).message,
+      userId,
+      eventType
     });
     throw error;
   }
@@ -1068,8 +1074,8 @@ async function handleRevenueCatSubscriptionChange(
 
 // Helper function to handle account transfers from RevenueCat
 async function handleAccountTransfer(
-  originalUserId: string, 
-  newUserId: string, 
+  originalUserId: string,
+  newUserId: string,
   eventData: any
 ): Promise<void> {
   try {
@@ -1093,10 +1099,10 @@ async function handleAccountTransfer(
     try {
       const originalSubscriptionRef = db.collection('subscriptions').doc(originalUserId);
       const originalSubscriptionDoc = await originalSubscriptionRef.get();
-      
+
       if (originalSubscriptionDoc.exists) {
         const subscriptionData = originalSubscriptionDoc.data() as SubscriptionDocument;
-        
+
         // Update the subscription to point to the new user
         const newSubscriptionRef = db.collection('subscriptions').doc(newUserId);
         const transferredSubscription: SubscriptionDocument = {
@@ -1115,14 +1121,14 @@ async function handleAccountTransfer(
         };
 
         batch.set(newSubscriptionRef, transferredSubscription);
-        
+
         // Archive the original subscription
         batch.update(originalSubscriptionRef, {
           status: 'transferred',
           transferredTo: newUserId,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
-        
+
         Logger.info('Subscription transfer prepared', { originalUserId, newUserId });
       }
     } catch (error) {
@@ -1134,20 +1140,20 @@ async function handleAccountTransfer(
       const receiptsSnapshot = await db.collection('receipts')
         .where('userId', '==', originalUserId)
         .get();
-      
+
       Logger.info(`Found ${receiptsSnapshot.size} receipts to transfer`);
-      
+
       for (const receiptDoc of receiptsSnapshot.docs) {
         const receiptData = receiptDoc.data();
         const newReceiptRef = db.collection('receipts').doc(); // New document ID
-        
+
         batch.set(newReceiptRef, {
           ...receiptData,
           userId: newUserId,
           transferredFrom: originalUserId,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
-        
+
         // Mark original receipt as transferred
         batch.update(receiptDoc.ref, {
           status: 'transferred',
@@ -1164,9 +1170,9 @@ async function handleAccountTransfer(
       const teamMembershipsSnapshot = await db.collection('teamMemberships')
         .where('ownerId', '==', originalUserId)
         .get();
-      
+
       Logger.info(`Found ${teamMembershipsSnapshot.size} team memberships to transfer`);
-      
+
       for (const membershipDoc of teamMembershipsSnapshot.docs) {
         batch.update(membershipDoc.ref, {
           ownerId: newUserId,
@@ -1183,9 +1189,9 @@ async function handleAccountTransfer(
       const teamMembersSnapshot = await db.collection('teamMembers')
         .where('userId', '==', originalUserId)
         .get();
-      
+
       Logger.info(`Found ${teamMembersSnapshot.size} team member records to transfer`);
-      
+
       for (const memberDoc of teamMembersSnapshot.docs) {
         batch.update(memberDoc.ref, {
           userId: newUserId,
@@ -1202,22 +1208,22 @@ async function handleAccountTransfer(
       const usageSnapshot = await db.collection('usage')
         .where('userId', '==', originalUserId)
         .get();
-      
+
       Logger.info(`Found ${usageSnapshot.size} usage records to transfer`);
-      
+
       for (const usageDoc of usageSnapshot.docs) {
         const usageData = usageDoc.data();
         // Create new usage document with updated userId pattern
         const newUsageId = usageDoc.id.replace(originalUserId, newUserId);
         const newUsageRef = db.collection('usage').doc(newUsageId);
-        
+
         batch.set(newUsageRef, {
           ...usageData,
           userId: newUserId,
           transferredFrom: originalUserId,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
-        
+
         // Mark original as transferred
         batch.update(usageDoc.ref, {
           status: 'transferred',
@@ -1234,20 +1240,20 @@ async function handleAccountTransfer(
       const businessStatsSnapshot = await db.collection('businessStats')
         .where('userId', '==', originalUserId)
         .get();
-      
+
       Logger.info(`Found ${businessStatsSnapshot.size} business stats records to transfer`);
-      
+
       for (const statsDoc of businessStatsSnapshot.docs) {
         const statsData = statsDoc.data();
         const newStatsRef = db.collection('businessStats').doc();
-        
+
         batch.set(newStatsRef, {
           ...statsData,
           userId: newUserId,
           transferredFrom: originalUserId,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         });
-        
+
         // Mark original as transferred
         batch.update(statsDoc.ref, {
           status: 'transferred',
@@ -1264,9 +1270,9 @@ async function handleAccountTransfer(
       const bankConnectionsSnapshot = await db.collection('bankConnections')
         .where('userId', '==', originalUserId)
         .get();
-      
+
       Logger.info(`Found ${bankConnectionsSnapshot.size} bank connections to transfer`);
-      
+
       for (const connectionDoc of bankConnectionsSnapshot.docs) {
         batch.update(connectionDoc.ref, {
           userId: newUserId,
@@ -1283,20 +1289,20 @@ async function handleAccountTransfer(
       const userPrefsSnapshot = await db.collection('userPreferences')
         .where('userId', '==', originalUserId)
         .get();
-      
+
       Logger.info(`Found ${userPrefsSnapshot.size} user preference records to transfer`);
-      
+
       for (const prefsDoc of userPrefsSnapshot.docs) {
         const prefsData = prefsDoc.data();
         const newPrefsRef = db.collection('userPreferences').doc(newUserId);
-        
+
         batch.set(newPrefsRef, {
           ...prefsData,
           userId: newUserId,
           transferredFrom: originalUserId,
           updatedAt: admin.firestore.FieldValue.serverTimestamp()
         }, { merge: true });
-        
+
         // Mark original as transferred
         batch.update(prefsDoc.ref, {
           status: 'transferred',
@@ -1313,9 +1319,9 @@ async function handleAccountTransfer(
       const notificationSettingsSnapshot = await db.collection('notificationSettings')
         .where('userId', '==', originalUserId)
         .get();
-      
+
       Logger.info(`Found ${notificationSettingsSnapshot.size} notification settings to transfer`);
-      
+
       for (const settingsDoc of notificationSettingsSnapshot.docs) {
         batch.update(settingsDoc.ref, {
           userId: newUserId,
@@ -1329,7 +1335,7 @@ async function handleAccountTransfer(
 
     // Commit all the batch operations
     await batch.commit();
-    
+
     // Log the completion
     if (transferErrors.length > 0) {
       Logger.warn('Account transfer completed with some errors', {
@@ -1374,11 +1380,11 @@ async function handleAccountTransfer(
 // REMOVED: RevenueCat subscription recovery function - no longer needed with immediate hard deletion
 
 // Helper function to map RevenueCat entitlements to your app's tiers
-function mapEntitlementToTier(entitlementId: string): string {
+function mapEntitlementToTier(entitlementId: string): string | null {
   // Configure this mapping based on your RevenueCat entitlement setup
   const entitlementToTierMap: Record<string, string> = {
     'starter': 'starter',
-    'growth': 'growth', 
+    'growth': 'growth',
     'professional': 'professional',
     'pro': 'professional',
     'premium': 'professional',
@@ -1390,8 +1396,8 @@ function mapEntitlementToTier(entitlementId: string): string {
     return tier;
   }
 
-  Logger.warn(`Unknown entitlement ID: ${entitlementId}, defaulting to starter tier`);
-  return 'starter'; // Default to starter if unknown
+  Logger.warn(`Unknown entitlement ID: ${entitlementId}, unable to determine tier`);
+  return null; // Return null for unknown entitlements
 }
 
 // REMOVED: Manual recovery function - no longer needed with immediate hard deletion
@@ -4344,7 +4350,7 @@ async function sendSubscriptionEventNotification(userId: string, eventType: stri
       case 'EXPIRATION':
         notificationData = {
           title: "Your ReceiptGold subscription has expired",
-          body: "Your account has been moved to our free tier. Upgrade to continue accessing premium features.",
+          body: "Upgrade to continue accessing premium features.",
           data: {
             type: "subscription_expiration"
           }

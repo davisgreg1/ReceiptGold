@@ -74,8 +74,12 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
         return "growth";
       case "professional":
         return "professional";
+      case "teammate":
+        return "growth"; // Teammates use growth tier for upgrades
+      case null:
+        return "starter"; // Default to starter for null (no subscription)
       default:
-        return "starter";
+        throw new Error(`Unknown subscription tier: ${tier}`);
     }
   };
 
@@ -154,11 +158,23 @@ export const UpgradePrompt: React.FC<UpgradePromptProps> = ({
           price: getPrice("professional"),
           color: "#F59E0B",
         };
+      case "teammate":
+        return {
+          name: "Team Member",
+          price: "Managed by Admin",
+          color: "#10B981",
+        };
+      case null:
+        return {
+          name: "No Subscription",
+          price: "Free",
+          color: "#6B7280",
+        };
       default:
         return {
-          name: "Starter Plan",
-          price: getPrice("starter"),
-          color: "#3B82F6",
+          name: "Unknown Plan",
+          price: "Contact Support",
+          color: "#6B7280",
         };
     }
   };
@@ -330,6 +346,17 @@ const getBenefits = (tier: SubscriptionTier): string[] => {
         "Everything in Growth",
         "Multi-business management",
         "Dedicated account manager",
+      ];
+    case "teammate":
+      return [
+        "Access to assigned business",
+        "Receipt scanning",
+        "Basic reporting",
+      ];
+    case null:
+      return [
+        "No active subscription",
+        "Limited access",
       ];
     default:
       return [];
