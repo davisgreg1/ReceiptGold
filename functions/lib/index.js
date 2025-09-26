@@ -25,7 +25,7 @@ var __importStar = (this && this.__importStar) || function (mod) {
     return result;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.cleanupOrphanedUserData = exports.cleanupSandboxPlaidConnections = exports.deleteUserAccount = exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.onRevenueCatTransfer = exports.onRevenueCatProductChange = exports.onRevenueCatBillingIssue = exports.onRevenueCatExpiration = exports.onRevenueCatCancellation = exports.onRevenueCatRenewal = exports.onRevenueCatPurchase = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
+exports.cleanupDuplicateBusinesses = exports.cleanupOrphanedUserData = exports.cleanupSandboxPlaidConnections = exports.deleteUserAccount = exports.sendContactSupportEmail = exports.onSubscriptionStatusChange = exports.checkAccountHolderSubscription = exports.revenueCatWebhookHandler = exports.onTeamMemberRemoved = exports.cleanupExpiredInvitations = exports.sendTeamInvitationEmail = exports.directTestPlaidWebhook = exports.testPlaidWebhook = exports.testDeviceCheck = exports.saveDeviceToken = exports.markDeviceUsed = exports.debugWebhook = exports.healthCheck = exports.onUserDelete = exports.generateReport = exports.updateBusinessStats = exports.resetMonthlyUsage = exports.monitorBankConnections = exports.createPlaidLinkToken = exports.createPlaidUpdateToken = exports.onConnectionNotificationCreate = exports.testWebhookConfig = exports.initializeNotificationSettings = exports.plaidWebhook = exports.onReceiptCreate = exports.onUserCreate = exports.onRevenueCatTransfer = exports.onRevenueCatProductChange = exports.onRevenueCatBillingIssue = exports.onRevenueCatExpiration = exports.onRevenueCatCancellation = exports.onRevenueCatRenewal = exports.onRevenueCatPurchase = exports.completeAccountCreation = exports.checkDeviceForAccountCreation = exports.TIER_LIMITS = void 0;
 // REMOVED: Unused functions import
 const functionsV1 = __importStar(require("firebase-functions/v1"));
 const admin = __importStar(require("firebase-admin"));
@@ -978,7 +978,61 @@ async function handleAccountTransfer(originalUserId, newUserId, eventData) {
         catch (error) {
             transferErrors.push(`Usage data transfer failed: ${error.message}`);
         }
-        // 6. Transfer Business Stats
+        // 6. Transfer Businesses (with duplicate prevention)
+        try {
+            const businessesSnapshot = await db.collection('businesses')
+                .where('userId', '==', originalUserId)
+                .get();
+            Logger.info(`Found ${businessesSnapshot.size} businesses to transfer`);
+            // Get existing businesses for the new user to prevent duplicates
+            const existingBusinessesSnapshot = await db.collection('businesses')
+                .where('userId', '==', newUserId)
+                .get();
+            const existingBusinesses = new Set();
+            existingBusinessesSnapshot.forEach(doc => {
+                const business = doc.data();
+                const key = `${business.name || 'unnamed'}_${business.address || 'no-address'}_${business.ein || 'no-ein'}`;
+                existingBusinesses.add(key);
+            });
+            let businessesTransferred = 0;
+            let businessesSkipped = 0;
+            for (const businessDoc of businessesSnapshot.docs) {
+                const businessData = businessDoc.data();
+                const businessKey = `${businessData.name || 'unnamed'}_${businessData.address || 'no-address'}_${businessData.ein || 'no-ein'}`;
+                // Skip if business already exists for the new user
+                if (existingBusinesses.has(businessKey)) {
+                    businessesSkipped++;
+                    Logger.info(`Skipping duplicate business: ${businessKey}`);
+                    // Still mark original as transferred
+                    batch.update(businessDoc.ref, {
+                        status: 'transferred',
+                        transferredTo: newUserId,
+                        updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                    });
+                    continue;
+                }
+                // Transfer the business
+                const newBusinessRef = db.collection('businesses').doc(); // New document ID
+                batch.set(newBusinessRef, {
+                    ...businessData,
+                    userId: newUserId,
+                    transferredFrom: originalUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                // Mark original business as transferred
+                batch.update(businessDoc.ref, {
+                    status: 'transferred',
+                    transferredTo: newUserId,
+                    updatedAt: admin.firestore.FieldValue.serverTimestamp()
+                });
+                businessesTransferred++;
+            }
+            Logger.info(`Business transfer completed: ${businessesTransferred} transferred, ${businessesSkipped} skipped (duplicates)`);
+        }
+        catch (error) {
+            transferErrors.push(`Businesses transfer failed: ${error.message}`);
+        }
+        // 7. Transfer Business Stats
         try {
             const businessStatsSnapshot = await db.collection('businessStats')
                 .where('userId', '==', originalUserId)
@@ -1004,7 +1058,7 @@ async function handleAccountTransfer(originalUserId, newUserId, eventData) {
         catch (error) {
             transferErrors.push(`Business stats transfer failed: ${error.message}`);
         }
-        // 7. Transfer Bank Connections
+        // 8. Transfer Bank Connections
         try {
             const bankConnectionsSnapshot = await db.collection('bankConnections')
                 .where('userId', '==', originalUserId)
@@ -1021,7 +1075,7 @@ async function handleAccountTransfer(originalUserId, newUserId, eventData) {
         catch (error) {
             transferErrors.push(`Bank connections transfer failed: ${error.message}`);
         }
-        // 8. Transfer User Preferences/Settings
+        // 9. Transfer User Preferences/Settings
         try {
             const userPrefsSnapshot = await db.collection('userPreferences')
                 .where('userId', '==', originalUserId)
@@ -1047,7 +1101,7 @@ async function handleAccountTransfer(originalUserId, newUserId, eventData) {
         catch (error) {
             transferErrors.push(`User preferences transfer failed: ${error.message}`);
         }
-        // 9. Transfer Notification Settings
+        // 10. Transfer Notification Settings
         try {
             const notificationSettingsSnapshot = await db.collection('notificationSettings')
                 .where('userId', '==', originalUserId)
@@ -5040,6 +5094,129 @@ exports.cleanupOrphanedUserData = (0, https_1.onCall)({
             throw error;
         }
         throw new https_1.HttpsError('internal', `Failed to cleanup orphaned data: ${error.message}`);
+    }
+});
+// Clean up duplicate businesses from multiple transfers
+exports.cleanupDuplicateBusinesses = (0, https_1.onCall)({
+    cors: true,
+    region: 'us-central1'
+}, async (request) => {
+    var _a, _b, _c, _d, _e, _f;
+    try {
+        // Enhanced authentication debugging
+        Logger.info('cleanupDuplicateBusinesses called', {
+            hasAuth: !!request.auth,
+            authUid: (_a = request.auth) === null || _a === void 0 ? void 0 : _a.uid,
+            authToken: ((_b = request.auth) === null || _b === void 0 ? void 0 : _b.token) ? 'token present' : 'no token',
+            rawAuth: request.auth,
+            requestData: request.data
+        });
+        if (!((_c = request.auth) === null || _c === void 0 ? void 0 : _c.uid)) {
+            Logger.error('Authentication failed in cleanupDuplicateBusinesses', {
+                request: {
+                    auth: request.auth,
+                    data: request.data,
+                    rawAuth: JSON.stringify(request.auth)
+                }
+            });
+            throw new https_1.HttpsError('unauthenticated', 'User must be authenticated to clean up businesses');
+        }
+        const userId = ((_d = request.data) === null || _d === void 0 ? void 0 : _d.userId) || request.auth.uid;
+        const confirmDelete = ((_e = request.data) === null || _e === void 0 ? void 0 : _e.confirmDelete) === true;
+        Logger.info('Starting duplicate business cleanup', { userId, confirmDelete });
+        // Get all businesses for the user
+        const businessesSnapshot = await db.collection('businesses')
+            .where('userId', '==', userId)
+            .get();
+        if (businessesSnapshot.empty) {
+            return {
+                success: true,
+                message: 'No businesses found for this user',
+                duplicatesFound: 0,
+                duplicatesDeleted: 0,
+                duplicateGroups: 0
+            };
+        }
+        // Group businesses by name and other identifying characteristics
+        const businessGroups = new Map();
+        businessesSnapshot.forEach(doc => {
+            const businessData = doc.data();
+            const business = { id: doc.id, ...businessData };
+            const key = `${businessData.name || 'unnamed'}_${businessData.address || 'no-address'}_${businessData.ein || 'no-ein'}`;
+            if (!businessGroups.has(key)) {
+                businessGroups.set(key, []);
+            }
+            businessGroups.get(key).push(business);
+        });
+        // Find duplicates (groups with more than 1 business)
+        const duplicateGroups = Array.from(businessGroups.entries())
+            .filter(([, businesses]) => businesses.length > 1);
+        let totalDuplicatesFound = 0;
+        let totalDuplicatesDeleted = 0;
+        if (duplicateGroups.length === 0) {
+            return {
+                success: true,
+                message: 'No duplicate businesses found',
+                duplicatesFound: 0,
+                duplicatesDeleted: 0,
+                duplicateGroups: 0
+            };
+        }
+        Logger.info(`Found ${duplicateGroups.length} groups with duplicates`);
+        const batch = db.batch();
+        let batchSize = 0;
+        for (const [groupKey, businesses] of duplicateGroups) {
+            // Keep the most recent business (by createdAt or updatedAt)
+            businesses.sort((a, b) => {
+                var _a, _b, _c, _d, _e, _f, _g, _h;
+                const aTime = ((_b = (_a = a.updatedAt) === null || _a === void 0 ? void 0 : _a.toDate) === null || _b === void 0 ? void 0 : _b.call(_a)) || ((_d = (_c = a.createdAt) === null || _c === void 0 ? void 0 : _c.toDate) === null || _d === void 0 ? void 0 : _d.call(_c)) || new Date(0);
+                const bTime = ((_f = (_e = b.updatedAt) === null || _e === void 0 ? void 0 : _e.toDate) === null || _f === void 0 ? void 0 : _f.call(_e)) || ((_h = (_g = b.createdAt) === null || _g === void 0 ? void 0 : _g.toDate) === null || _h === void 0 ? void 0 : _h.call(_g)) || new Date(0);
+                return bTime.getTime() - aTime.getTime();
+            });
+            const [keepBusiness, ...duplicatesToDelete] = businesses;
+            totalDuplicatesFound += duplicatesToDelete.length;
+            Logger.info(`Group ${groupKey}: keeping ${keepBusiness.id}, deleting ${duplicatesToDelete.length} duplicates`);
+            if (confirmDelete) {
+                for (const duplicate of duplicatesToDelete) {
+                    if (batchSize >= 500) {
+                        await batch.commit();
+                        batchSize = 0;
+                    }
+                    batch.delete(db.collection('businesses').doc(duplicate.id));
+                    batchSize++;
+                    totalDuplicatesDeleted++;
+                }
+            }
+        }
+        if (confirmDelete && batchSize > 0) {
+            await batch.commit();
+        }
+        const resultMessage = confirmDelete
+            ? `Successfully deleted ${totalDuplicatesDeleted} duplicate businesses for user ${userId}`
+            : `Found ${totalDuplicatesFound} duplicate businesses for user ${userId}. Use confirmDelete=true to delete them.`;
+        Logger.info(resultMessage, {
+            userId,
+            duplicatesFound: totalDuplicatesFound,
+            duplicatesDeleted: totalDuplicatesDeleted,
+            duplicateGroups: duplicateGroups.length
+        });
+        return {
+            success: true,
+            message: resultMessage,
+            duplicatesFound: totalDuplicatesFound,
+            duplicatesDeleted: totalDuplicatesDeleted,
+            duplicateGroups: duplicateGroups.length
+        };
+    }
+    catch (error) {
+        Logger.error('❌ Error cleaning up duplicate businesses:', {
+            error: error.message,
+            userId: (_f = request.data) === null || _f === void 0 ? void 0 : _f.userId
+        });
+        if (error instanceof https_1.HttpsError) {
+            throw error;
+        }
+        throw new https_1.HttpsError('internal', `Failed to cleanup duplicate businesses: ${error.message}`);
     }
 });
 //# sourceMappingURL=index.js.map
