@@ -3,10 +3,16 @@
     "version": ">= 13.0.0"
   },
   "build": {
+    "base": {
+      "env": {
+        "GOOGLE_SERVICES_JSON": "@GOOGLE_SERVICES_JSON"
+      },
+      "prebuildCommand": "npx expo prebuild"
+    },
     "development": {
+      "extends": "base",
       "developmentClient": true,
       "distribution": "internal",
-      "prebuildCommand": "npx expo prebuild --clean",
       "ios": {
         "resourceClass": "m-medium",
         "buildConfiguration": "Debug"
@@ -23,8 +29,22 @@
       }
     },
     "preview": {
+      "extends": "base",
       "distribution": "internal",
-      "prebuildCommand": "npx expo prebuild --clean",
+      "ios": {
+        "resourceClass": "m-medium",
+        "cache": {
+          "disabled": true
+        }
+      },
+      "android": {
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease",
+        "prebuildCommand": "npx expo prebuild && npm run generate-google-services"
+      }
+    },
+    "production": {
+      "extends": "base",
       "ios": {
         "resourceClass": "m-medium",
         "cache": {
@@ -34,18 +54,6 @@
       "android": {
         "buildType": "apk",
         "gradleCommand": ":app:assembleRelease"
-      }
-    },
-    "production": {
-      "prebuildCommand": "node scripts/generate-google-services.js && npx expo prebuild --clean",
-      "ios": {
-        "resourceClass": "m-medium",
-        "cache": {
-          "disabled": true
-        }
-      },
-      "android": {
-        "buildType": "apk"
       }
     }
   },

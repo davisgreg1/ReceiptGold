@@ -213,6 +213,7 @@ const formatFirestoreDate = (dateValue: any): string => {
 export const SettingsScreen: React.FC = () => {
   const { theme, themeMode, toggleTheme } = useTheme();
   const { subscription, canAccessFeature } = useSubscription();
+  console.log("🚀 ~ SettingsScreen ~ subscription:", subscription)
   const { user, logout, refreshUser } = useAuth();
   const { businesses, selectedBusiness } = useBusiness();
   const { teamMembers, teamInvitations, canInviteMembers, isTeamMember, currentMembership, accountHolderId } = useTeam();
@@ -1723,7 +1724,7 @@ export const SettingsScreen: React.FC = () => {
             }
             description={
               subscription.isActive
-                ? subscription.currentTier === "trial" || subscription.isActive
+                ? subscription.lastRevenueCatEvent?.eventData.period_type === "TRIAL"
                   ? `Your trial ends on ${
                       subscription.expiresAt?.toLocaleDateString() || "N/A"
                     }`

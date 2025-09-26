@@ -3,6 +3,36 @@
 const fs = require('fs');
 const path = require('path');
 
+// Generate google-services.json for Android
+function generateGoogleServices() {
+  const googleServicesJson = process.env.GOOGLE_SERVICES_JSON;
+  
+  if (!googleServicesJson) {
+    console.log('GOOGLE_SERVICES_JSON environment variable not found, skipping...');
+    return;
+  }
+
+  try {
+    // Decode base64 content
+    const decodedContent = Buffer.from(googleServicesJson, 'base64').toString('utf-8');
+    
+    // Ensure android/app directory exists
+    const androidAppDir = path.join(__dirname, '..', 'android', 'app');
+    if (!fs.existsSync(androidAppDir)) {
+      fs.mkdirSync(androidAppDir, { recursive: true });
+    }
+    
+    // Write the file
+    const outputPath = path.join(androidAppDir, 'google-services.json');
+    fs.writeFileSync(outputPath, decodedContent);
+    
+    console.log('✅ google-services.json generated successfully');
+  } catch (error) {
+    console.error('❌ Error generating google-services.json:', error.message);
+    process.exit(1);
+  }
+}
+
 // Generate GoogleService-Info.plist from environment variables
 function generateGoogleServicesPlist() {
   const requiredEnvVars = [
@@ -59,4 +89,5 @@ function generateGoogleServicesPlist() {
   console.log('✅ GoogleService-Info.plist generated successfully');
 }
 
+generateGoogleServices();
 generateGoogleServicesPlist();

@@ -7,18 +7,17 @@ import React, {
   useRef,
   useMemo,
 } from "react";
-import {
-  doc,
-  onSnapshot,
-  query,
-  collection,
-  where,
-} from "firebase/firestore";
+import { doc, onSnapshot, query, collection, where } from "firebase/firestore";
 import { useAuth } from "./AuthContext";
 import { db } from "../config/firebase";
 import { getMonthlyReceiptCount } from "../utils/getMonthlyReceipts";
 
-export type SubscriptionTier = "starter" | "growth" | "professional" | "teammate";
+export type SubscriptionTier =
+  | "starter"
+  | "growth"
+  | "professional"
+  | "teammate"
+  | null;
 
 export interface SubscriptionFeatures {
   maxReceipts: number;
@@ -57,6 +56,42 @@ export interface SubscriptionState {
   isActive: boolean;
   expiresAt: Date | null;
   billing: BillingInfo;
+  lastRevenueCatEvent?: {
+    eventData: {
+      aliases: string[];
+      app_id: string | null;
+      app_user_id: string | null;
+      commission_percentage: number | null;
+      country_code: string | null;
+      currency: string | null;
+      entitlement_id: string | null;
+      entitlement_ids: string[];
+      environment: string | null;
+      event_timestamp_ms: number | null;
+      expiration_at_ms: number | null;
+      id: string | null;
+      is_family_share: boolean | null;
+      is_trial_conversion: boolean | null;
+      original_app_user_id: string | null;
+      original_transaction_id: string | null;
+      period_type: string | null;
+      presented_offering_id: string | null;
+      price: number | null;
+      price_in_purchased_currency: number | null;
+      product_id: string | null;
+      purchased_at_ms: number | null;
+      renewal_number: number | null;
+      store: string | null;
+      subscriber_attributes: any;
+      takehome_percentage: number | null;
+      tax_percentage: number | null;
+      transaction_id: string | null;
+      type: string | null;
+    };
+    productId: string | null;
+    timestamp: Date | null;
+    type: string | null;
+  };
 }
 
 interface SubscriptionContextType {
@@ -96,8 +131,26 @@ const getReceiptLimits = () => {
   };
 };
 
-const getFeaturesByTier = (tier: SubscriptionTier, teamMemberRole?: string): SubscriptionFeatures => {
+const getFeaturesByTier = (
+  tier: SubscriptionTier,
+  teamMemberRole?: string
+): SubscriptionFeatures => {
   const limits = getReceiptLimits();
+
+  if (tier === null) {
+    // No subscription - minimal access
+    return {
+      maxReceipts: 0,
+      advancedReporting: false,
+      taxPreparation: false,
+      accountingIntegrations: false,
+      prioritySupport: false,
+      multiBusinessManagement: false,
+      receiptScanning: false,
+      exportOptions: false,
+      bulkOperations: false,
+    };
+  }
 
   switch (tier) {
     case "starter":
@@ -154,7 +207,7 @@ const getFeaturesByTier = (tier: SubscriptionTier, teamMemberRole?: string): Sub
         apiAccess: false,
         dedicatedManager: false,
         bankConnection: false, // No bank connections for teammates
-        teamManagement: teamMemberRole === 'admin', // Only admin teammates can manage teams
+        teamManagement: teamMemberRole === "admin", // Only admin teammates can manage teams
       };
     default:
       // Fallback to starter tier for unknown tiers (no more free tier)
@@ -185,7 +238,20 @@ const REFRESH_CONFIG = {
 
 // OPTIMIZATION: Memoized helper functions to reduce expensive recalculations
 
-const computeSubscriptionLimits = (effectiveTier: SubscriptionTier, receiptLimits: any) => {
+const computeSubscriptionLimits = (
+  effectiveTier: SubscriptionTier,
+  receiptLimits: any
+) => {
+  if (effectiveTier === null) {
+    return {
+      maxReceipts: 0,
+      maxBusinesses: 0,
+      apiCallsPerMonth: 0,
+      maxReports: 0,
+      maxTeamMembers: 0,
+    };
+  }
+
   return {
     maxReceipts:
       effectiveTier === "professional" || effectiveTier === "teammate"
@@ -212,7 +278,7 @@ const computeSubscriptionLimits = (effectiveTier: SubscriptionTier, receiptLimit
         ? 50
         : effectiveTier === "starter"
         ? 10
-        : 5, // Reduced default for non-subscribers
+        : 0, // No reports for unknown tiers
     maxTeamMembers:
       effectiveTier === "professional"
         ? 10 // Reasonable limit for team members
@@ -232,7 +298,7 @@ const applyTeamMemberOverrides = (baseState: any, teamMemberRole?: string) => {
       maxBusinesses: 1, // Limited to assigned business
       apiCallsPerMonth: 0, // No API access
       maxReports: 0, // No reports for teammates
-      maxTeamMembers: teamMemberRole === 'admin' ? 10 : 0, // Only admin teammates can manage team
+      maxTeamMembers: teamMemberRole === "admin" ? 10 : 0, // Only admin teammates can manage team
     },
   };
 };
@@ -246,7 +312,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isTeamMember, setIsTeamMember] = useState(false);
   const [teamMemberRole, setTeamMemberRole] = useState<string | undefined>();
-  
+
   // OPTIMIZATION: Track previous tier for receipt count refresh logic
   const previousTierRef = useRef<string | null>(null);
 
@@ -292,7 +358,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       refreshingRef.current = true;
       setIsRefreshing(true);
 
-
       try {
         // Progressive delay strategy
         if (!skipDelay) {
@@ -336,11 +401,15 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           throw new Error(`Invalid count received: ${count}`);
         }
 
-
         // Update state - use functional update to ensure we get the latest state
-        console.log('🔄 Updating currentReceiptCount from', currentReceiptCount, 'to', count);
-        setCurrentReceiptCount(prevCount => {
-          console.log('📊 State transition:', prevCount, '->', count);
+        console.log(
+          "🔄 Updating currentReceiptCount from",
+          currentReceiptCount,
+          "to",
+          count
+        );
+        setCurrentReceiptCount((prevCount) => {
+          console.log("📊 State transition:", prevCount, "->", count);
           return count;
         });
 
@@ -398,7 +467,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     }
   }, []);
 
-
   // Detect team members for subscription inheritance
   useEffect(() => {
     const checkTeamMemberStatus = async () => {
@@ -410,9 +478,11 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
       try {
         // Import TeamService dynamically to avoid circular dependencies
-        const { TeamService } = await import('../services/TeamService');
-        const membership = await TeamService.getTeamMembershipByUserId(user.uid);
-        
+        const { TeamService } = await import("../services/TeamService");
+        const membership = await TeamService.getTeamMembershipByUserId(
+          user.uid
+        );
+
         if (membership) {
           setIsTeamMember(true);
           setTeamMemberRole(membership.role);
@@ -421,7 +491,10 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
           setTeamMemberRole(undefined);
         }
       } catch (error) {
-        console.error('SubscriptionContext: Error checking team membership:', error);
+        console.error(
+          "SubscriptionContext: Error checking team membership:",
+          error
+        );
         setIsTeamMember(false);
         setTeamMemberRole(undefined);
       }
@@ -431,13 +504,13 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [user?.uid]);
 
   const [subscription, setSubscription] = useState<SubscriptionState>({
-    currentTier: "starter",
-    features: getFeaturesByTier("starter"),
+    currentTier: null,
+    features: getFeaturesByTier(null),
     limits: {
-      maxReceipts: 50, // Starter tier limit
-      maxBusinesses: 1,
+      maxReceipts: 0, // No access by default
+      maxBusinesses: 0,
       apiCallsPerMonth: 0,
-      maxReports: 10,
+      maxReports: 0,
       maxTeamMembers: 0,
     },
     isActive: false,
@@ -452,7 +525,7 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       trialEnd: null,
     },
   });
-  console.log("🚀 ~ SubscriptionProvider ~ subscription:", subscription)
+  console.log("🚀 ~ SubscriptionProvider ~ subscription:", subscription);
   const [loading, setLoading] = useState(true);
 
   // Refresh receipt count when user changes
@@ -473,13 +546,13 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
 
     if (!user) {
       setSubscription({
-        currentTier: "starter",
-        features: getFeaturesByTier("starter"),
+        currentTier: null,
+        features: getFeaturesByTier(null),
         limits: {
-          maxReceipts: 50, // Starter tier limit
-          maxBusinesses: 1,
+          maxReceipts: 0, // No access when not logged in
+          maxBusinesses: 0,
           apiCallsPerMonth: 0,
-          maxReports: 10,
+          maxReports: 0,
           maxTeamMembers: 0,
         },
         isActive: false,
@@ -502,161 +575,259 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       try {
         // Determine which subscription document to listen to
         let subscriptionUserId = user.uid;
-        
+
         if (isTeamMember) {
           // For team members, get their account holder's subscription
-          const { TeamService } = await import('../services/TeamService');
-          const membership = await TeamService.getTeamMembershipByUserId(user.uid);
-          console.log("🚀 ~ setupSubscriptionListener ~ membership:", membership)
+          const { TeamService } = await import("../services/TeamService");
+          const membership = await TeamService.getTeamMembershipByUserId(
+            user.uid
+          );
+          console.log(
+            "🚀 ~ setupSubscriptionListener ~ membership:",
+            membership
+          );
           if (membership?.accountHolderId) {
             subscriptionUserId = membership.accountHolderId;
           } else {
-            console.error('SubscriptionContext: Team member has no account holder ID');
+            console.error(
+              "SubscriptionContext: Team member has no account holder ID"
+            );
           }
         } else {
         }
 
         // Set up real-time subscription to Firestore
         const subscriptionRef = doc(db, "subscriptions", subscriptionUserId);
+        console.log(
+          "🚀 ~ setupSubscriptionListener ~ subscriptionRef:",
+          subscriptionRef
+        );
 
         unsubscribe = onSnapshot(subscriptionRef, async (docSnapshot) => {
-        
-        if (docSnapshot.exists()) {
-          const data = docSnapshot.data();
-          if (!data) {
-            return;
-          }
+          if (docSnapshot.exists()) {
+            const data = docSnapshot.data();
+            console.log("🚀 ~ setupSubscriptionListener ~ data:", data);
+            if (!data) {
+              return;
+            }
 
-          const currentTier = (data.currentTier || "starter") as SubscriptionTier;
-          console.log("🚀 ~ setupSubscriptionListener ~ currentTier:", currentTier)
+            const currentTier = (data.currentTier || null) as SubscriptionTier;
+            console.log(
+              "🚀 ~ setupSubscriptionListener ~ currentTier:",
+              currentTier
+            );
 
-          // OPTIMIZATION: Use memoized limits calculation
-          const receiptLimits = getReceiptLimits();
-          const limits = computeSubscriptionLimits(currentTier, receiptLimits);
+            // OPTIMIZATION: Use memoized limits calculation
+            const receiptLimits = getReceiptLimits();
+            const limits = computeSubscriptionLimits(
+              currentTier,
+              receiptLimits
+            );
 
-          // OPTIMIZATION: Use memoized team member override logic
-          const baseState = {
-            currentTier: currentTier,
-            features: getFeaturesByTier(currentTier),
-            limits: limits,
-          };
+            // OPTIMIZATION: Use memoized team member override logic
+            const baseState = {
+              currentTier: currentTier,
+              features: getFeaturesByTier(currentTier),
+              limits: limits,
+            };
 
-          const { currentTier: finalTier, features: finalFeatures, limits: finalLimits } = isTeamMember
-            ? applyTeamMemberOverrides(baseState, teamMemberRole)
-            : baseState;
+            const {
+              currentTier: finalTier,
+              features: finalFeatures,
+              limits: finalLimits,
+            } = isTeamMember
+              ? applyTeamMemberOverrides(baseState, teamMemberRole)
+              : baseState;
 
-          const newSubscriptionState = {
-            currentTier: finalTier,
-            features: finalFeatures,
-            limits: finalLimits,
-            isActive: data.status === 'active',
-            expiresAt: data.billing?.currentPeriodEnd
-              ? data.billing.currentPeriodEnd instanceof Date
-                ? data.billing.currentPeriodEnd
-                : data.billing.currentPeriodEnd.toDate()
-              : null,
-            billing: {
-              customerId: data.billing?.customerId || null,
-              subscriptionId: data.billing?.subscriptionId || null,
-              priceId: data.billing?.priceId || null,
-              currentPeriodStart:
-                data.billing?.currentPeriodStart?.toDate() || new Date(),
-              currentPeriodEnd:
-                data.billing?.currentPeriodEnd?.toDate() || null,
-              cancelAtPeriodEnd: data.billing?.cancelAtPeriodEnd || false,
-              trialEnd: data.billing?.trialEnd?.toDate() || null,
-            },
-          };
+            const newSubscriptionState = {
+              currentTier: finalTier,
+              features: finalFeatures,
+              limits: finalLimits,
+              isActive: data.status === "active",
+              expiresAt: data.billing?.currentPeriodEnd
+                ? data.billing.currentPeriodEnd instanceof Date
+                  ? data.billing.currentPeriodEnd
+                  : data.billing.currentPeriodEnd.toDate()
+                : null,
+              billing: {
+                customerId: data.billing?.customerId || null,
+                subscriptionId: data.billing?.subscriptionId || null,
+                priceId: data.billing?.priceId || null,
+                currentPeriodStart:
+                  data.billing?.currentPeriodStart?.toDate() || new Date(),
+                currentPeriodEnd:
+                  data.billing?.currentPeriodEnd?.toDate() || null,
+                cancelAtPeriodEnd: data.billing?.cancelAtPeriodEnd || false,
+                trialEnd: data.billing?.trialEnd?.toDate() || null,
+              },
+              lastRevenueCatEvent: {
+                eventData: {
+                  aliases: [],
+                  app_id: data.lastRevenueCatEvent.eventData.app_id || null,
+                  app_user_id:
+                    data.lastRevenueCatEvent.eventData.app_user_id || null,
+                  commission_percentage:
+                    data.lastRevenueCatEvent.eventData.commission_percentage ||
+                    null,
+                  country_code:
+                    data.lastRevenueCatEvent.eventData.country_code || null,
+                  currency: data.lastRevenueCatEvent.eventData.currency || null,
+                  entitlement_id:
+                    data.lastRevenueCatEvent.eventData.entitlement_id || null,
+                  entitlement_ids: [],
+                  environment:
+                    data.lastRevenueCatEvent.eventData.environment || null,
+                  event_timestamp_ms:
+                    data.lastRevenueCatEvent.eventData.event_timestamp_ms ||
+                    null,
+                  expiration_at_ms:
+                    data.lastRevenueCatEvent.eventData.expiration_at_ms || null,
+                  id: data.lastRevenueCatEvent.eventData.id || null,
+                  is_family_share:
+                    data.lastRevenueCatEvent.eventData.is_family_share || null,
+                  is_trial_conversion:
+                    data.lastRevenueCatEvent.eventData.is_trial_conversion ||
+                    null,
+                  // metadata: null,
+                  // offer_code: null,
+                  original_app_user_id:
+                    data.lastRevenueCatEvent.eventData.original_app_user_id ||
+                    null,
+                  original_transaction_id:
+                    data.lastRevenueCatEvent.eventData
+                      .original_transaction_id || null,
+                  period_type:
+                    data.lastRevenueCatEvent.eventData.period_type || null,
+                  presented_offering_id:
+                    data.lastRevenueCatEvent.eventData.presented_offering_id ||
+                    null,
+                  price: data.lastRevenueCatEvent.eventData.price || null,
+                  price_in_purchased_currency:
+                    data.lastRevenueCatEvent.eventData
+                      .price_in_purchased_currency || null,
+                  product_id:
+                    data.lastRevenueCatEvent.eventData.product_id || null,
+                  purchased_at_ms:
+                    data.lastRevenueCatEvent.eventData.purchased_at_ms || null,
+                  renewal_number:
+                    data.lastRevenueCatEvent.eventData.renewal_number || null,
+                  store: data.lastRevenueCatEvent.eventData.store || null,
+                  subscriber_attributes:
+                    data.lastRevenueCatEvent.eventData.subscriber_attributes ||
+                    null,
+                  takehome_percentage:
+                    data.lastRevenueCatEvent.eventData.takehome_percentage ||
+                    null,
+                  tax_percentage:
+                    data.lastRevenueCatEvent.eventData.tax_percentage || null,
+                  transaction_id:
+                    data.lastRevenueCatEvent.eventData.transaction_id || null,
+                  type: data.lastRevenueCatEvent.eventData.type || null,
+                },
+                productId: data.lastRevenueCatEvent.productId || null,
+                timestamp: data.lastRevenueCatEvent.timestamp
+                  ? data.lastRevenueCatEvent.timestamp instanceof Date
+                    ? data.lastRevenueCatEvent.timestamp
+                    : data.lastRevenueCatEvent.timestamp.toDate()
+                  : null,
+                type: data.lastRevenueCatEvent.type || null,
+              },
+            };
 
-          setSubscription(newSubscriptionState);
+            setSubscription(newSubscriptionState);
 
-          // OPTIMIZATION: Only refresh receipt count when tier actually changes
-          const hasEffectiveTierChanged = previousTierRef.current !== finalTier;
-          if (hasEffectiveTierChanged) {
-            previousTierRef.current = finalTier;
-            setTimeout(() => {
-              refreshReceiptCount(undefined, { skipDelay: true, forceRefresh: true });
-            }, 500); // Small delay to allow for Firestore consistency
+            // OPTIMIZATION: Only refresh receipt count when tier actually changes
+            const hasEffectiveTierChanged =
+              previousTierRef.current !== finalTier;
+            if (hasEffectiveTierChanged) {
+              previousTierRef.current = finalTier;
+              setTimeout(() => {
+                refreshReceiptCount(undefined, {
+                  skipDelay: true,
+                  forceRefresh: true,
+                });
+              }, 500); // Small delay to allow for Firestore consistency
+            } else {
+              // Update the ref even if no change to keep it current
+              previousTierRef.current = finalTier;
+            }
           } else {
-            // Update the ref even if no change to keep it current
-            previousTierRef.current = finalTier;
+            // New user - start with starter plan
+
+            // Check if there might be existing RevenueCat subscriptions to restore
+            try {
+              const { revenueCatService } = await import(
+                "../services/revenuecatService"
+              );
+              const currentTier = await revenueCatService.getCurrentTier(true); // force refresh
+              // Don't auto-sync - let user manually restore purchases
+              // This will be handled by the restorePurchases function in useRevenueCatPayments
+            } catch (error) {
+              console.warn("Failed to check RevenueCat:", error);
+            }
+
+            // Note: Subscription document will be created by onUserCreate Cloud Function
+            // We just set local state here temporarily until the Cloud Function completes
+
+            let newUserTier: SubscriptionTier;
+            let newUserFeatures: SubscriptionFeatures;
+            let newUserLimits: any;
+
+            if (isTeamMember) {
+              // Team members get access based on their role
+              newUserTier = "teammate";
+              newUserFeatures = getFeaturesByTier("teammate", teamMemberRole);
+              newUserLimits = {
+                maxReceipts: -1, // Unlimited receipts for teammates
+                maxBusinesses: 1, // Limited to assigned business
+                apiCallsPerMonth: 0, // No API access
+                maxReports: 0, // No reports for teammates
+                maxTeamMembers: teamMemberRole === "admin" ? 10 : 0, // Only admin teammates can manage team
+              };
+            } else {
+              // New regular users get no access until they subscribe
+              newUserTier = "starter";
+              newUserFeatures = {
+                maxReceipts: 0,
+                advancedReporting: false,
+                taxPreparation: false,
+                accountingIntegrations: false,
+                prioritySupport: false,
+                multiBusinessManagement: false,
+                whiteLabel: false,
+                apiAccess: false,
+                dedicatedManager: false,
+                bankConnection: false,
+                teamManagement: false,
+              };
+              newUserLimits = {
+                maxReceipts: 0, // No receipts until they subscribe
+                maxBusinesses: 0,
+                apiCallsPerMonth: 0,
+                maxReports: 0,
+                maxTeamMembers: 0,
+              };
+            }
+
+            setSubscription({
+              currentTier: newUserTier,
+              features: newUserFeatures,
+              limits: newUserLimits,
+              isActive: false, // No subscription document means no active subscription
+              expiresAt: null,
+              billing: {
+                customerId: null,
+                subscriptionId: null,
+                priceId: null,
+                currentPeriodStart: new Date(),
+                currentPeriodEnd: null,
+                cancelAtPeriodEnd: false,
+                trialEnd: null,
+              },
+            });
           }
-
-        } else {
-          // New user - start with starter plan
-
-          // Check if there might be existing RevenueCat subscriptions to restore
-          try {
-            const { revenueCatService } = await import('../services/revenuecatService');
-            const currentTier = await revenueCatService.getCurrentTier(true); // force refresh
-            // Don't auto-sync - let user manually restore purchases
-            // This will be handled by the restorePurchases function in useRevenueCatPayments
-          } catch (error) {
-            console.warn('Failed to check RevenueCat:', error);
-          }
-
-          // Note: Subscription document will be created by onUserCreate Cloud Function
-          // We just set local state here temporarily until the Cloud Function completes
-
-          let newUserTier: SubscriptionTier;
-          let newUserFeatures: SubscriptionFeatures;
-          let newUserLimits: any;
-
-          if (isTeamMember) {
-            // Team members get access based on their role
-            newUserTier = "teammate";
-            newUserFeatures = getFeaturesByTier("teammate", teamMemberRole);
-            newUserLimits = {
-              maxReceipts: -1, // Unlimited receipts for teammates
-              maxBusinesses: 1, // Limited to assigned business
-              apiCallsPerMonth: 0, // No API access
-              maxReports: 0, // No reports for teammates
-              maxTeamMembers: teamMemberRole === 'admin' ? 10 : 0, // Only admin teammates can manage team
-            };
-          } else {
-            // New regular users get no access until they subscribe
-            newUserTier = "starter";
-            newUserFeatures = {
-              maxReceipts: 0,
-              advancedReporting: false,
-              taxPreparation: false,
-              accountingIntegrations: false,
-              prioritySupport: false,
-              multiBusinessManagement: false,
-              whiteLabel: false,
-              apiAccess: false,
-              dedicatedManager: false,
-              bankConnection: false,
-              teamManagement: false,
-            };
-            newUserLimits = {
-              maxReceipts: 0, // No receipts until they subscribe
-              maxBusinesses: 0,
-              apiCallsPerMonth: 0,
-              maxReports: 0,
-              maxTeamMembers: 0,
-            };
-          }
-
-          setSubscription({
-            currentTier: newUserTier,
-            features: newUserFeatures,
-            limits: newUserLimits,
-            isActive: false, // No subscription document means no active subscription
-            expiresAt: null,
-            billing: {
-              customerId: null,
-              subscriptionId: null,
-              priceId: null,
-              currentPeriodStart: new Date(),
-              currentPeriodEnd: null,
-              cancelAtPeriodEnd: false,
-              trialEnd: null,
-            },
-          });
-        }
-        setLoading(false);
-      });
+          setLoading(false);
+        });
       } catch (error) {
         console.error("Error setting up subscription listener:", error);
         setSubscription({
@@ -707,8 +878,14 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
       }
       cancelRefresh();
     };
-  }, [user, limits.starter, refreshReceiptCount, cancelRefresh, isTeamMember, teamMemberRole]); // Changed from limits.free to limits.starter
-
+  }, [
+    user,
+    limits.starter,
+    refreshReceiptCount,
+    cancelRefresh,
+    isTeamMember,
+    teamMemberRole,
+  ]); // Changed from limits.free to limits.starter
 
   const canAccessFeature = useCallback(
     (feature: keyof SubscriptionFeatures): boolean => {
@@ -736,7 +913,6 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
     [subscription.limits.maxReceipts]
   );
 
-
   const canAccessPremiumFeatures = useCallback((): boolean => {
     // Users can access premium features with paid subscription
     return subscription.isActive && subscription.currentTier !== "teammate";
@@ -747,65 +923,76 @@ export const SubscriptionProvider: React.FC<{ children: React.ReactNode }> = ({
   }, [subscription.currentTier, subscription.isActive]);
 
   // Method to get features for teammates with role-based permissions
-  const getFeaturesForTeammate = useCallback((teamMemberRole?: string): SubscriptionFeatures => {
-    if (subscription.currentTier !== "teammate") {
-      return subscription.features;
-    }
-    return getFeaturesByTier("teammate", teamMemberRole);
-  }, [subscription.currentTier, subscription.features]);
-
+  const getFeaturesForTeammate = useCallback(
+    (teamMemberRole?: string): SubscriptionFeatures => {
+      if (subscription.currentTier !== "teammate") {
+        return subscription.features;
+      }
+      return getFeaturesByTier("teammate", teamMemberRole);
+    },
+    [subscription.currentTier, subscription.features]
+  );
 
   const contextValue = {
     subscription,
     canAccessFeature,
     canAddReceipt,
     getRemainingReceipts,
+    // getIsUserOnTrial,
     loading,
     currentReceiptCount,
     refreshReceiptCount,
-    refreshSubscription: async (): Promise<{ success: boolean; error?: string }> => {
+    refreshSubscription: async (): Promise<{
+      success: boolean;
+      error?: string;
+    }> => {
       try {
-        console.log('🔄 Refreshing subscription state after purchase...');
+        console.log("🔄 Refreshing subscription state after purchase...");
 
         if (!user?.uid) {
-          return { success: false, error: 'No user authenticated' };
+          return { success: false, error: "No user authenticated" };
         }
 
         // Force refresh from RevenueCat first
         try {
-          const { revenueCatService } = await import('../services/revenuecatService');
+          const { revenueCatService } = await import(
+            "../services/revenuecatService"
+          );
           const customerInfo = await revenueCatService.getCustomerInfo(true); // force refresh
-          console.log('🔄 RefreshedRevenueCat customer info:', {
+          console.log("🔄 RefreshedRevenueCat customer info:", {
             activeSubscriptions: customerInfo.activeSubscriptions,
-            entitlements: Object.keys(customerInfo.entitlements.active || {})
+            entitlements: Object.keys(customerInfo.entitlements.active || {}),
           });
         } catch (revenueCatError) {
-          console.warn('⚠️ Failed to refresh RevenueCat info:', revenueCatError);
+          console.warn(
+            "⚠️ Failed to refresh RevenueCat info:",
+            revenueCatError
+          );
         }
 
         // Force refresh from Firestore
-        const { doc, getDoc } = await import('firebase/firestore');
-        const subscriptionRef = doc(db, 'subscriptions', user.uid);
+        const { doc, getDoc } = await import("firebase/firestore");
+        const subscriptionRef = doc(db, "subscriptions", user.uid);
         const subscriptionSnap = await getDoc(subscriptionRef);
 
         if (subscriptionSnap.exists()) {
           const data = subscriptionSnap.data();
-          console.log('🔄 Refreshed Firestore subscription data:', {
+          console.log("🔄 Refreshed Firestore subscription data:", {
             currentTier: data.currentTier,
             status: data.status,
-            hasActiveSubscription: !!data.billing?.subscriptionId
+            hasActiveSubscription: !!data.billing?.subscriptionId,
           });
         } else {
-          console.log('🔄 No subscription document found in Firestore');
+          console.log("🔄 No subscription document found in Firestore");
         }
 
         // Refresh receipt count as well
         await refreshReceiptCount();
 
-        console.log('✅ Subscription refresh completed');
+        console.log("✅ Subscription refresh completed");
         return { success: true };
       } catch (error) {
-        console.error('❌ Error refreshing subscription:', error);
+        console.error("❌ Error refreshing subscription:", error);
         return { success: false, error: (error as Error).message };
       }
     },

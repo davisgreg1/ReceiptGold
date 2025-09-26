@@ -136,7 +136,9 @@ export const useRevenueCatPayments = () => {
 
   const getCurrentBillingPeriod = useCallback(async () => {
     try {
-      return await revenueCatService.getCurrentBillingPeriod();
+      const currentPeriod = await revenueCatService.getCurrentBillingPeriod();
+      console.log("🚀 ~ useRevenueCatPayments ~ currentPeriod:", currentPeriod)
+      return currentPeriod;
     } catch (error) {
       console.error('Failed to get current billing period:', error);
       return null;

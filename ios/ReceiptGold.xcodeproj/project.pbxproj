@@ -8,30 +8,30 @@
 
 /* Begin PBXBuildFile section */
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
-		155AD7C5748C4FD79C63E723 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 00DB6440F9A24763A81B3DAB /* GoogleService-Info.plist */; };
-		1FC1FAD16E5F709ABAD9F70D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 00BDB14B7188CDB20EA67C28 /* PrivacyInfo.xcprivacy */; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
-		5A8411D03C830733E50CBD28 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20121F00480FD73F8F9935F /* ExpoModulesProvider.swift */; };
-		9CA9F70003ECDC2AA10D9958 /* libPods-ReceiptGold.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 1C7F6FD35DCC52BB27E188D5 /* libPods-ReceiptGold.a */; };
+		510788E3854FB3627093BA9B /* libPods-ReceiptGold.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 9238322BE2E19CBF9748C110 /* libPods-ReceiptGold.a */; };
+		5347755691CB3C081D539451 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D12DF57F0D59D69A94BDD46F /* PrivacyInfo.xcprivacy */; };
+		B8CE5F7C81C6444F9C4D5098 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 1C69B90F3CCF40ED833660E6 /* GoogleService-Info.plist */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		C178EE0669580B119D489E46 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06B1CED18EA73D3C747D4221 /* ExpoModulesProvider.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		00BDB14B7188CDB20EA67C28 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = ReceiptGold/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		00DB6440F9A24763A81B3DAB /* GoogleService-Info.plist */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "ReceiptGold/GoogleService-Info.plist"; sourceTree = "<group>"; };
+		06B1CED18EA73D3C747D4221 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-ReceiptGold/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 		13B07F961A680F5B00A75B9A /* ReceiptGold.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ReceiptGold.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = ReceiptGold/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = ReceiptGold/Info.plist; sourceTree = "<group>"; };
-		1C7F6FD35DCC52BB27E188D5 /* libPods-ReceiptGold.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ReceiptGold.a"; sourceTree = BUILT_PRODUCTS_DIR; };
-		8B859F44C7E4BF48337703D5 /* Pods-ReceiptGold.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ReceiptGold.debug.xcconfig"; path = "Target Support Files/Pods-ReceiptGold/Pods-ReceiptGold.debug.xcconfig"; sourceTree = "<group>"; };
-		8D42541F469937A0C27DC6F4 /* Pods-ReceiptGold.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ReceiptGold.release.xcconfig"; path = "Target Support Files/Pods-ReceiptGold/Pods-ReceiptGold.release.xcconfig"; sourceTree = "<group>"; };
+		1C69B90F3CCF40ED833660E6 /* GoogleService-Info.plist */ = {isa = PBXFileReference; explicitFileType = undefined; fileEncoding = 4; includeInIndex = 0; lastKnownFileType = text.plist.xml; name = "GoogleService-Info.plist"; path = "ReceiptGold/GoogleService-Info.plist"; sourceTree = "<group>"; };
+		22C40311FD7BF44A5559578E /* Pods-ReceiptGold.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ReceiptGold.release.xcconfig"; path = "Target Support Files/Pods-ReceiptGold/Pods-ReceiptGold.release.xcconfig"; sourceTree = "<group>"; };
+		9238322BE2E19CBF9748C110 /* libPods-ReceiptGold.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-ReceiptGold.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A71D7109E6D7453F980BBBB2 /* Pods-ReceiptGold.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-ReceiptGold.debug.xcconfig"; path = "Target Support Files/Pods-ReceiptGold/Pods-ReceiptGold.debug.xcconfig"; sourceTree = "<group>"; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = ReceiptGold/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
+		D12DF57F0D59D69A94BDD46F /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = ReceiptGold/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = ReceiptGold/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* ReceiptGold-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "ReceiptGold-Bridging-Header.h"; path = "ReceiptGold/ReceiptGold-Bridging-Header.h"; sourceTree = "<group>"; };
-		F20121F00480FD73F8F9935F /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-ReceiptGold/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -39,7 +39,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				9CA9F70003ECDC2AA10D9958 /* libPods-ReceiptGold.a in Frameworks */,
+				510788E3854FB3627093BA9B /* libPods-ReceiptGold.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -55,27 +55,27 @@
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
-				00DB6440F9A24763A81B3DAB /* GoogleService-Info.plist */,
-				00BDB14B7188CDB20EA67C28 /* PrivacyInfo.xcprivacy */,
+				1C69B90F3CCF40ED833660E6 /* GoogleService-Info.plist */,
+				D12DF57F0D59D69A94BDD46F /* PrivacyInfo.xcprivacy */,
 			);
 			name = ReceiptGold;
+			sourceTree = "<group>";
+		};
+		262C9D0C35644599F10A060A /* ExpoModulesProviders */ = {
+			isa = PBXGroup;
+			children = (
+				E9A011E2F92EE37EE6819970 /* ReceiptGold */,
+			);
+			name = ExpoModulesProviders;
 			sourceTree = "<group>";
 		};
 		2D16E6871FA4F8E400B85C8A /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				1C7F6FD35DCC52BB27E188D5 /* libPods-ReceiptGold.a */,
+				9238322BE2E19CBF9748C110 /* libPods-ReceiptGold.a */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		61A8F3804F23F8BA05C882D6 /* ReceiptGold */ = {
-			isa = PBXGroup;
-			children = (
-				F20121F00480FD73F8F9935F /* ExpoModulesProvider.swift */,
-			);
-			name = ReceiptGold;
 			sourceTree = "<group>";
 		};
 		832341AE1AAA6A7D00B99B32 /* Libraries */ = {
@@ -92,8 +92,8 @@
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
-				F43BB162A46A4B1B2672DF30 /* Pods */,
-				89231AE65A926D0074473A36 /* ExpoModulesProviders */,
+				BC417527080B155E80B15DA7 /* Pods */,
+				262C9D0C35644599F10A060A /* ExpoModulesProviders */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -108,14 +108,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		89231AE65A926D0074473A36 /* ExpoModulesProviders */ = {
-			isa = PBXGroup;
-			children = (
-				61A8F3804F23F8BA05C882D6 /* ReceiptGold */,
-			);
-			name = ExpoModulesProviders;
-			sourceTree = "<group>";
-		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
 			isa = PBXGroup;
 			children = (
@@ -125,14 +117,22 @@
 			path = ReceiptGold/Supporting;
 			sourceTree = "<group>";
 		};
-		F43BB162A46A4B1B2672DF30 /* Pods */ = {
+		BC417527080B155E80B15DA7 /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				8B859F44C7E4BF48337703D5 /* Pods-ReceiptGold.debug.xcconfig */,
-				8D42541F469937A0C27DC6F4 /* Pods-ReceiptGold.release.xcconfig */,
+				A71D7109E6D7453F980BBBB2 /* Pods-ReceiptGold.debug.xcconfig */,
+				22C40311FD7BF44A5559578E /* Pods-ReceiptGold.release.xcconfig */,
 			);
 			name = Pods;
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		E9A011E2F92EE37EE6819970 /* ReceiptGold */ = {
+			isa = PBXGroup;
+			children = (
+				06B1CED18EA73D3C747D4221 /* ExpoModulesProvider.swift */,
+			);
+			name = ReceiptGold;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -143,13 +143,13 @@
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "ReceiptGold" */;
 			buildPhases = (
 				08A4A3CD28434E44B6B9DE2E /* [CP] Check Pods Manifest.lock */,
-				95CDC73998F2EECD231FCF2F /* [Expo] Configure project */,
+				93DF3792BBE19145D98DF20E /* [Expo] Configure project */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
-				65462BB4FF8411D947D9F6B1 /* [CP] Embed Pods Frameworks */,
+				657103CD5A20B21F4A2B6976 /* [CP] Embed Pods Frameworks */,
 			);
 			buildRules = (
 			);
@@ -199,8 +199,8 @@
 				BB2F792D24A3F905000567C9 /* Expo.plist in Resources */,
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
-				155AD7C5748C4FD79C63E723 /* GoogleService-Info.plist in Resources */,
-				1FC1FAD16E5F709ABAD9F70D /* PrivacyInfo.xcprivacy in Resources */,
+				B8CE5F7C81C6444F9C4D5098 /* GoogleService-Info.plist in Resources */,
+				5347755691CB3C081D539451 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -244,7 +244,7 @@
 			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
 			showEnvVarsInLog = 0;
 		};
-		65462BB4FF8411D947D9F6B1 /* [CP] Embed Pods Frameworks */ = {
+		657103CD5A20B21F4A2B6976 /* [CP] Embed Pods Frameworks */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -356,7 +356,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-ReceiptGold/Pods-ReceiptGold-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		95CDC73998F2EECD231FCF2F /* [Expo] Configure project */ = {
+		93DF3792BBE19145D98DF20E /* [Expo] Configure project */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -383,7 +383,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
-				5A8411D03C830733E50CBD28 /* ExpoModulesProvider.swift in Sources */,
+				C178EE0669580B119D489E46 /* ExpoModulesProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -392,7 +392,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 8B859F44C7E4BF48337703D5 /* Pods-ReceiptGold.debug.xcconfig */;
+			baseConfigurationReference = A71D7109E6D7453F980BBBB2 /* Pods-ReceiptGold.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -429,7 +429,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 8D42541F469937A0C27DC6F4 /* Pods-ReceiptGold.release.xcconfig */;
+			baseConfigurationReference = 22C40311FD7BF44A5559578E /* Pods-ReceiptGold.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
